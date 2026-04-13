@@ -1,0 +1,414 @@
+import { Injectable, UnauthorizedException } from '@nestjs/common';
+import { InjectRepository } from '@nestjs/typeorm';
+import { Repository, LessThan } from 'typeorm';
+import { JwtService } from '@nestjs/jwt';
+import * as bcrypt from 'bcryptjs';
+import { randomUUID } from 'crypto';
+import { createHash } from 'crypto';
+import { UsersService } from '../users/users.service';
+import { LoginDto } from './dto/login.dto';
+import { CreateUserDto } from '../users/dto/create-user.dto';
+import { RefreshToken } from './entities/refresh-token.entity';
+import { TokenBlacklist } from './entities/token-blacklist.entity';
+import { UserRole } from '../../common/enums/roles.enum';
+import { JwtKeyService } from './jwt-key.service';
+import { AuthResponseDto } from './dto/auth-response.dto';
+
+interface DeviceInfo {
+  fingerprint?: string;
+  ipAddress?: string;
+  userAgent?: string;
+}
+
+@Injectable()
+export class AuthService {
+  constructor(
+    private readonly usersService: UsersService,
+    private readonly jwtService: JwtService,
+    private readonly jwtKeyService: JwtKeyService,
+    @InjectRepository(RefreshToken)
+    private readonly refreshTokenRepository: Repository<RefreshToken>,
+    @InjectRepository(TokenBlacklist)
+    private readonly tokenBlacklistRepository: Repository<TokenBlacklist>,
+  ) {}
+
+  async register(createUserDto: CreateUserDto, deviceInfo?: DeviceInfo) {
+    const user = await this.usersService.create(createUserDto);
+    await this.usersService.touchLastSeen(user.id);
+    // Get the full user entity for auth response
+    const userEntity = await this.usersService.findEntityByIdForAuth(user.id);
+    if (!userEntity) {
+      throw new UnauthorizedException('Failed to create user account');
+    }
+    return this.generateAuthResponse(userEntity, deviceInfo, undefined);
+  }
+
+  async login(
+    loginDto: LoginDto,
+    deviceInfo?: DeviceInfo,
+  ): Promise<AuthResponseDto> {
+    const userEntity = await this.usersService.findByEmail(loginDto.email);
+    if (!userEntity) {
+      throw new UnauthorizedException('Invalid credentials');
+    }
+
+    const passwordValid = await bcrypt.compare(
+      loginDto.password,
+      userEntity.passwordHash,
+    );
+    if (!passwordValid) {
+      throw new UnauthorizedException('Invalid credentials');
+    }
+
+    await this.usersService.touchLastSeen(userEntity.id);
+
+    // Get full user entity for auth response
+    const fullUser = await this.usersService.findEntityByIdForAuth(
+      userEntity.id,
+    );
+    if (!fullUser) {
+      throw new UnauthorizedException('User not found');
+    }
+
+    return this.generateAuthResponse(fullUser, deviceInfo, undefined);
+  }
+
+  async loginWithGoogle(
+    googleUser: {
+      provider: string;
+      providerId: string;
+      email?: string;
+      name?: string;
+      avatar?: string;
+    },
+    deviceInfo?: DeviceInfo,
+  ): Promise<AuthResponseDto> {
+    if (!googleUser.email) {
+      throw new UnauthorizedException(
+        'Google account does not have a verified email',
+      );
+    }
+
+    // Tìm user theo providerId trước (để tránh duplicate khi user đổi email)
+    let user = await this.usersService.findByProviderId(googleUser.providerId);
+
+    if (!user) {
+      // Nếu không tìm thấy theo providerId, thử tìm theo email
+      user = await this.usersService.findByEmail(googleUser.email);
+    }
+
+    if (!user) {
+      // Tạo account mới với Google provider
+      const createUserDto: CreateUserDto = {
+        email: googleUser.email,
+        // Đặt password random vì user sẽ đăng nhập bằng Google
+        password: randomUUID(),
+      };
+
+      await this.usersService.create(
+        createUserDto,
+        googleUser.provider,
+        googleUser.providerId,
+      );
+      // usersService.create trả về DTO, cần fetch lại entity đầy đủ
+      user = await this.usersService.findByProviderId(googleUser.providerId);
+
+      if (!user) {
+        throw new UnauthorizedException('Failed to create user account');
+      }
+
+      // Update name and avatar from Google profile if available
+      if (googleUser.name || googleUser.avatar) {
+        await this.usersService.updateProfile(user.id, {
+          name: googleUser.name,
+          avatar: googleUser.avatar,
+        });
+        // No need to reassign user; the fullUser fetch below will get updated values
+      }
+    }
+
+    await this.usersService.touchLastSeen(user.id);
+
+    // Get full user entity for auth response
+    const fullUser = await this.usersService.findEntityByIdForAuth(user.id);
+    if (!fullUser) {
+      throw new UnauthorizedException('User not found');
+    }
+
+    return this.generateAuthResponse(fullUser, deviceInfo, undefined);
+  }
+
+  async refreshTokens(
+    tokenId: string,
+    userId: number,
+    deviceInfo?: DeviceInfo,
+  ) {
+    // Verify refresh token exists and is valid
+    const storedToken = await this.refreshTokenRepository.findOne({
+      where: { tokenId, userId },
+    });
+
+    if (!storedToken) {
+      throw new UnauthorizedException('Invalid refresh token');
+    }
+
+    // Check if token is revoked
+    if (storedToken.isRevoked) {
+      // Token reuse detected - possible security breach
+      // Revoke all tokens for this user
+      await this.revokeAllUserTokens(userId, 'Token reuse detected');
+      throw new UnauthorizedException(
+        'Token reuse detected. All sessions have been terminated.',
+      );
+    }
+
+    if (storedToken.expiresAt < new Date()) {
+      await this.refreshTokenRepository.remove(storedToken);
+      throw new UnauthorizedException('Refresh token expired');
+    }
+
+    // Verify device fingerprint if provided
+    if (deviceInfo?.fingerprint && storedToken.deviceFingerprint) {
+      const fingerprintHash = this.hashToken(deviceInfo.fingerprint);
+      if (storedToken.deviceFingerprint !== fingerprintHash) {
+        throw new UnauthorizedException('Device fingerprint mismatch');
+      }
+    }
+
+    // Get user to generate new tokens
+    const user = await this.usersService.findById(userId);
+    await this.usersService.touchLastSeen(user.id);
+
+    // Token rotation: Mark old token as revoked instead of deleting
+    const newTokenId = randomUUID();
+    storedToken.isRevoked = true;
+    storedToken.replacedBy = newTokenId;
+    await this.refreshTokenRepository.save(storedToken);
+
+    // Generate new tokens
+    return this.generateTokens(user.id, user.email, deviceInfo, newTokenId);
+  }
+
+  async logout(tokenId: string, accessToken?: string) {
+    // Revoke refresh token
+    const token = await this.refreshTokenRepository.findOne({
+      where: { tokenId },
+    });
+    if (token) {
+      token.isRevoked = true;
+      await this.refreshTokenRepository.save(token);
+    }
+
+    // Add access token to blacklist if provided
+    if (accessToken) {
+      await this.blacklistToken(
+        accessToken,
+        token?.userId || 0,
+        'access',
+        'User logout',
+      );
+    }
+
+    return { message: 'Logged out successfully' };
+  }
+
+  async revokeAllUserTokens(userId: number, reason: string = 'User request') {
+    void reason;
+    // Revoke all refresh tokens
+    await this.refreshTokenRepository.update(
+      { userId, isRevoked: false },
+      { isRevoked: true },
+    );
+
+    // Note: Active access tokens will expire naturally (15 minutes)
+    // For immediate revocation, users need to re-login
+    return { message: 'All sessions terminated' };
+  }
+
+  async isTokenBlacklisted(token: string): Promise<boolean> {
+    const tokenHash = this.hashToken(token);
+    const blacklisted = await this.tokenBlacklistRepository.findOne({
+      where: { token: tokenHash },
+    });
+    return !!blacklisted && blacklisted.expiresAt > new Date();
+  }
+
+  private async blacklistToken(
+    token: string,
+    userId: number,
+    tokenType: 'access' | 'refresh',
+    reason: string,
+  ) {
+    const tokenHash = this.hashToken(token);
+
+    // Decode token to get expiration
+    const decoded = this.jwtService.decode(token);
+    if (!decoded || typeof decoded !== 'object' || !('exp' in decoded)) {
+      throw new UnauthorizedException('Invalid access token');
+    }
+
+    const exp = (decoded as { exp?: number }).exp;
+    if (typeof exp !== 'number') {
+      throw new UnauthorizedException('Invalid access token expiration');
+    }
+    const expiresAt = new Date(exp * 1000);
+
+    const blacklistEntry = this.tokenBlacklistRepository.create({
+      token: tokenHash,
+      userId,
+      tokenType,
+      reason,
+      expiresAt,
+    });
+
+    await this.tokenBlacklistRepository.save(blacklistEntry);
+  }
+
+  private hashToken(token: string): string {
+    return createHash('sha256').update(token).digest('hex');
+  }
+
+  private async generateTokens(
+    userId: number,
+    email: string,
+    deviceInfo?: DeviceInfo,
+    tokenId?: string,
+    roles?: UserRole[],
+  ) {
+    const refreshTokenId = tokenId || randomUUID();
+    const userRoles = roles || [UserRole.USER];
+    const expiresAt = new Date();
+    expiresAt.setDate(expiresAt.getDate() + 7); // 7 days
+
+    // Generate device fingerprint hash if provided
+    const fingerprintHash = deviceInfo?.fingerprint
+      ? this.hashToken(deviceInfo.fingerprint)
+      : null;
+
+    // Store refresh token in database with device info
+    const refreshTokenEntity = this.refreshTokenRepository.create({
+      tokenId: refreshTokenId,
+      userId,
+      expiresAt,
+      deviceFingerprint: fingerprintHash,
+      ipAddress: deviceInfo?.ipAddress,
+      userAgent: deviceInfo?.userAgent,
+      isRevoked: false,
+    });
+    await this.refreshTokenRepository.save(refreshTokenEntity);
+
+    // Generate access token with RS256 (short-lived: 15 minutes)
+    const accessPayload = {
+      sub: userId,
+      email,
+      roles: userRoles,
+      type: 'access',
+      iat: Math.floor(Date.now() / 1000),
+    };
+    const accessToken = await this.jwtService.signAsync(accessPayload, {
+      algorithm: 'RS256',
+      privateKey: this.jwtKeyService.getPrivateKey(),
+      expiresIn: '15m', // 15 minutes
+    });
+
+    // Generate refresh token with RS256 (long-lived: 7 days)
+    const refreshPayload = {
+      sub: userId,
+      email,
+      tokenId: refreshTokenId,
+      type: 'refresh',
+      iat: Math.floor(Date.now() / 1000),
+    };
+    const refreshToken = await this.jwtService.signAsync(refreshPayload, {
+      algorithm: 'RS256',
+      privateKey: this.jwtKeyService.getPrivateKey(),
+      expiresIn: '7d', // 7 days
+    });
+
+    return {
+      accessToken,
+      refreshToken,
+      expiresIn: 900, // 15 minutes in seconds
+    };
+  }
+
+  private async generateAuthResponse(
+    user: any,
+    deviceInfo?: DeviceInfo,
+    tokenId?: string,
+  ): Promise<AuthResponseDto> {
+    const refreshTokenId = tokenId || randomUUID();
+    const userRoles = user.roles || [UserRole.USER];
+    const expiresAt = new Date();
+    expiresAt.setDate(expiresAt.getDate() + 7);
+
+    const fingerprintHash = deviceInfo?.fingerprint
+      ? this.hashToken(deviceInfo.fingerprint)
+      : null;
+
+    const refreshTokenEntity = this.refreshTokenRepository.create({
+      tokenId: refreshTokenId,
+      userId: user!.id,
+      expiresAt,
+      deviceFingerprint: fingerprintHash,
+      ipAddress: deviceInfo?.ipAddress,
+      userAgent: deviceInfo?.userAgent,
+      isRevoked: false,
+    });
+    await this.refreshTokenRepository.save(refreshTokenEntity);
+
+    const accessPayload = {
+      sub: user!.id,
+      email: user.email,
+      roles: userRoles,
+      type: 'access',
+      iat: Math.floor(Date.now() / 1000),
+    };
+    const accessToken = await this.jwtService.signAsync(accessPayload, {
+      algorithm: 'RS256',
+      privateKey: this.jwtKeyService.getPrivateKey(),
+      expiresIn: '15m',
+    });
+
+    const refreshPayload = {
+      sub: user!.id,
+      email: user.email,
+      tokenId: refreshTokenId,
+      type: 'refresh',
+      iat: Math.floor(Date.now() / 1000),
+    };
+    const refreshToken = await this.jwtService.signAsync(refreshPayload, {
+      algorithm: 'RS256',
+      privateKey: this.jwtKeyService.getPrivateKey(),
+      expiresIn: '7d',
+    });
+
+    return {
+      accessToken,
+      refreshToken,
+      user: this.usersService.toAuthUserResponse(user),
+    };
+  }
+
+  // Cleanup expired tokens and blacklist entries (should be called by a scheduled task)
+  async cleanupExpiredTokens() {
+    const now = new Date();
+
+    // Clean up expired refresh tokens
+    await this.refreshTokenRepository.delete({
+      expiresAt: LessThan(now),
+    });
+
+    // Clean up expired blacklist entries
+    await this.tokenBlacklistRepository.delete({
+      expiresAt: LessThan(now),
+    });
+
+    return { message: 'Cleanup completed' };
+  }
+
+  // Get public key for token verification (useful for microservices)
+  getPublicKey(): string {
+    return this.jwtKeyService.getPublicKey();
+  }
+}
