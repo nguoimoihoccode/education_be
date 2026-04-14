@@ -6,7 +6,10 @@ import { DocumentImportService } from './document-import.service';
 import { DocumentTextExtractionService } from './document-text-extraction.service';
 import { KeywordExtractionService } from './keyword-extraction.service';
 import { DocumentConversionService } from './document-conversion.service';
-import { ParserRegistry } from './parsers/parser-registry.service';
+import {
+  DOCUMENT_PARSERS,
+  ParserRegistry,
+} from './parsers/parser-registry.service';
 import { FreetextParser } from './parsers/freetext-parser.service';
 import { MarkdownParser } from './parsers/markdown-parser.service';
 import { JsonParser } from './parsers/json-parser.service';
@@ -30,6 +33,21 @@ import { QuizGenerator } from './generators/quiz-generator.service';
     MarkdownParser,
     JsonParser,
     StructuredParser,
+    {
+      provide: DOCUMENT_PARSERS,
+      useFactory: (
+        freetextParser: FreetextParser,
+        markdownParser: MarkdownParser,
+        jsonParser: JsonParser,
+        structuredParser: StructuredParser,
+      ) => [
+        structuredParser,
+        jsonParser,
+        markdownParser,
+        freetextParser,
+      ],
+      inject: [FreetextParser, MarkdownParser, JsonParser, StructuredParser],
+    },
     // Generators
     FlashcardGenerator,
     VocabularyGenerator,

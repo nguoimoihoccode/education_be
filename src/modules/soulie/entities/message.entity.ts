@@ -49,10 +49,10 @@ export class SoulieMessage {
   @Column({ type: 'text', nullable: true })
   text?: string | null;
 
-  @Column({ name: 'media_url', nullable: true })
+  @Column({ name: 'media_url', type: 'varchar', nullable: true })
   mediaUrl?: string | null;
 
-  @Column({ name: 'thumbnail_url', nullable: true })
+  @Column({ name: 'thumbnail_url', type: 'varchar', nullable: true })
   thumbnailUrl?: string | null;
 
   @Column({ name: 'media_width', type: 'integer', nullable: true })
@@ -61,7 +61,7 @@ export class SoulieMessage {
   @Column({ name: 'media_height', type: 'integer', nullable: true })
   mediaHeight?: number | null;
 
-  @Column({ name: 'mime_type', nullable: true })
+  @Column({ name: 'mime_type', type: 'varchar', nullable: true })
   mimeType?: string | null;
 
   @Column({ name: 'seen_at', type: 'timestamp', nullable: true })

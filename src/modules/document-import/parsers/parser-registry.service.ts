@@ -1,9 +1,13 @@
-import { Injectable } from '@nestjs/common';
+import { Inject, Injectable } from '@nestjs/common';
 import { DocumentParser } from './document-parser.interface';
+
+export const DOCUMENT_PARSERS = 'DOCUMENT_PARSERS';
 
 @Injectable()
 export class ParserRegistry {
-  constructor(private readonly parsers: DocumentParser[]) {}
+  constructor(
+    @Inject(DOCUMENT_PARSERS) private readonly parsers: DocumentParser[],
+  ) {}
 
   getParser(text: string, preferredType?: string): DocumentParser {
     const candidates = this.parsers.filter((p) => p.canParse(text));

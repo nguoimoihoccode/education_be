@@ -35,10 +35,10 @@ export class SoulieMoment {
   @Column({ type: 'text', nullable: true })
   caption?: string | null;
 
-  @Column({ name: 'image_url', nullable: true })
+  @Column({ name: 'image_url', type: 'varchar', nullable: true })
   imageUrl?: string | null;
 
-  @Column({ name: 'thumbnail_url', nullable: true })
+  @Column({ name: 'thumbnail_url', type: 'varchar', nullable: true })
   thumbnailUrl?: string | null;
 
   @Column({ name: 'image_width', type: 'integer', nullable: true })
@@ -47,7 +47,7 @@ export class SoulieMoment {
   @Column({ name: 'image_height', type: 'integer', nullable: true })
   imageHeight?: number | null;
 
-  @Column({ name: 'mime_type', nullable: true })
+  @Column({ name: 'mime_type', type: 'varchar', nullable: true })
   mimeType?: string | null;
 
   @Column({ name: 'opened_at', type: 'timestamp', nullable: true })
