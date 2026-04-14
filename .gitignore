@@ -12,11 +12,13 @@ node_modules/
 
 # Environment variables
 .env
+.env*
 .env.local
 .env.docker
 .env.development.local
 .env.test.local
 .env.production.local
+.env.backup
 
 # RSA Keys (NEVER commit these!)
 keys/*.pem
