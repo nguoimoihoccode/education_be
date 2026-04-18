@@ -475,6 +475,7 @@ export class FlashcardService {
       pronunciation: vocab.pronunciation,
       example: vocab.example,
       exampleTranslation: vocab.exampleTranslation,
+      description: vocab.notes,
       audioUrl: vocab.audioUrl,
       imageUrl: vocab.imageUrl,
       deckId,

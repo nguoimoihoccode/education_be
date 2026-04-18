@@ -40,8 +40,16 @@ export class JsonParser extends BaseDocumentParser {
             ? item.pronunciation
             : '',
         example: typeof item === 'object' && item.example ? item.example : '',
-        exampleTranslation: '',
-        partOfSpeech: '',
+        exampleTranslation:
+          typeof item === 'object' && item.exampleTranslation
+            ? item.exampleTranslation
+            : '',
+        description:
+          typeof item === 'object' && item.description ? item.description : '',
+        partOfSpeech:
+          typeof item === 'object' && item.partOfSpeech
+            ? item.partOfSpeech
+            : '',
         difficulty: 1,
         tags: [],
         rank: idx + 1,

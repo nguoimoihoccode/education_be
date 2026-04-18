@@ -299,6 +299,7 @@ export interface ParsedVocabularyItem {
   pronunciation?: string;
   example?: string;
   exampleTranslation?: string;
+  description?: string;
   partOfSpeech?: string;
   difficulty?: number;
   tags?: string[];

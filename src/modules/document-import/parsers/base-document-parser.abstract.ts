@@ -137,6 +137,7 @@ export abstract class BaseDocumentParser extends DocumentParser {
       pronunciation: '',
       example: '',
       exampleTranslation: '',
+      description: '',
       partOfSpeech: '',
       difficulty: 1,
       tags: ['auto-extracted'],

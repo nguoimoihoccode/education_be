@@ -65,6 +65,7 @@ export class FlashcardGenerator extends ContentGenerator {
       pronunciation: item.pronunciation,
       example: item.example,
       exampleTranslation: item.exampleTranslation,
+      description: item.description,
       notes: item.partOfSpeech
         ? `Part of speech: ${item.partOfSpeech}`
         : undefined,

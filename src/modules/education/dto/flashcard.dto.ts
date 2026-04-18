@@ -37,6 +37,10 @@ export class CreateFlashcardDto {
 
   @IsString()
   @IsOptional()
+  description?: string;
+
+  @IsString()
+  @IsOptional()
   @IsUrl()
   audioUrl?: string;
 
@@ -98,6 +102,10 @@ export class UpdateFlashcardDto {
   @IsString()
   @IsOptional()
   exampleTranslation?: string;
+
+  @IsString()
+  @IsOptional()
+  description?: string;
 
   @IsString()
   @IsOptional()

@@ -35,6 +35,9 @@ export class Flashcard {
   @Column({ type: 'text', nullable: true })
   exampleTranslation: string;
 
+  @Column({ type: 'text', nullable: true })
+  description: string;
+
   @Column({ nullable: true })
   audioUrl: string;
 

@@ -102,6 +102,7 @@ export class MarkdownParser extends BaseDocumentParser {
           pronunciation: '',
           example: '',
           exampleTranslation: '',
+          description: '',
           partOfSpeech: '',
           difficulty: 1,
           tags: [],
