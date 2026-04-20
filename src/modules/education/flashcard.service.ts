@@ -5,7 +5,13 @@ import {
   ConflictException,
 } from '@nestjs/common';
 import { InjectRepository } from '@nestjs/typeorm';
-import { Repository, Between, MoreThanOrEqual, In } from 'typeorm';
+import {
+  Repository,
+  Between,
+  MoreThanOrEqual,
+  LessThanOrEqual,
+  In,
+} from 'typeorm';
 import {
   FlashcardDeck,
   Flashcard,
@@ -28,6 +34,19 @@ import {
 import { Vocabulary } from './entities/vocabulary.entity';
 import { Lesson } from './entities/lesson.entity';
 import { UserStreak } from './entities/user-streak.entity';
+
+interface StatusCountRow {
+  status: string;
+  count: string;
+}
+
+interface TotalRow {
+  total: string | null;
+}
+
+interface RateRow {
+  rate: string | null;
+}
 
 @Injectable()
 export class FlashcardService {
@@ -761,6 +780,25 @@ export class FlashcardService {
     await this.userStreakRepository.save(streak);
   }
 
+  private async getUserFlashcardStreakStats(userId: number) {
+    const streak = await this.userStreakRepository.findOne({
+      where: { userId: String(userId) },
+    });
+
+    return {
+      currentStreak: streak?.currentStreak ?? 0,
+      longestStreak: streak?.longestStreak ?? 0,
+    };
+  }
+
+  private async getUserFlashcardXpTotal(userId: number) {
+    const streak = await this.userStreakRepository.findOne({
+      where: { userId: String(userId) },
+    });
+
+    return streak?.totalXp ?? 0;
+  }
+
   // ==================== Statistics & Progress ====================
 
   async getFlashcardStats(userId: number) {
@@ -774,12 +812,12 @@ export class FlashcardService {
       .addSelect('COUNT(*)', 'count')
       .where('f.userId = :userId', { userId })
       .groupBy('f.status')
-      .getRawMany();
+      .getRawMany<StatusCountRow>();
 
     const dueCount = await this.userFlashcardRepository.count({
       where: {
         userId,
-        nextReview: MoreThanOrEqual(new Date()),
+        nextReview: LessThanOrEqual(new Date()),
       },
     });
 
@@ -787,7 +825,7 @@ export class FlashcardService {
       .createQueryBuilder('uf')
       .select('SUM(uf.totalReviews)', 'total')
       .where('uf.userId = :userId', { userId })
-      .getRawOne();
+      .getRawOne<TotalRow>();
 
     const correctRate = await this.userFlashcardRepository
       .createQueryBuilder('uf')
@@ -796,18 +834,26 @@ export class FlashcardService {
         'rate',
       )
       .where('uf.userId = :userId', { userId })
-      .getRawOne();
+      .getRawOne<RateRow>();
 
-    return {
+    const [{ currentStreak, longestStreak }, totalXp] = await Promise.all([
+      this.getUserFlashcardStreakStats(userId),
+      this.getUserFlashcardXpTotal(userId),
+    ]);
+
+    return buildFlashcardStatsResult({
       totalFlashcards,
-      statusStats: statusStats.reduce((acc, item) => {
-        acc[item.status] = parseInt(item.count);
+      statusStats: statusStats.reduce<Record<string, number>>((acc, item) => {
+        acc[item.status] = parseInt(item.count, 10);
         return acc;
       }, {}),
       dueCount,
       totalReviews: parseInt(totalReviews?.total || '0'),
       correctRate: parseFloat(correctRate?.rate || '0'),
-    };
+      currentStreak,
+      longestStreak,
+      totalXp,
+    });
   }
 
   async getDeckStats(userId: number, deckId: string) {
@@ -824,21 +870,21 @@ export class FlashcardService {
       .where('f.userId = :userId', { userId })
       .andWhere('f.deckId = :deckId', { deckId })
       .groupBy('f.status')
-      .getRawMany();
+      .getRawMany<StatusCountRow>();
 
     const dueCount = await this.userFlashcardRepository.count({
       where: {
         userId,
         deckId,
-        nextReview: MoreThanOrEqual(new Date()),
+        nextReview: LessThanOrEqual(new Date()),
       },
     });
 
     return {
       deck,
       totalFlashcards,
-      statusStats: statusStats.reduce((acc, item) => {
-        acc[item.status] = parseInt(item.count);
+      statusStats: statusStats.reduce<Record<string, number>>((acc, item) => {
+        acc[item.status] = parseInt(item.count, 10);
         return acc;
       }, {}),
       dueCount,
@@ -880,4 +926,28 @@ export class FlashcardService {
 
     return this.userFlashcardRepository.count({ where });
   }
+}
+
+export interface FlashcardStatsResultInput {
+  totalFlashcards: number;
+  statusStats: Record<string, number>;
+  dueCount: number;
+  totalReviews: number;
+  correctRate: number;
+  currentStreak: number;
+  longestStreak: number;
+  totalXp: number;
+}
+
+export function buildFlashcardStatsResult(input: FlashcardStatsResultInput) {
+  return {
+    totalFlashcards: input.totalFlashcards,
+    statusStats: input.statusStats,
+    dueCount: input.dueCount,
+    totalReviews: input.totalReviews,
+    correctRate: input.correctRate,
+    currentStreak: input.currentStreak,
+    longestStreak: input.longestStreak,
+    totalXp: input.totalXp,
+  };
 }
