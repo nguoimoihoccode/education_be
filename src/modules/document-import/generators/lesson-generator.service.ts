@@ -37,6 +37,7 @@ export class LessonGenerator extends ContentGenerator {
     data: ParsedDocumentData,
     options: any,
   ): Promise<GeneratedContentDto> {
+    void userId;
     const lessons = data.lessons || [];
     if (lessons.length === 0) {
       return {
@@ -49,6 +50,9 @@ export class LessonGenerator extends ContentGenerator {
 
     const courseName =
       options.courseName || data.courseOutline?.title || 'Generated Course';
+    const languageId = await this.educationService.resolveLanguageId(
+      options.language,
+    );
 
     const courseDto: CreateCourseDto = {
       title: courseName,
@@ -56,7 +60,7 @@ export class LessonGenerator extends ContentGenerator {
         data.courseOutline?.description ||
         'Automatically generated from document',
       level: CourseLevel.BEGINNER,
-      languageId: '1',
+      languageId,
     };
 
     const course = await this.educationService.createCourse(courseDto);

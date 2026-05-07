@@ -35,6 +35,10 @@ import {
 import type { RequestWithUser } from '../../common/types/auth.types';
 import { DocumentConversionService } from './document-conversion.service';
 import { DocumentTextExtractionService } from './document-text-extraction.service';
+import {
+  ExpensiveActionRateLimit,
+  UploadRateLimit,
+} from '../../common/decorators/rate-limit.decorator';
 
 const MAX_FILE_SIZE = 10 * 1024 * 1024;
 const ALLOWED_MIME_TYPES = new Set([
@@ -66,6 +70,7 @@ export class DocumentImportController {
   }
 
   @Post('upload')
+  @UploadRateLimit()
   @ApiOperation({
     summary: 'Import document and extract keywords',
     description:
@@ -158,6 +163,7 @@ export class DocumentImportController {
   }
 
   @Post('upload-with-phrases')
+  @UploadRateLimit()
   @ApiOperation({
     summary: 'Import document and extract keywords with phrases',
     description:
@@ -265,6 +271,7 @@ export class DocumentImportController {
   }
 
   @Post('convert')
+  @ExpensiveActionRateLimit()
   @ApiOperation({
     summary: 'Convert document to educational content',
     description:

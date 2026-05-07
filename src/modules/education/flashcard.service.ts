@@ -34,6 +34,7 @@ import {
 import { Vocabulary } from './entities/vocabulary.entity';
 import { Lesson } from './entities/lesson.entity';
 import { UserStreak } from './entities/user-streak.entity';
+import { calculateSrsReview, nextReviewDate } from './domain/srs.policy';
 
 interface StatusCountRow {
   status: string;
@@ -683,33 +684,17 @@ export class FlashcardService {
   }
 
   private calculateSRS(userFlashcard: UserFlashcard, quality: number): void {
-    const { easeFactor, interval, repetitions } = userFlashcard;
+    const result = calculateSrsReview({
+      quality,
+      easeFactor: Number(userFlashcard.easeFactor),
+      interval: userFlashcard.interval,
+      repetitions: userFlashcard.repetitions,
+    });
 
-    if (quality >= 3) {
-      // Correct answer
-      if (repetitions === 0) {
-        userFlashcard.interval = 1;
-      } else if (repetitions === 1) {
-        userFlashcard.interval = 6;
-      } else {
-        userFlashcard.interval = Math.round(interval * easeFactor);
-      }
-      userFlashcard.repetitions++;
-    } else {
-      // Wrong answer
-      userFlashcard.repetitions = 0;
-      userFlashcard.interval = 1;
-    }
-
-    // Update ease factor
-    userFlashcard.easeFactor =
-      easeFactor + (0.1 - (5 - quality) * (0.08 + (5 - quality) * 0.02));
-    userFlashcard.easeFactor = Math.max(1.3, userFlashcard.easeFactor);
-
-    // Calculate next review date
-    const nextReview = new Date();
-    nextReview.setDate(nextReview.getDate() + userFlashcard.interval);
-    userFlashcard.nextReview = nextReview;
+    userFlashcard.easeFactor = result.easeFactor;
+    userFlashcard.interval = result.interval;
+    userFlashcard.repetitions = result.repetitions;
+    userFlashcard.nextReview = nextReviewDate(new Date(), result.interval);
   }
 
   private async updateFlashcardStatus(flashcardId: string) {

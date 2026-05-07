@@ -19,6 +19,7 @@ import { memoryStorage } from 'multer';
 import { writeFile } from 'fs/promises';
 import { join } from 'path';
 import { MediaService } from './media.service';
+import { UploadRateLimit } from '../../common/decorators/rate-limit.decorator';
 
 const allowedMimeTypes = new Set([
   'image/jpeg',
@@ -38,6 +39,7 @@ export class MediaController {
   ) {}
 
   @Post('upload')
+  @UploadRateLimit()
   @ApiOperation({ summary: 'Upload Soulie image media' })
   @ApiConsumes('multipart/form-data')
   @ApiBody({

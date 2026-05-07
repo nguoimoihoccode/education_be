@@ -26,6 +26,7 @@ import { ConfigService } from '@nestjs/config';
 import { extractDeviceInfo } from './helpers/device-info.helper';
 import type { Request, Response } from 'express';
 import type { RequestWithRefresh } from '../../common/types/auth.types';
+import { AuthRateLimit } from '../../common/decorators/rate-limit.decorator';
 
 @ApiTags('Auth')
 @Controller('auth')
@@ -36,6 +37,7 @@ export class AuthController {
   ) {}
 
   @Public()
+  @AuthRateLimit()
   @Post('register')
   @ApiOperation({ summary: 'Register new user' })
   @ApiHeader({ name: 'x-device-fingerprint', required: false })
@@ -49,6 +51,7 @@ export class AuthController {
   }
 
   @Public()
+  @AuthRateLimit()
   @Post('login')
   @ApiOperation({ summary: 'Login with email and password' })
   @ApiHeader({ name: 'x-device-fingerprint', required: false })
@@ -61,6 +64,7 @@ export class AuthController {
   }
 
   @Public()
+  @AuthRateLimit()
   @UseGuards(JwtRefreshGuard)
   @Post('refresh')
   @ApiOperation({ summary: 'Refresh access token' })
@@ -77,6 +81,7 @@ export class AuthController {
   }
 
   @Public()
+  @AuthRateLimit()
   @UseGuards(JwtRefreshGuard)
   @Post('logout')
   @ApiOperation({ summary: 'Logout and invalidate refresh token' })
@@ -94,6 +99,7 @@ export class AuthController {
   }
 
   @Public()
+  @AuthRateLimit()
   @Get('google')
   @UseGuards(AuthGuard('google'))
   @ApiOperation({ summary: 'Initiate Google OAuth login' })
@@ -103,6 +109,7 @@ export class AuthController {
   }
 
   @Public()
+  @AuthRateLimit()
   @Get('google/callback')
   @UseGuards(AuthGuard('google'))
   @ApiOperation({ summary: 'Google OAuth callback' })

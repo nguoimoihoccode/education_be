@@ -130,7 +130,9 @@ import { NotificationToken } from './modules/soulie/entities/notification-token.
           SoulieMoment,
           NotificationToken,
         ],
-        synchronize: configService.get<string>('NODE_ENV') !== 'production',
+        synchronize:
+          configService.get<string>('NODE_ENV') === 'development' &&
+          configService.get<boolean>('ALLOW_DB_SYNC', false),
         logging: configService.get<string>('NODE_ENV') === 'development',
         ssl:
           configService.get<string>('DB_HOST')?.includes('supabase') ||

@@ -32,6 +32,7 @@ import {
   SubmitExercisesResultDto,
   ExerciseResultDto,
 } from './dto';
+import { calculateSrsReview, nextReviewDate } from './domain/srs.policy';
 
 @Injectable()
 export class EducationService {
@@ -70,6 +71,17 @@ export class EducationService {
       throw new NotFoundException('Language not found');
     }
     return language;
+  }
+
+  async resolveLanguageId(languageCode?: string): Promise<string> {
+    const code = (languageCode || 'en').toLowerCase();
+    const language = await this.languageRepository.findOne({ where: { code } });
+
+    if (!language) {
+      throw new NotFoundException(`Language not found for code: ${code}`);
+    }
+
+    return language.id;
   }
 
   // ==================== COURSES ====================
@@ -383,22 +395,19 @@ export class EducationService {
       });
     }
 
-    // Apply SM-2 Spaced Repetition Algorithm
-    const { easeFactor, interval, repetitions, status } = this.calculateSRS(
-      dto.quality,
-      userVocab.easeFactor,
-      userVocab.interval,
-      userVocab.repetitions,
-    );
+    const { easeFactor, interval, repetitions, status } = calculateSrsReview({
+      quality: dto.quality,
+      easeFactor: Number(userVocab.easeFactor),
+      interval: userVocab.interval,
+      repetitions: userVocab.repetitions,
+    });
 
     userVocab.easeFactor = easeFactor;
     userVocab.interval = interval;
     userVocab.repetitions = repetitions;
-    userVocab.status = status;
+    userVocab.status = status as VocabularyStatus;
     userVocab.lastReviewed = new Date();
-    userVocab.nextReview = new Date(
-      Date.now() + interval * 24 * 60 * 60 * 1000,
-    );
+    userVocab.nextReview = nextReviewDate(new Date(), interval);
 
     if (dto.quality >= 3) {
       userVocab.correctCount += 1;
@@ -407,63 +416,6 @@ export class EducationService {
     }
 
     return this.userVocabularyRepository.save(userVocab);
-  }
-
-  private calculateSRS(
-    quality: number,
-    easeFactor: number,
-    interval: number,
-    repetitions: number,
-  ): {
-    easeFactor: number;
-    interval: number;
-    repetitions: number;
-    status: VocabularyStatus;
-  } {
-    // SM-2 Algorithm
-    let newEaseFactor = easeFactor;
-    let newInterval = interval;
-    let newRepetitions = repetitions;
-    let status = VocabularyStatus.LEARNING;
-
-    if (quality >= 3) {
-      // Correct response
-      if (newRepetitions === 0) {
-        newInterval = 1;
-      } else if (newRepetitions === 1) {
-        newInterval = 6;
-      } else {
-        newInterval = Math.round(interval * easeFactor);
-      }
-      newRepetitions += 1;
-    } else {
-      // Incorrect response
-      newRepetitions = 0;
-      newInterval = 1;
-    }
-
-    // Update ease factor
-    newEaseFactor =
-      easeFactor + (0.1 - (5 - quality) * (0.08 + (5 - quality) * 0.02));
-    if (newEaseFactor < 1.3) newEaseFactor = 1.3;
-
-    // Determine status
-    if (newRepetitions >= 5 && newInterval >= 21) {
-      status = VocabularyStatus.MASTERED;
-    } else if (newRepetitions >= 2) {
-      status = VocabularyStatus.REVIEWING;
-    } else if (newRepetitions >= 1) {
-      status = VocabularyStatus.LEARNING;
-    } else {
-      status = VocabularyStatus.NEW;
-    }
-
-    return {
-      easeFactor: newEaseFactor,
-      interval: newInterval,
-      repetitions: newRepetitions,
-      status,
-    };
   }
 
   // ==================== EXERCISES ====================

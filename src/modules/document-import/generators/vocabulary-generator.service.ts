@@ -35,6 +35,7 @@ export class VocabularyGenerator extends ContentGenerator {
     data: ParsedDocumentData,
     options: any,
   ): Promise<GeneratedContentDto> {
+    void userId;
     const vocabItems = data.vocabulary || [];
     if (vocabItems.length === 0) {
       return {
@@ -47,6 +48,9 @@ export class VocabularyGenerator extends ContentGenerator {
 
     const maxItems = options.maxVocabulary || vocabItems.length;
     const itemsToCreate = vocabItems.slice(0, maxItems);
+    const languageId = await this.educationService.resolveLanguageId(
+      options.language,
+    );
 
     // Create a default course to hold the vocabulary lesson
     const courseDto: CreateCourseDto = {
@@ -55,7 +59,7 @@ export class VocabularyGenerator extends ContentGenerator {
         `Vocabulary Course - ${data.metadata?.detectedTopic || 'General'}`,
       description: 'Auto-generated course for vocabulary',
       level: CourseLevel.BEGINNER,
-      languageId: '1',
+      languageId,
     };
     const course = await this.educationService.createCourse(courseDto);
 

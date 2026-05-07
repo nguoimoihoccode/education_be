@@ -7,6 +7,11 @@ export const configValidationSchema = Joi.object({
   DB_USERNAME: Joi.string().required().description('Database username'),
   DB_PASSWORD: Joi.string().allow('').description('Database password'),
   DB_DATABASE: Joi.string().required().description('Database name'),
+  ALLOW_DB_SYNC: Joi.boolean()
+    .truthy('true')
+    .falsy('false')
+    .default(false)
+    .description('Allow TypeORM schema synchronize. Local development only.'),
 
   // JWT
   JWT_SECRET: Joi.string()
@@ -32,6 +37,12 @@ export const configValidationSchema = Joi.object({
 
   // Server
   PORT: Joi.number().default(3000).description('Server port'),
+  TRUST_PROXY_HOPS: Joi.number()
+    .integer()
+    .min(0)
+    .max(5)
+    .default(0)
+    .description('Number of trusted reverse proxy hops for client IPs'),
   NODE_ENV: Joi.string()
     .valid('development', 'production', 'test')
     .default('development')

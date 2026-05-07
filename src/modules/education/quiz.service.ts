@@ -19,6 +19,10 @@ import {
   GenerateQuizFromFlashcardsDto,
 } from './dto';
 import { Flashcard, FlashcardDeck } from './entities';
+import {
+  calculateFinalQuizScore,
+  gradeQuizAnswer,
+} from './domain/quiz-grading.policy';
 
 @Injectable()
 export class QuizService {
@@ -513,6 +517,7 @@ export class QuizService {
       userId,
       totalPoints,
       answers: [],
+      questionOrder: buildQuizSessionQuestionOrder(questions),
       attemptNumber: await this.getNextAttemptNumber(userId, dto.quizId),
       startedAt: new Date(),
     });
@@ -539,9 +544,12 @@ export class QuizService {
       throw new NotFoundException('Question not found');
     }
 
-    const isCorrect =
-      question.correctAnswer.toLowerCase() === dto.answer.toLowerCase();
-    const points = isCorrect ? question.points : 0;
+    const gradedAnswer = gradeQuizAnswer({
+      correctAnswer: question.correctAnswer,
+      userAnswer: dto.answer,
+      points: question.points,
+    });
+    const { isCorrect, points } = gradedAnswer;
 
     // Update session
     const answers = session.answers || [];
@@ -585,12 +593,10 @@ export class QuizService {
     session.completed = true;
     session.completedAt = new Date();
 
-    // Calculate score
-    if (session.totalPoints > 0) {
-      session.score = Math.round(
-        (session.earnedPoints / session.totalPoints) * 100,
-      );
-    }
+    session.score = calculateFinalQuizScore({
+      earnedPoints: session.earnedPoints,
+      totalPoints: session.totalPoints,
+    });
 
     // Calculate time spent
     const startedAt = new Date(session.startedAt);
@@ -621,6 +627,26 @@ export class QuizService {
     }
 
     return session;
+  }
+
+  async getQuizSessionQuestions(sessionId: string, userId: number) {
+    const session = await this.getQuizSession(sessionId, userId);
+    const questionIds = session.questionOrder || [];
+
+    if (questionIds.length === 0) {
+      return [];
+    }
+
+    const questions = await this.quizQuestionRepository.find({
+      where: { id: In(questionIds) },
+    });
+    const questionsById = new Map(
+      questions.map((question) => [question.id, question]),
+    );
+
+    return questionIds
+      .map((questionId) => questionsById.get(questionId))
+      .filter((question): question is QuizQuestion => Boolean(question));
   }
 
   async getQuizSessions(
@@ -828,4 +854,24 @@ export class QuizService {
       totalPages,
     };
   }
+}
+
+export function buildQuizSessionQuestionOrder(
+  questions: Array<{ id: string }>,
+): string[] {
+  return questions.map((question) => question.id);
+}
+
+export function calculateQuizSessionProgress(input: {
+  questionOrder?: string[] | null;
+  answers?: Array<{ questionId: string }> | null;
+}) {
+  const totalQuestions = input.questionOrder?.length ?? 0;
+  const answeredQuestions = input.answers?.length ?? 0;
+
+  return {
+    totalQuestions,
+    answeredQuestions,
+    currentQuestionIndex: Math.min(answeredQuestions, totalQuestions),
+  };
 }

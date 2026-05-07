@@ -62,6 +62,9 @@ export class QuizSession {
   @Column({ type: 'json', nullable: true })
   answers: QuizAnswer[];
 
+  @Column({ type: 'json', nullable: true })
+  questionOrder: string[];
+
   @Column({ default: 0 })
   attemptNumber: number;
 

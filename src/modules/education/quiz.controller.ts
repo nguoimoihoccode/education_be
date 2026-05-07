@@ -34,6 +34,7 @@ import { JwtAuthGuard } from '../auth/jwt-auth.guard';
 import type { RequestWithUser } from '../../common/types/auth.types';
 import { Pagination } from '../../common/decorators/pagination.decorator';
 import { PaginationDto } from '../../common/dto/pagination.dto';
+import { ExpensiveActionRateLimit } from '../../common/decorators/rate-limit.decorator';
 
 @ApiTags('Education - Quiz/Trắc nghiệm')
 @Controller('quizzes')
@@ -88,15 +89,6 @@ export class QuizController {
       pagination?.page,
       pagination?.limit,
     );
-  }
-
-  @Get(':id')
-  @ApiOperation({ summary: 'Get quiz by ID' })
-  @ApiParam({ name: 'id', description: 'Quiz ID' })
-  @ApiResponse({ status: 200, description: 'Quiz retrieved successfully' })
-  async getQuizById(@Req() req: RequestWithUser, @Param('id') id: string) {
-    const userId = this.getUserId(req);
-    return this.quizService.getQuizById(id, userId);
   }
 
   @Patch(':id')
@@ -186,6 +178,7 @@ export class QuizController {
   // ==================== Generate Quiz from Flashcards ====================
 
   @Post('generate')
+  @ExpensiveActionRateLimit()
   @ApiOperation({ summary: 'Generate quiz from flashcards' })
   @ApiResponse({ status: 201, description: 'Quiz generated successfully' })
   async generateQuizFromFlashcards(
@@ -237,6 +230,21 @@ export class QuizController {
   ) {
     const userId = this.getUserId(req);
     return this.quizService.completeQuizSession(userId, { sessionId });
+  }
+
+  @Get('sessions/:sessionId/questions')
+  @ApiOperation({ summary: 'Get quiz session questions' })
+  @ApiParam({ name: 'sessionId', description: 'Session ID' })
+  @ApiResponse({
+    status: 200,
+    description: 'Session questions retrieved successfully',
+  })
+  async getQuizSessionQuestions(
+    @Req() req: RequestWithUser,
+    @Param('sessionId') sessionId: string,
+  ) {
+    const userId = this.getUserId(req);
+    return this.quizService.getQuizSessionQuestions(sessionId, userId);
   }
 
   @Get('sessions/:sessionId')
@@ -376,5 +384,14 @@ export class QuizController {
       pagination?.page,
       pagination?.limit,
     );
+  }
+
+  @Get(':id')
+  @ApiOperation({ summary: 'Get quiz by ID' })
+  @ApiParam({ name: 'id', description: 'Quiz ID' })
+  @ApiResponse({ status: 200, description: 'Quiz retrieved successfully' })
+  async getQuizById(@Req() req: RequestWithUser, @Param('id') id: string) {
+    const userId = this.getUserId(req);
+    return this.quizService.getQuizById(id, userId);
   }
 }
