@@ -48,12 +48,16 @@ export class CorsMiddleware implements NestMiddleware {
 
       // Wildcard subdomain support (e.g., https://*.example.com)
       if (allowedOrigin.includes('*')) {
-        const pattern = allowedOrigin.replace(/\*/g, '.*');
+        const pattern = this.escapeRegex(allowedOrigin).replace(/\\\*/g, '.*');
         const regex = new RegExp(`^${pattern}$`);
         return regex.test(origin);
       }
 
       return false;
     });
+  }
+
+  private escapeRegex(value: string): string {
+    return value.replace(/[|\\{}()[\]^$+?.]/g, '\\$&');
   }
 }

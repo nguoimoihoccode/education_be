@@ -1,6 +1,8 @@
 import {
   buildQuizSessionQuestionOrder,
   calculateQuizSessionProgress,
+  hasAnsweredQuestion,
+  isQuestionInSessionOrder,
 } from './quiz.service';
 
 describe('quiz session helpers', () => {
@@ -29,5 +31,15 @@ describe('quiz session helpers', () => {
       answeredQuestions: 2,
       currentQuestionIndex: 2,
     });
+  });
+
+  it('detects whether a question belongs to a stored session order', () => {
+    expect(isQuestionInSessionOrder(['q1', 'q2'], 'q2')).toBe(true);
+    expect(isQuestionInSessionOrder(['q1', 'q2'], 'q3')).toBe(false);
+  });
+
+  it('detects duplicate answers by question id', () => {
+    expect(hasAnsweredQuestion([{ questionId: 'q1' }], 'q1')).toBe(true);
+    expect(hasAnsweredQuestion([{ questionId: 'q1' }], 'q2')).toBe(false);
   });
 });

@@ -40,12 +40,7 @@ import { QuizGenerator } from './generators/quiz-generator.service';
         markdownParser: MarkdownParser,
         jsonParser: JsonParser,
         structuredParser: StructuredParser,
-      ) => [
-        structuredParser,
-        jsonParser,
-        markdownParser,
-        freetextParser,
-      ],
+      ) => [structuredParser, jsonParser, markdownParser, freetextParser],
       inject: [FreetextParser, MarkdownParser, JsonParser, StructuredParser],
     },
     // Generators

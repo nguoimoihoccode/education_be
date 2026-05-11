@@ -8,6 +8,9 @@ describe('configValidationSchema', () => {
     DB_PASSWORD: 'postgres',
     DB_DATABASE: 'stock_db',
     NODE_ENV: 'production',
+    GOOGLE_CLIENT_ID: 'google-client-id',
+    GOOGLE_CLIENT_SECRET: 'google-client-secret',
+    GOOGLE_CALLBACK_URL: 'http://localhost:3000/auth/google/callback',
   };
 
   it('defaults ALLOW_DB_SYNC to false', () => {

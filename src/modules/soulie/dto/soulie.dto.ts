@@ -61,7 +61,7 @@ export class SoulieUserSuggestionDto {
   id: string;
   name: string;
   username: string;
-  email: string;
+  email?: never;
   avatarUrl: string;
   relation: 'none' | 'incoming_request' | 'outgoing_request' | 'friend';
 }

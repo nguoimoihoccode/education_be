@@ -1,7 +1,4 @@
-import {
-  formatPortInUseMessage,
-  resolveServerPort,
-} from './server-port.util';
+import { formatPortInUseMessage, resolveServerPort } from './server-port.util';
 
 describe('server port utilities', () => {
   it('defaults to port 3000', () => {
@@ -21,6 +18,8 @@ describe('server port utilities', () => {
     expect(formatPortInUseMessage(3000)).toContain(
       'Port 3000 is already in use',
     );
-    expect(formatPortInUseMessage(3000)).toContain('PORT=3001 npm run start:dev');
+    expect(formatPortInUseMessage(3000)).toContain(
+      'PORT=3001 npm run start:dev',
+    );
   });
 });

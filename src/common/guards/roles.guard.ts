@@ -1,16 +1,18 @@
-import { Injectable, SetMetadata } from '@nestjs/common';
+import { ExecutionContext, Injectable } from '@nestjs/common';
 import { Reflector } from '@nestjs/core';
 import { ForbiddenException } from '@nestjs/common/exceptions/forbidden.exception';
 import { UserRole } from '../enums/roles.enum';
-
-export const ROLES_KEY = 'roles';
-export const Roles = (...roles: UserRole[]) => SetMetadata(ROLES_KEY, roles);
+import { ROLES_KEY } from '../decorators/roles.decorator';
+import { UsersService } from '../../modules/users/users.service';
 
 @Injectable()
 export class RolesGuard {
-  constructor(private readonly reflector: Reflector) {}
+  constructor(
+    private readonly reflector: Reflector,
+    private readonly usersService: UsersService,
+  ) {}
 
-  canActivate(context: any): boolean {
+  async canActivate(context: ExecutionContext): Promise<boolean> {
     const requiredRoles = this.reflector.getAllAndOverride<UserRole[]>(
       ROLES_KEY,
       [context.getHandler(), context.getClass()],
@@ -21,17 +23,18 @@ export class RolesGuard {
     }
 
     const { user } = context.switchToHttp().getRequest();
-    if (!user || !user.roles) {
+    if (!user?.sub) {
       throw new ForbiddenException('User has no roles assigned');
     }
 
-    const hasRole = requiredRoles.some(
-      (role) => user.roles.includes(role) || user.roles?.includes(role),
-    );
+    const currentUser = await this.usersService.findById(user.sub);
+    const currentRoles = currentUser.roles ?? [];
+    const hasRole = requiredRoles.some((role) => currentRoles.includes(role));
     if (!hasRole) {
       throw new ForbiddenException('Insufficient permissions');
     }
 
+    user.roles = currentRoles;
     return true;
   }
 }

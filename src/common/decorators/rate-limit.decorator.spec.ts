@@ -26,7 +26,10 @@ describe('rate limit decorators', () => {
       ),
     ).toBe(5);
     expect(
-      Reflect.getMetadata(`${THROTTLER_TTL}default`, TestController.prototype.login),
+      Reflect.getMetadata(
+        `${THROTTLER_TTL}default`,
+        TestController.prototype.login,
+      ),
     ).toBe(60_000);
     expect(
       Reflect.getMetadata(

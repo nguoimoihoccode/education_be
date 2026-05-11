@@ -89,6 +89,10 @@ export class QuizService {
       throw new NotFoundException('Quiz not found');
     }
 
+    if (!quiz.isPublic && quiz.userId !== userId) {
+      throw new NotFoundException('Quiz not found');
+    }
+
     return quiz;
   }
 
@@ -544,6 +548,18 @@ export class QuizService {
       throw new NotFoundException('Question not found');
     }
 
+    if (question.quizId !== session.quizId) {
+      throw new BadRequestException('Question does not belong to this quiz session');
+    }
+
+    if (!isQuestionInSessionOrder(session.questionOrder, dto.questionId)) {
+      throw new BadRequestException('Question is not part of this quiz session');
+    }
+
+    if (hasAnsweredQuestion(session.answers, dto.questionId)) {
+      throw new BadRequestException('Question already answered in this session');
+    }
+
     const gradedAnswer = gradeQuizAnswer({
       correctAnswer: question.correctAnswer,
       userAnswer: dto.answer,
@@ -861,6 +877,16 @@ export function buildQuizSessionQuestionOrder(
 ): string[] {
   return questions.map((question) => question.id);
 }
+
+export const isQuestionInSessionOrder = (
+  questionOrder: string[] | null | undefined,
+  questionId: string,
+): boolean => (questionOrder ?? []).includes(questionId);
+
+export const hasAnsweredQuestion = (
+  answers: Array<{ questionId: string }> | null | undefined,
+  questionId: string,
+): boolean => (answers ?? []).some((answer) => answer.questionId === questionId);
 
 export function calculateQuizSessionProgress(input: {
   questionOrder?: string[] | null;

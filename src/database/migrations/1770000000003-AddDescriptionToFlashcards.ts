@@ -1,8 +1,6 @@
 import { MigrationInterface, QueryRunner } from 'typeorm';
 
-export class AddDescriptionToFlashcards1770000000003
-  implements MigrationInterface
-{
+export class AddDescriptionToFlashcards1770000000003 implements MigrationInterface {
   name = 'AddDescriptionToFlashcards1770000000003';
 
   public async up(queryRunner: QueryRunner): Promise<void> {

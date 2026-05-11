@@ -91,28 +91,6 @@ export class QuizController {
     );
   }
 
-  @Patch(':id')
-  @ApiOperation({ summary: 'Update quiz' })
-  @ApiParam({ name: 'id', description: 'Quiz ID' })
-  @ApiResponse({ status: 200, description: 'Quiz updated successfully' })
-  async updateQuiz(
-    @Req() req: RequestWithUser,
-    @Param('id') id: string,
-    @Body() dto: UpdateQuizDto,
-  ) {
-    const userId = this.getUserId(req);
-    return this.quizService.updateQuiz(id, userId, dto);
-  }
-
-  @Delete(':id')
-  @ApiOperation({ summary: 'Delete quiz' })
-  @ApiParam({ name: 'id', description: 'Quiz ID' })
-  @ApiResponse({ status: 200, description: 'Quiz deleted successfully' })
-  async deleteQuiz(@Req() req: RequestWithUser, @Param('id') id: string) {
-    const userId = this.getUserId(req);
-    return this.quizService.deleteQuiz(id, userId);
-  }
-
   // ==================== Quiz Question Management ====================
 
   @Post(':id/questions')
@@ -384,6 +362,28 @@ export class QuizController {
       pagination?.page,
       pagination?.limit,
     );
+  }
+
+  @Patch(':id')
+  @ApiOperation({ summary: 'Update quiz' })
+  @ApiParam({ name: 'id', description: 'Quiz ID' })
+  @ApiResponse({ status: 200, description: 'Quiz updated successfully' })
+  async updateQuiz(
+    @Req() req: RequestWithUser,
+    @Param('id') id: string,
+    @Body() dto: UpdateQuizDto,
+  ) {
+    const userId = this.getUserId(req);
+    return this.quizService.updateQuiz(id, userId, dto);
+  }
+
+  @Delete(':id')
+  @ApiOperation({ summary: 'Delete quiz' })
+  @ApiParam({ name: 'id', description: 'Quiz ID' })
+  @ApiResponse({ status: 200, description: 'Quiz deleted successfully' })
+  async deleteQuiz(@Req() req: RequestWithUser, @Param('id') id: string) {
+    const userId = this.getUserId(req);
+    return this.quizService.deleteQuiz(id, userId);
   }
 
   @Get(':id')

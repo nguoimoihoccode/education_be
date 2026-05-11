@@ -193,6 +193,11 @@ export class EducationController {
     return this.educationService.getUserProgress(req.user.id);
   }
 
+  @Get('learning-plan')
+  async getLearningPlan(@Request() req: any) {
+    return this.educationService.getLearningPlan(req.user.id);
+  }
+
   @Get('streak')
   async getUserStreak(@Request() req: any) {
     return this.educationService.getUserStreak(req.user.id);

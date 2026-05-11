@@ -15,6 +15,7 @@ import {
   UserLesson,
   UserVocabulary,
   UserStreak,
+  QuizSession,
   EnrollmentStatus,
   VocabularyStatus,
 } from './entities';
@@ -55,6 +56,8 @@ export class EducationService {
     private userVocabularyRepository: Repository<UserVocabulary>,
     @InjectRepository(UserStreak)
     private userStreakRepository: Repository<UserStreak>,
+    @InjectRepository(QuizSession)
+    private quizSessionRepository: Repository<QuizSession>,
   ) {}
 
   // ==================== LANGUAGES ====================
@@ -611,6 +614,194 @@ export class EducationService {
       completedLessons,
       learnedVocabularies,
       masteredVocabularies,
+    };
+  }
+
+  async getLearningPlan(userId: string): Promise<{
+    dailyGoal: {
+      targetMinutes: number;
+      completedMinutes: number;
+      targetReviews: number;
+      completedReviews: number;
+    };
+    nextLesson: {
+      id: string;
+      title: string;
+      courseTitle: string;
+      estimatedMinutes: number;
+      route: string;
+    } | null;
+    dueReviews: { count: number; recommendedLimit: number };
+    weakQuizzes: Array<{
+      quizId: string;
+      title: string;
+      topic: string;
+      score: number;
+      recommendation: string;
+      route: string;
+    }>;
+    streak: { current: number; longest: number; xp: number; level: number };
+    recommendedActions: Array<{
+      type: 'lesson' | 'flashcard_review' | 'quiz_retry';
+      title: string;
+      reason: string;
+      priority: number;
+      route: string;
+    }>;
+  }> {
+    const targetMinutes = 20;
+    const targetReviews = 20;
+    const enrollments = await this.userCourseRepository.find({
+      where: { userId },
+      relations: ['course', 'course.language'],
+      order: { updatedAt: 'DESC' },
+    });
+    const activeEnrollment = enrollments.find(
+      (enrollment) => enrollment.status !== EnrollmentStatus.COMPLETED,
+    );
+
+    let nextLesson: {
+      id: string;
+      title: string;
+      courseTitle: string;
+      estimatedMinutes: number;
+      route: string;
+    } | null = null;
+
+    if (activeEnrollment) {
+      const [lessons, completedLessons] = await Promise.all([
+        this.lessonRepository.find({
+          where: { courseId: activeEnrollment.courseId, active: true },
+          order: { orderIndex: 'ASC' },
+        }),
+        this.userLessonRepository.find({
+          where: { userId, completed: true },
+        }),
+      ]);
+      const completedLessonIds = new Set(
+        completedLessons.map((lesson) => lesson.lessonId),
+      );
+      const lesson = lessons.find((item) => !completedLessonIds.has(item.id));
+
+      if (lesson) {
+        nextLesson = {
+          id: lesson.id,
+          title: lesson.title,
+          courseTitle: activeEnrollment.course?.title || 'Khóa học của bạn',
+          estimatedMinutes: lesson.estimatedMinutes || targetMinutes,
+          route: `/education/lessons/${lesson.id}`,
+        };
+      }
+    }
+
+    const [dueReviewCount, streak] = await Promise.all([
+      this.userVocabularyRepository.count({
+        where: { userId, nextReview: LessThanOrEqual(new Date()) },
+      }),
+      this.getUserStreak(userId),
+    ]);
+    const numericUserId = Number(userId);
+    const weakQuizSessions = await this.quizSessionRepository.find({
+      where: {
+        userId: Number.isNaN(numericUserId) ? (userId as any) : numericUserId,
+        completed: true,
+      },
+      relations: ['quiz'],
+      order: { completedAt: 'DESC' },
+      take: 10,
+    });
+    const weakQuizzes = weakQuizSessions
+      .filter((session) => Number(session.score) < 70 && session.quiz)
+      .filter(
+        (session, index, sessions) =>
+          sessions.findIndex((item) => item.quizId === session.quizId) ===
+          index,
+      )
+      .slice(0, 3)
+      .map((session) => {
+        const topic = session.quiz.topic || 'chủ đề này';
+        return {
+          quizId: session.quizId,
+          title: session.quiz.name,
+          topic,
+          score: Math.round(Number(session.score)),
+          recommendation: `Làm lại quiz này để củng cố ${topic}`,
+          route: `/quiz/${session.quizId}`,
+        };
+      });
+    const completedMinutes = Math.min(
+      targetMinutes,
+      Math.floor(
+        enrollments.reduce(
+          (total, enrollment) => total + (enrollment.totalTimeSpent || 0),
+          0,
+        ) / 60,
+      ),
+    );
+    const recommendedActions = [];
+
+    if (nextLesson) {
+      recommendedActions.push({
+        type: 'lesson' as const,
+        title: `Tiếp tục: ${nextLesson.title}`,
+        reason: `Bài tiếp theo trong ${nextLesson.courseTitle}`,
+        priority: 1,
+        route: nextLesson.route,
+      });
+    }
+
+    if (dueReviewCount > 0) {
+      recommendedActions.push({
+        type: 'flashcard_review' as const,
+        title: `Ôn ${dueReviewCount} flashcards đến hạn`,
+        reason: 'Ôn đúng hạn giúp bạn nhớ lâu hơn',
+        priority: 2,
+        route: '/flashcards/review',
+      });
+    }
+
+    weakQuizzes.forEach((quiz, index) => {
+      recommendedActions.push({
+        type: 'quiz_retry' as const,
+        title: `Luyện lại: ${quiz.title}`,
+        reason: `Điểm gần đây ${quiz.score}%, nên ôn lại ${quiz.topic}`,
+        priority: 3 + index,
+        route: quiz.route,
+      });
+    });
+
+    if (recommendedActions.length === 0) {
+      recommendedActions.push({
+        type: 'quiz_retry' as const,
+        title: 'Luyện quiz ngắn',
+        reason: 'Duy trì nhịp học bằng một bài luyện tập nhanh',
+        priority: 3,
+        route: '/quiz',
+      });
+    }
+
+    return {
+      dailyGoal: {
+        targetMinutes,
+        completedMinutes,
+        targetReviews,
+        completedReviews: 0,
+      },
+      nextLesson,
+      dueReviews: {
+        count: dueReviewCount,
+        recommendedLimit: targetReviews,
+      },
+      weakQuizzes,
+      streak: {
+        current: streak.currentStreak || 0,
+        longest: streak.longestStreak || 0,
+        xp: streak.totalXp || 0,
+        level: streak.level || 1,
+      },
+      recommendedActions: recommendedActions.sort(
+        (a, b) => a.priority - b.priority,
+      ),
     };
   }
 }

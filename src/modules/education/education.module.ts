@@ -27,9 +27,11 @@ import {
 import { Quiz, QuizQuestion, QuizSession } from './entities';
 
 import { RolesGuard } from '../../common/guards/roles.guard';
+import { UsersModule } from '../users/users.module';
 
 @Module({
   imports: [
+    UsersModule,
     TypeOrmModule.forFeature([
       Language,
       Course,

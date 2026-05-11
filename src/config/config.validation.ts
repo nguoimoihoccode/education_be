@@ -54,15 +54,16 @@ export const configValidationSchema = Joi.object({
     .default('http://localhost:5173')
     .description('Frontend URL for CORS'),
 
-  // Google OAuth (optional)
+  // Google OAuth
   GOOGLE_CLIENT_ID: Joi.string()
-    .optional()
+    .required()
     .description('Google OAuth client ID'),
   GOOGLE_CLIENT_SECRET: Joi.string()
-    .optional()
+    .required()
     .description('Google OAuth client secret'),
   GOOGLE_CALLBACK_URL: Joi.string()
-    .optional()
+    .uri()
+    .required()
     .description('Google OAuth callback URL'),
 
   // Supabase (optional)

@@ -176,8 +176,7 @@ export class SoulieService {
       .filter((candidate) =>
         normalizedQuery
           ? candidate.name.toLowerCase().includes(normalizedQuery) ||
-            candidate.username.toLowerCase().includes(normalizedQuery) ||
-            candidate.email.toLowerCase().includes(normalizedQuery)
+            candidate.username.toLowerCase().includes(normalizedQuery)
           : true,
       );
 
@@ -1174,7 +1173,6 @@ export class SoulieService {
       id: String(user.id),
       name: this.getDisplayName(user),
       username: this.getPublicUsername(user),
-      email: user.email,
       avatarUrl: user.avatar ?? '',
       relation: relationMap.get(user.id) ?? 'none',
     };

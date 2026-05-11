@@ -1,6 +1,6 @@
 import { Injectable, UnauthorizedException } from '@nestjs/common';
 import { InjectRepository } from '@nestjs/typeorm';
-import { Repository, LessThan } from 'typeorm';
+import { DataSource, Repository, LessThan } from 'typeorm';
 import { JwtService } from '@nestjs/jwt';
 import * as bcrypt from 'bcryptjs';
 import { randomUUID } from 'crypto';
@@ -26,6 +26,7 @@ export class AuthService {
     private readonly usersService: UsersService,
     private readonly jwtService: JwtService,
     private readonly jwtKeyService: JwtKeyService,
+    private readonly dataSource: DataSource,
     @InjectRepository(RefreshToken)
     private readonly refreshTokenRepository: Repository<RefreshToken>,
     @InjectRepository(TokenBlacklist)
@@ -143,47 +144,52 @@ export class AuthService {
     userId: number,
     deviceInfo?: DeviceInfo,
   ) {
-    // Verify refresh token exists and is valid
-    const storedToken = await this.refreshTokenRepository.findOne({
-      where: { tokenId, userId },
-    });
+    const newTokenId = randomUUID();
 
-    if (!storedToken) {
-      throw new UnauthorizedException('Invalid refresh token');
-    }
+    await this.dataSource.transaction(async (manager) => {
+      const storedToken = await manager.findOne(RefreshToken, {
+        where: { tokenId, userId },
+        lock: { mode: 'pessimistic_write' },
+      });
 
-    // Check if token is revoked
-    if (storedToken.isRevoked) {
-      // Token reuse detected - possible security breach
-      // Revoke all tokens for this user
-      await this.revokeAllUserTokens(userId, 'Token reuse detected');
-      throw new UnauthorizedException(
-        'Token reuse detected. All sessions have been terminated.',
-      );
-    }
-
-    if (storedToken.expiresAt < new Date()) {
-      await this.refreshTokenRepository.remove(storedToken);
-      throw new UnauthorizedException('Refresh token expired');
-    }
-
-    // Verify device fingerprint if provided
-    if (deviceInfo?.fingerprint && storedToken.deviceFingerprint) {
-      const fingerprintHash = this.hashToken(deviceInfo.fingerprint);
-      if (storedToken.deviceFingerprint !== fingerprintHash) {
-        throw new UnauthorizedException('Device fingerprint mismatch');
+      if (!storedToken) {
+        throw new UnauthorizedException('Invalid refresh token');
       }
-    }
+
+      // Check if token is revoked
+      if (storedToken.isRevoked) {
+        // Token reuse detected - possible security breach
+        await manager.update(
+          RefreshToken,
+          { userId, isRevoked: false },
+          { isRevoked: true },
+        );
+        throw new UnauthorizedException(
+          'Token reuse detected. All sessions have been terminated.',
+        );
+      }
+
+      if (storedToken.expiresAt < new Date()) {
+        await manager.remove(storedToken);
+        throw new UnauthorizedException('Refresh token expired');
+      }
+
+      // Verify device fingerprint if provided
+      if (deviceInfo?.fingerprint && storedToken.deviceFingerprint) {
+        const fingerprintHash = this.hashToken(deviceInfo.fingerprint);
+        if (storedToken.deviceFingerprint !== fingerprintHash) {
+          throw new UnauthorizedException('Device fingerprint mismatch');
+        }
+      }
+
+      storedToken.isRevoked = true;
+      storedToken.replacedBy = newTokenId;
+      await manager.save(storedToken);
+    });
 
     // Get user to generate new tokens
     const user = await this.usersService.findById(userId);
     await this.usersService.touchLastSeen(user.id);
-
-    // Token rotation: Mark old token as revoked instead of deleting
-    const newTokenId = randomUUID();
-    storedToken.isRevoked = true;
-    storedToken.replacedBy = newTokenId;
-    await this.refreshTokenRepository.save(storedToken);
 
     // Generate new tokens
     return this.generateTokens(user.id, user.email, deviceInfo, newTokenId);
@@ -200,10 +206,10 @@ export class AuthService {
     }
 
     // Add access token to blacklist if provided
-    if (accessToken) {
+    if (accessToken && token?.userId) {
       await this.blacklistToken(
         accessToken,
-        token?.userId || 0,
+        token.userId,
         'access',
         'User logout',
       );
