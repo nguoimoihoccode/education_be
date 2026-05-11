@@ -124,6 +124,35 @@ describe('EducationService learning plan', () => {
         },
       ],
     });
+
+    await expect(service.getTodayPlan('user-1')).resolves.toMatchObject({
+      completedTasks: 0,
+      totalTasks: 3,
+      estimatedMinutes: 36,
+      streak: { current: 4, longest: 7 },
+      tasks: [
+        {
+          id: 'continue-lesson-lesson-2',
+          type: 'continue_lesson',
+          title: 'Tiếp tục: Daily conversations',
+          targetUrl: '/education/lessons/lesson-2',
+          priority: 1,
+        },
+        {
+          id: 'review-flashcards',
+          type: 'review_flashcards',
+          title: 'Ôn 12 flashcards đến hạn',
+          targetUrl: '/flashcards/review',
+          priority: 2,
+        },
+        {
+          id: 'quick-quiz',
+          type: 'quick_quiz',
+          targetUrl: '/quiz',
+          priority: 4,
+        },
+      ],
+    });
   });
 
   it('adds low score quizzes as weak area actions', async () => {
@@ -177,6 +206,44 @@ describe('EducationService learning plan', () => {
           route: '/quiz/quiz-1',
         },
       ]),
+    });
+  });
+
+  it('returns a quick quiz task for learners without active learning data', async () => {
+    const service = new EducationService(
+      createRepository() as any,
+      createRepository() as any,
+      createRepository() as any,
+      createRepository() as any,
+      createRepository() as any,
+      createRepository({ find: jest.fn().mockResolvedValue([]) }) as any,
+      createRepository({ find: jest.fn().mockResolvedValue([]) }) as any,
+      createRepository({ count: jest.fn().mockResolvedValue(0) }) as any,
+      createRepository({
+        findOne: jest.fn().mockResolvedValue({
+          currentStreak: 0,
+          longestStreak: 0,
+          totalXp: 0,
+          level: 1,
+        }),
+      }) as any,
+      createRepository({ find: jest.fn().mockResolvedValue([]) }) as any,
+    );
+
+    await expect(service.getTodayPlan('user-1')).resolves.toMatchObject({
+      completedTasks: 0,
+      totalTasks: 1,
+      estimatedMinutes: 10,
+      streak: { current: 0, longest: 0 },
+      tasks: [
+        {
+          id: 'quick-quiz',
+          type: 'quick_quiz',
+          title: 'Làm quiz ngắn',
+          targetUrl: '/quiz',
+          priority: 1,
+        },
+      ],
     });
   });
 });

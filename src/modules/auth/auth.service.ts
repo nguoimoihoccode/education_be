@@ -174,9 +174,14 @@ export class AuthService {
         throw new UnauthorizedException('Refresh token expired');
       }
 
-      // Verify device fingerprint if provided
-      if (deviceInfo?.fingerprint && storedToken.deviceFingerprint) {
-        const fingerprintHash = this.hashToken(deviceInfo.fingerprint);
+      // Verify device fingerprint if this token was bound to one.
+      if (storedToken.deviceFingerprint) {
+        const fingerprint = deviceInfo?.fingerprint;
+        if (!fingerprint) {
+          throw new UnauthorizedException('Device fingerprint required');
+        }
+
+        const fingerprintHash = this.hashToken(fingerprint);
         if (storedToken.deviceFingerprint !== fingerprintHash) {
           throw new UnauthorizedException('Device fingerprint mismatch');
         }
@@ -192,7 +197,13 @@ export class AuthService {
     await this.usersService.touchLastSeen(user.id);
 
     // Generate new tokens
-    return this.generateTokens(user.id, user.email, deviceInfo, newTokenId);
+    return this.generateTokens(
+      user.id,
+      user.email,
+      deviceInfo,
+      newTokenId,
+      user.roles,
+    );
   }
 
   async logout(tokenId: string, accessToken?: string) {

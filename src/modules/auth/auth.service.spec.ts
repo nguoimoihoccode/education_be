@@ -223,6 +223,11 @@ describe('AuthService', () => {
         isRevoked: false,
       }),
     );
+    expect(jwtService.signAsync).toHaveBeenNthCalledWith(
+      1,
+      expect.objectContaining({ roles: user.roles }),
+      expect.objectContaining({ algorithm: 'RS256', expiresIn: '15m' }),
+    );
   });
 
   it('revokes all sessions when a revoked refresh token is reused', async () => {
@@ -270,6 +275,20 @@ describe('AuthService', () => {
     await expect(
       service.refreshTokens('token-id', user.id, { fingerprint: 'device-1' }),
     ).rejects.toThrow(UnauthorizedException);
+  });
+
+  it('rejects refresh when a bound device fingerprint is omitted', async () => {
+    refreshTokenRepository.findOne.mockResolvedValue({
+      tokenId: 'token-id',
+      userId: user.id,
+      isRevoked: false,
+      expiresAt: new Date(Date.now() + 60_000),
+      deviceFingerprint: 'stored-fingerprint-hash',
+    });
+
+    await expect(service.refreshTokens('token-id', user.id)).rejects.toThrow(
+      UnauthorizedException,
+    );
   });
 
   it('logs out by revoking refresh token and blacklisting access token', async () => {

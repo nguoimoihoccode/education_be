@@ -35,6 +35,36 @@ import {
 } from './dto';
 import { calculateSrsReview, nextReviewDate } from './domain/srs.policy';
 
+export type TodayPlanTaskType =
+  | 'continue_lesson'
+  | 'review_flashcards'
+  | 'quick_quiz'
+  | 'fix_mistakes';
+
+export interface TodayPlanTask {
+  id: string;
+  type: TodayPlanTaskType;
+  title: string;
+  description: string;
+  ctaLabel: string;
+  targetUrl: string;
+  estimatedMinutes: number;
+  completed: boolean;
+  priority: number;
+}
+
+export interface TodayPlan {
+  date: string;
+  completedTasks: number;
+  totalTasks: number;
+  estimatedMinutes: number;
+  streak: {
+    current: number;
+    longest: number;
+  };
+  tasks: TodayPlanTask[];
+}
+
 @Injectable()
 export class EducationService {
   constructor(
@@ -657,7 +687,9 @@ export class EducationService {
       order: { updatedAt: 'DESC' },
     });
     const activeEnrollment = enrollments.find(
-      (enrollment) => enrollment.status !== EnrollmentStatus.COMPLETED,
+      (enrollment) =>
+        enrollment.status === EnrollmentStatus.ENROLLED ||
+        enrollment.status === EnrollmentStatus.IN_PROGRESS,
     );
 
     let nextLesson: {
@@ -698,7 +730,7 @@ export class EducationService {
       this.userVocabularyRepository.count({
         where: { userId, nextReview: LessThanOrEqual(new Date()) },
       }),
-      this.getUserStreak(userId),
+      this.userStreakRepository.findOne({ where: { userId } }),
     ]);
     const numericUserId = Number(userId);
     const weakQuizSessions = await this.quizSessionRepository.find({
@@ -794,14 +826,94 @@ export class EducationService {
       },
       weakQuizzes,
       streak: {
-        current: streak.currentStreak || 0,
-        longest: streak.longestStreak || 0,
-        xp: streak.totalXp || 0,
-        level: streak.level || 1,
+        current: streak?.currentStreak || 0,
+        longest: streak?.longestStreak || 0,
+        xp: streak?.totalXp || 0,
+        level: streak?.level || 1,
       },
       recommendedActions: recommendedActions.sort(
         (a, b) => a.priority - b.priority,
       ),
+    };
+  }
+
+  async getTodayPlan(userId: string): Promise<TodayPlan> {
+    const learningPlan = await this.getLearningPlan(userId);
+    const tasks: TodayPlanTask[] = [];
+
+    if (learningPlan.nextLesson) {
+      tasks.push({
+        id: `continue-lesson-${learningPlan.nextLesson.id}`,
+        type: 'continue_lesson',
+        title: `Tiếp tục: ${learningPlan.nextLesson.title}`,
+        description: `Bài tiếp theo trong ${learningPlan.nextLesson.courseTitle}`,
+        ctaLabel: 'Học tiếp',
+        targetUrl: learningPlan.nextLesson.route,
+        estimatedMinutes: learningPlan.nextLesson.estimatedMinutes,
+        completed: false,
+        priority: 1,
+      });
+    }
+
+    if (learningPlan.dueReviews.count > 0) {
+      tasks.push({
+        id: 'review-flashcards',
+        type: 'review_flashcards',
+        title: `Ôn ${learningPlan.dueReviews.count} flashcards đến hạn`,
+        description: 'Ôn đúng hạn giúp bạn nhớ lâu hơn.',
+        ctaLabel: 'Ôn flashcards',
+        targetUrl: '/flashcards/review',
+        estimatedMinutes: Math.min(
+          15,
+          Math.max(5, Math.ceil(learningPlan.dueReviews.count / 2)),
+        ),
+        completed: false,
+        priority: 2,
+      });
+    }
+
+    learningPlan.weakQuizzes.slice(0, 1).forEach((quiz) => {
+      tasks.push({
+        id: `fix-mistakes-${quiz.quizId}`,
+        type: 'fix_mistakes',
+        title: `Sửa lỗi: ${quiz.title}`,
+        description: quiz.recommendation,
+        ctaLabel: 'Luyện lại',
+        targetUrl: quiz.route,
+        estimatedMinutes: 10,
+        completed: false,
+        priority: 3,
+      });
+    });
+
+    tasks.push({
+      id: 'quick-quiz',
+      type: 'quick_quiz',
+      title: 'Làm quiz ngắn',
+      description: 'Duy trì nhịp học bằng một bài luyện tập nhanh.',
+      ctaLabel: 'Mở quiz',
+      targetUrl: '/quiz',
+      estimatedMinutes: 10,
+      completed: false,
+      priority: tasks.length ? 4 : 1,
+    });
+
+    const sortedTasks = tasks.sort((a, b) => a.priority - b.priority).slice(0, 4);
+    const completedTasks = sortedTasks.filter((task) => task.completed).length;
+
+    return {
+      date: new Date().toISOString().slice(0, 10),
+      completedTasks,
+      totalTasks: sortedTasks.length,
+      estimatedMinutes: sortedTasks.reduce(
+        (total, task) => total + task.estimatedMinutes,
+        0,
+      ),
+      streak: {
+        current: learningPlan.streak.current,
+        longest: learningPlan.streak.longest,
+      },
+      tasks: sortedTasks,
     };
   }
 }

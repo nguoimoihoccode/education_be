@@ -82,7 +82,7 @@ export class QuizService {
 
   async getQuizById(quizId: string, userId: number) {
     const quiz = await this.quizRepository.findOne({
-      where: { id: quizId, userId },
+      where: { id: quizId },
     });
 
     if (!quiz) {
@@ -480,6 +480,10 @@ export class QuizService {
       throw new NotFoundException('Quiz not found');
     }
 
+    if (!quiz.isPublic && quiz.userId !== userId) {
+      throw new NotFoundException('Quiz not found');
+    }
+
     // Check retry limit
     if (!quiz.allowRetry) {
       const existingSessions = await this.quizSessionRepository.count({
@@ -662,7 +666,22 @@ export class QuizService {
 
     return questionIds
       .map((questionId) => questionsById.get(questionId))
-      .filter((question): question is QuizQuestion => Boolean(question));
+      .filter((question): question is QuizQuestion => Boolean(question))
+      .map((question) => this.toSessionQuestion(question));
+  }
+
+  private toSessionQuestion(question: QuizQuestion) {
+    return {
+      id: question.id,
+      question: question.question,
+      type: question.type,
+      options: question.options,
+      points: question.points,
+      flashcardId: question.flashcardId,
+      quizId: question.quizId,
+      createdAt: question.createdAt,
+      updatedAt: question.updatedAt,
+    };
   }
 
   async getQuizSessions(

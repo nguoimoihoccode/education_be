@@ -34,6 +34,11 @@ import {
 export class EducationController {
   constructor(private readonly educationService: EducationService) {}
 
+  @Get('today-plan')
+  async getTodayPlan(@Request() req: any) {
+    return this.educationService.getTodayPlan(req.user.id);
+  }
+
   // ==================== LANGUAGES (PUBLIC) ====================
   @Public()
   @Get('languages')

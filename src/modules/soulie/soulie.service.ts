@@ -1137,7 +1137,7 @@ export class SoulieService {
   private toFriendDto(user: User): SoulieFriendDto {
     return {
       id: String(user.id),
-      name: this.getDisplayName(user),
+      name: this.getPublicDisplayName(user),
       username: this.getPublicUsername(user),
       status: this.isUserOnline(user)
         ? 'Active now'
@@ -1189,17 +1189,18 @@ export class SoulieService {
       .replace(/\b\w/g, (character) => character.toUpperCase());
   }
 
+  private getPublicDisplayName(user: Pick<User, 'name' | 'id'>): string {
+    if (user.name?.trim()) {
+      return user.name.trim();
+    }
+
+    return `Soulie User ${user.id}`;
+  }
+
   private getPublicUsername(
-    user: Pick<User, 'username' | 'email' | 'id'>,
+    user: Pick<User, 'username' | 'id'>,
   ): string {
-    const username =
-      user.username?.trim() ||
-      user.email
-        .split('@')[0]
-        ?.trim()
-        .replace(/[^a-zA-Z0-9_]/g, '')
-        .toLowerCase() ||
-      `soulie${user.id}`;
+    const username = user.username?.trim() || `soulie${user.id}`;
 
     return `@${username}`;
   }
