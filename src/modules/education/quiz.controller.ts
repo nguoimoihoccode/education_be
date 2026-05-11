@@ -19,6 +19,7 @@ import {
   ApiBody,
 } from '@nestjs/swagger';
 import { QuizService } from './quiz.service';
+import { EducationService } from './education.service';
 import {
   CreateQuizDto,
   UpdateQuizDto,
@@ -40,7 +41,10 @@ import { ExpensiveActionRateLimit } from '../../common/decorators/rate-limit.dec
 @Controller('quizzes')
 @UseGuards(JwtAuthGuard)
 export class QuizController {
-  constructor(private readonly quizService: QuizService) {}
+  constructor(
+    private readonly quizService: QuizService,
+    private readonly educationService: EducationService,
+  ) {}
 
   private getUserId(req: RequestWithUser): number {
     const userId = req.user?.sub;
@@ -207,7 +211,18 @@ export class QuizController {
     @Param('sessionId') sessionId: string,
   ) {
     const userId = this.getUserId(req);
-    return this.quizService.completeQuizSession(userId, { sessionId });
+    const result = await this.quizService.completeQuizSession(userId, {
+      sessionId,
+    });
+    await this.educationService.markTodayPlanTasksCompleteByType(
+      String(userId),
+      ['quick_quiz'],
+    );
+    await this.educationService.markTodayPlanTasksCompleteByTarget(
+      String(userId),
+      `/quiz/${result.quizId}`,
+    );
+    return result;
   }
 
   @Get('sessions/:sessionId/questions')

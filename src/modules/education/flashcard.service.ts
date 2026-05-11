@@ -8,9 +8,9 @@ import { InjectRepository } from '@nestjs/typeorm';
 import {
   Repository,
   Between,
-  MoreThanOrEqual,
   LessThanOrEqual,
   In,
+  ILike,
 } from 'typeorm';
 import {
   FlashcardDeck,
@@ -369,8 +369,8 @@ export class FlashcardService {
 
     const [flashcards, total] = await this.flashcardRepository.findAndCount({
       where: [
-        { userId, front: `%${query}%` },
-        { userId, back: `%${query}%` },
+        { userId, front: ILike(`%${query}%`) },
+        { userId, back: ILike(`%${query}%`) },
       ],
       skip,
       take: limit,
@@ -565,7 +565,9 @@ export class FlashcardService {
       where: { userId, flashcardId: dto.flashcardId },
     });
 
-    if (!userFlashcard) {
+    let reviewedFlashcard = userFlashcard;
+
+    if (!reviewedFlashcard) {
       // First time reviewing this card
       const flashcard = await this.flashcardRepository.findOne({
         where: { id: dto.flashcardId },
@@ -598,23 +600,23 @@ export class FlashcardService {
       newUserFlashcard.totalReviews++;
       newUserFlashcard.lastReviewed = new Date();
 
-      await this.userFlashcardRepository.save(newUserFlashcard);
+      reviewedFlashcard = await this.userFlashcardRepository.save(newUserFlashcard);
     } else {
       // Update SRS
-      this.calculateSRS(userFlashcard, dto.quality);
+      this.calculateSRS(reviewedFlashcard, dto.quality);
 
       // Update counts
       if (dto.quality >= 3) {
-        userFlashcard.correctCount++;
-        userFlashcard.streak++;
+        reviewedFlashcard.correctCount++;
+        reviewedFlashcard.streak++;
       } else {
-        userFlashcard.wrongCount++;
-        userFlashcard.streak = 0;
+        reviewedFlashcard.wrongCount++;
+        reviewedFlashcard.streak = 0;
       }
-      userFlashcard.totalReviews++;
-      userFlashcard.lastReviewed = new Date();
+      reviewedFlashcard.totalReviews++;
+      reviewedFlashcard.lastReviewed = new Date();
 
-      await this.userFlashcardRepository.save(userFlashcard);
+      reviewedFlashcard = await this.userFlashcardRepository.save(reviewedFlashcard);
     }
 
     // Update flashcard status
@@ -623,7 +625,7 @@ export class FlashcardService {
     // Update streak and XP
     await this.updateStreak(userId);
 
-    return { success: true, nextReview: userFlashcard?.nextReview };
+    return { success: true, nextReview: reviewedFlashcard.nextReview };
   }
 
   async completeReviewSession(userId: number, dto: CompleteReviewSessionDto) {
@@ -638,6 +640,28 @@ export class FlashcardService {
     session.completed = true;
     session.completedAt = new Date();
 
+    if (dto.results) {
+      session.results = dto.results.map((result) => ({
+        flashcardId: result.flashcardId,
+        quality: result.quality,
+        isCorrect: result.isCorrect ?? result.quality >= 3,
+        timeSpent: result.timeSpent ?? 0,
+      }));
+      session.correctCards = session.results.filter((result) => result.isCorrect).length;
+      session.wrongCards = session.results.filter((result) => !result.isCorrect).length;
+      session.timeSpent = session.results.reduce(
+        (total, result) => total + (result.timeSpent || 0),
+        0,
+      );
+    }
+
+    if (dto.skippedCards !== undefined) {
+      session.skippedCards = dto.skippedCards;
+    }
+
+    session.totalCards =
+      session.correctCards + session.wrongCards + session.skippedCards;
+
     // Calculate XP
     session.xpEarned = session.correctCards * 10;
 
@@ -648,15 +672,7 @@ export class FlashcardService {
 
   async getFlashcardsToReview(userId: number, deckId?: string, limit?: number) {
     const now = new Date();
-
-    const where: any = {
-      userId,
-      nextReview: MoreThanOrEqual(now),
-    };
-
-    if (deckId) {
-      where.deckId = deckId;
-    }
+    const take = limit ?? 20;
 
     const query = this.userFlashcardRepository
       .createQueryBuilder('uf')
@@ -668,19 +684,34 @@ export class FlashcardService {
       query.andWhere('uf.deckId = :deckId', { deckId });
     }
 
-    if (limit) {
-      query.limit(limit);
-    }
+    query.limit(take);
 
     const userFlashcards = await query.getMany();
 
     // Get actual flashcard data
     const flashcardIds = userFlashcards.map((uf) => uf.flashcardId);
-    const flashcards = await this.flashcardRepository.find({
+    const reviewedFlashcards = flashcardIds.length
+      ? await this.flashcardRepository.find({
       where: { id: In(flashcardIds) },
-    });
+      })
+      : [];
 
-    return flashcards;
+    const remaining = Math.max(take - reviewedFlashcards.length, 0);
+    const newWhere: any = { userId, status: 'NEW' };
+
+    if (deckId) {
+      newWhere.deckId = deckId;
+    }
+
+    const newFlashcards = remaining
+      ? await this.flashcardRepository.find({
+          where: newWhere,
+          take: remaining,
+          order: { createdAt: 'ASC' },
+        })
+      : [];
+
+    return [...reviewedFlashcards, ...newFlashcards];
   }
 
   private calculateSRS(userFlashcard: UserFlashcard, quality: number): void {
@@ -902,7 +933,7 @@ export class FlashcardService {
 
     const where: any = {
       userId,
-      nextReview: MoreThanOrEqual(now),
+      nextReview: LessThanOrEqual(now),
     };
 
     if (deckId) {

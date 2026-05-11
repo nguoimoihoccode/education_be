@@ -20,6 +20,7 @@ import {
   Quiz,
   QuizQuestion,
   QuizSession,
+  DailyLearningTask,
 } from '../modules/education/entities';
 import { SoulieFriendship } from '../modules/soulie/entities/friendship.entity';
 import { SoulieConversation } from '../modules/soulie/entities/conversation.entity';
@@ -57,6 +58,7 @@ export default new DataSource({
     Quiz,
     QuizQuestion,
     QuizSession,
+    DailyLearningTask,
     SoulieFriendship,
     SoulieConversation,
     SoulieMessage,

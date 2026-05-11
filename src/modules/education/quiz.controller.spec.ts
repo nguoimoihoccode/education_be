@@ -22,3 +22,31 @@ describe('QuizController route order', () => {
     expect(routeOrder.indexOf('getAllWrongAnswers')).toBeLessThan(idRouteIndex);
   });
 });
+
+describe('QuizController today plan completion', () => {
+  it('awaits today plan task marking before returning completed quiz result', async () => {
+    const quizService = {
+      completeQuizSession: jest.fn().mockResolvedValue({ quizId: 'quiz-1' }),
+    };
+    const educationService = {
+      markTodayPlanTasksCompleteByTarget: jest.fn().mockResolvedValue(undefined),
+      markTodayPlanTasksCompleteByType: jest.fn().mockResolvedValue(undefined),
+    };
+    const controller = new QuizController(quizService as any, educationService as any);
+
+    const result = await controller.completeQuizSession(
+      { user: { sub: 42 } } as any,
+      'session-1',
+    );
+
+    expect(result).toEqual({ quizId: 'quiz-1' });
+    expect(educationService.markTodayPlanTasksCompleteByType).toHaveBeenCalledWith(
+      '42',
+      ['quick_quiz'],
+    );
+    expect(educationService.markTodayPlanTasksCompleteByTarget).toHaveBeenCalledWith(
+      '42',
+      '/quiz/quiz-1',
+    );
+  });
+});

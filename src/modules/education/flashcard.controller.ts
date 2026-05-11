@@ -11,6 +11,7 @@ import {
   HttpStatus,
   UseGuards,
   Req,
+  BadRequestException,
 } from '@nestjs/common';
 import {
   ApiTags,
@@ -21,6 +22,7 @@ import {
   ApiBody,
 } from '@nestjs/swagger';
 import { FlashcardService } from './flashcard.service';
+import { EducationService } from './education.service';
 import {
   CreateFlashcardDeckDto,
   UpdateFlashcardDeckDto,
@@ -42,7 +44,10 @@ import { PaginationDto } from '../../common/dto/pagination.dto';
 @Controller('flashcards')
 @UseGuards(JwtAuthGuard)
 export class FlashcardController {
-  constructor(private readonly flashcardService: FlashcardService) {}
+  constructor(
+    private readonly flashcardService: FlashcardService,
+    private readonly educationService: EducationService,
+  ) {}
 
   private getUserId(req: RequestWithUser): number {
     const userId = req.user?.sub;
@@ -208,37 +213,6 @@ export class FlashcardController {
     );
   }
 
-  @Get(':id')
-  @ApiOperation({ summary: 'Get flashcard by ID' })
-  @ApiParam({ name: 'id', description: 'Flashcard ID' })
-  @ApiResponse({ status: 200, description: 'Flashcard retrieved successfully' })
-  async getFlashcardById(@Req() req: RequestWithUser, @Param('id') id: string) {
-    const userId = this.getUserId(req);
-    return this.flashcardService.getFlashcardById(id, userId);
-  }
-
-  @Patch(':id')
-  @ApiOperation({ summary: 'Update flashcard' })
-  @ApiParam({ name: 'id', description: 'Flashcard ID' })
-  @ApiResponse({ status: 200, description: 'Flashcard updated successfully' })
-  async updateFlashcard(
-    @Req() req: RequestWithUser,
-    @Param('id') id: string,
-    @Body() dto: UpdateFlashcardDto,
-  ) {
-    const userId = this.getUserId(req);
-    return this.flashcardService.updateFlashcard(id, userId, dto);
-  }
-
-  @Delete(':id')
-  @ApiOperation({ summary: 'Delete flashcard' })
-  @ApiParam({ name: 'id', description: 'Flashcard ID' })
-  @ApiResponse({ status: 200, description: 'Flashcard deleted successfully' })
-  async deleteFlashcard(@Req() req: RequestWithUser, @Param('id') id: string) {
-    const userId = this.getUserId(req);
-    return this.flashcardService.deleteFlashcard(id, userId);
-  }
-
   @Get('search')
   @ApiOperation({ summary: 'Search flashcards' })
   @ApiQuery({ name: 'q', required: true, description: 'Search query' })
@@ -246,12 +220,19 @@ export class FlashcardController {
   async searchFlashcards(
     @Req() req: RequestWithUser,
     @Query('q') query: string,
+    @Query('query') frontendQuery?: string,
     @Pagination() pagination?: PaginationDto,
   ) {
     const userId = this.getUserId(req);
+    const searchQuery = query || frontendQuery;
+
+    if (!searchQuery) {
+      throw new BadRequestException('Search query is required');
+    }
+
     return this.flashcardService.searchFlashcards(
       userId,
-      query,
+      searchQuery,
       pagination?.page,
       pagination?.limit,
     );
@@ -294,6 +275,22 @@ export class FlashcardController {
     return this.flashcardService.startReviewSession(userId, dto);
   }
 
+  @Post('review/complete')
+  @ApiOperation({ summary: 'Complete a review session' })
+  @ApiResponse({ status: 200, description: 'Review session completed' })
+  async completeReviewSession(
+    @Req() req: RequestWithUser,
+    @Body() dto: CompleteReviewSessionDto,
+  ) {
+    const userId = this.getUserId(req);
+    const result = await this.flashcardService.completeReviewSession(userId, dto);
+    await this.educationService.markTodayPlanTasksCompleteByType(
+      String(userId),
+      ['review_flashcards'],
+    );
+    return result;
+  }
+
   @Post('review/:flashcardId')
   @ApiOperation({ summary: 'Review a flashcard' })
   @ApiParam({ name: 'flashcardId', description: 'Flashcard ID' })
@@ -308,17 +305,6 @@ export class FlashcardController {
       ...dto,
       flashcardId,
     });
-  }
-
-  @Post('review/complete')
-  @ApiOperation({ summary: 'Complete a review session' })
-  @ApiResponse({ status: 200, description: 'Review session completed' })
-  async completeReviewSession(
-    @Req() req: RequestWithUser,
-    @Body() dto: CompleteReviewSessionDto,
-  ) {
-    const userId = this.getUserId(req);
-    return this.flashcardService.completeReviewSession(userId, dto);
   }
 
   @Get('review/due')
@@ -379,5 +365,36 @@ export class FlashcardController {
       pagination?.page,
       pagination?.limit,
     );
+  }
+
+  @Get(':id')
+  @ApiOperation({ summary: 'Get flashcard by ID' })
+  @ApiParam({ name: 'id', description: 'Flashcard ID' })
+  @ApiResponse({ status: 200, description: 'Flashcard retrieved successfully' })
+  async getFlashcardById(@Req() req: RequestWithUser, @Param('id') id: string) {
+    const userId = this.getUserId(req);
+    return this.flashcardService.getFlashcardById(id, userId);
+  }
+
+  @Patch(':id')
+  @ApiOperation({ summary: 'Update flashcard' })
+  @ApiParam({ name: 'id', description: 'Flashcard ID' })
+  @ApiResponse({ status: 200, description: 'Flashcard updated successfully' })
+  async updateFlashcard(
+    @Req() req: RequestWithUser,
+    @Param('id') id: string,
+    @Body() dto: UpdateFlashcardDto,
+  ) {
+    const userId = this.getUserId(req);
+    return this.flashcardService.updateFlashcard(id, userId, dto);
+  }
+
+  @Delete(':id')
+  @ApiOperation({ summary: 'Delete flashcard' })
+  @ApiParam({ name: 'id', description: 'Flashcard ID' })
+  @ApiResponse({ status: 200, description: 'Flashcard deleted successfully' })
+  async deleteFlashcard(@Req() req: RequestWithUser, @Param('id') id: string) {
+    const userId = this.getUserId(req);
+    return this.flashcardService.deleteFlashcard(id, userId);
   }
 }

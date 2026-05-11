@@ -17,6 +17,7 @@ import {
   UserLesson,
   UserVocabulary,
   UserStreak,
+  DailyLearningTask,
 } from './entities';
 import {
   FlashcardDeck,
@@ -49,6 +50,7 @@ import { UsersModule } from '../users/users.module';
       Quiz,
       QuizQuestion,
       QuizSession,
+      DailyLearningTask,
     ]),
   ],
   controllers: [EducationController, FlashcardController, QuizController],

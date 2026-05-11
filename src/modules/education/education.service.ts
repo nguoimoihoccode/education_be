@@ -16,6 +16,7 @@ import {
   UserVocabulary,
   UserStreak,
   QuizSession,
+  DailyLearningTask,
   EnrollmentStatus,
   VocabularyStatus,
 } from './entities';
@@ -65,6 +66,12 @@ export interface TodayPlan {
   tasks: TodayPlanTask[];
 }
 
+const getTodayDateKey = (): string => {
+  const now = new Date();
+  const timezoneOffsetMs = now.getTimezoneOffset() * 60 * 1000;
+  return new Date(now.getTime() - timezoneOffsetMs).toISOString().slice(0, 10);
+};
+
 @Injectable()
 export class EducationService {
   constructor(
@@ -88,6 +95,8 @@ export class EducationService {
     private userStreakRepository: Repository<UserStreak>,
     @InjectRepository(QuizSession)
     private quizSessionRepository: Repository<QuizSession>,
+    @InjectRepository(DailyLearningTask)
+    private dailyLearningTaskRepository: Repository<DailyLearningTask>,
   ) {}
 
   // ==================== LANGUAGES ====================
@@ -898,14 +907,23 @@ export class EducationService {
       priority: tasks.length ? 4 : 1,
     });
 
+    const date = getTodayDateKey();
     const sortedTasks = tasks.sort((a, b) => a.priority - b.priority).slice(0, 4);
-    const completedTasks = sortedTasks.filter((task) => task.completed).length;
+    const completionRows = await this.dailyLearningTaskRepository.find({
+      where: { userId, date, completed: true },
+    });
+    const completedTaskIds = new Set(completionRows.map((task) => task.taskId));
+    const tasksWithCompletion = sortedTasks.map((task) => ({
+      ...task,
+      completed: completedTaskIds.has(task.id),
+    }));
+    const completedTasks = tasksWithCompletion.filter((task) => task.completed).length;
 
     return {
-      date: new Date().toISOString().slice(0, 10),
+      date,
       completedTasks,
-      totalTasks: sortedTasks.length,
-      estimatedMinutes: sortedTasks.reduce(
+      totalTasks: tasksWithCompletion.length,
+      estimatedMinutes: tasksWithCompletion.reduce(
         (total, task) => total + task.estimatedMinutes,
         0,
       ),
@@ -913,7 +931,61 @@ export class EducationService {
         current: learningPlan.streak.current,
         longest: learningPlan.streak.longest,
       },
-      tasks: sortedTasks,
+      tasks: tasksWithCompletion,
     };
+  }
+
+  async markTodayPlanTaskComplete(userId: string, taskId: string) {
+    const todayPlan = await this.getTodayPlan(userId);
+    const task = todayPlan.tasks.find((item) => item.id === taskId);
+
+    if (!task) {
+      throw new NotFoundException('Today plan task not found');
+    }
+
+    const completion = {
+      userId,
+      date: todayPlan.date,
+      taskId,
+      taskType: task.type,
+      targetUrl: task.targetUrl,
+      completed: true,
+      completedAt: new Date(),
+    };
+
+    await this.dailyLearningTaskRepository.upsert(completion, [
+      'userId',
+      'date',
+      'taskId',
+    ]);
+
+    return this.dailyLearningTaskRepository.findOne({
+      where: { userId, date: todayPlan.date, taskId },
+    });
+  }
+
+  async markTodayPlanTasksCompleteByTarget(userId: string, targetUrl: string) {
+    const todayPlan = await this.getTodayPlan(userId);
+    const matchingTasks = todayPlan.tasks.filter(
+      (task) => task.targetUrl === targetUrl,
+    );
+
+    for (const task of matchingTasks) {
+      await this.markTodayPlanTaskComplete(userId, task.id);
+    }
+  }
+
+  async markTodayPlanTasksCompleteByType(
+    userId: string,
+    taskTypes: TodayPlanTaskType[],
+  ) {
+    const todayPlan = await this.getTodayPlan(userId);
+    const matchingTasks = todayPlan.tasks.filter((task) =>
+      taskTypes.includes(task.type),
+    );
+
+    for (const task of matchingTasks) {
+      await this.markTodayPlanTaskComplete(userId, task.id);
+    }
   }
 }

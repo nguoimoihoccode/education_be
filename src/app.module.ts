@@ -59,6 +59,7 @@ import {
   Quiz,
   QuizQuestion,
   QuizSession,
+  DailyLearningTask,
 } from './modules/education/entities';
 
 // Soulie Entities
@@ -123,6 +124,7 @@ import { NotificationToken } from './modules/soulie/entities/notification-token.
           Quiz,
           QuizQuestion,
           QuizSession,
+          DailyLearningTask,
           // Soulie entities
           SoulieFriendship,
           SoulieConversation,

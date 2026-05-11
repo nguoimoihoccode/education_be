@@ -34,9 +34,25 @@ import {
 export class EducationController {
   constructor(private readonly educationService: EducationService) {}
 
+  private getUserId(req: any): string {
+    const userId = req.user?.sub ?? req.user?.id;
+    return String(userId);
+  }
+
   @Get('today-plan')
   async getTodayPlan(@Request() req: any) {
-    return this.educationService.getTodayPlan(req.user.id);
+    return this.educationService.getTodayPlan(this.getUserId(req));
+  }
+
+  @Post('today-plan/tasks/:taskId/complete')
+  async completeTodayPlanTask(
+    @Request() req: any,
+    @Param('taskId') taskId: string,
+  ) {
+    return this.educationService.markTodayPlanTaskComplete(
+      this.getUserId(req),
+      taskId,
+    );
   }
 
   // ==================== LANGUAGES (PUBLIC) ====================
@@ -83,12 +99,12 @@ export class EducationController {
   @Post('courses/:id/enroll')
   @Roles(UserRole.STUDENT, UserRole.USER)
   async enrollCourse(@Request() req: any, @Param('id') courseId: string) {
-    return this.educationService.enrollCourse(req.user.id, courseId);
+    return this.educationService.enrollCourse(this.getUserId(req), courseId);
   }
 
   @Get('my-courses')
   async getMyCourses(@Request() req: any) {
-    return this.educationService.getUserCourses(req.user.id);
+    return this.educationService.getUserCourses(this.getUserId(req));
   }
 
   // ==================== LESSONS ====================
@@ -123,7 +139,16 @@ export class EducationController {
     @Param('id') lessonId: string,
     @Body() dto: CompleteLessonDto,
   ) {
-    return this.educationService.completeLesson(req.user.id, lessonId, dto);
+    const result = await this.educationService.completeLesson(
+      this.getUserId(req),
+      lessonId,
+      dto,
+    );
+    await this.educationService.markTodayPlanTasksCompleteByTarget(
+      this.getUserId(req),
+      `/education/lessons/${lessonId}`,
+    );
+    return result;
   }
 
   // ==================== VOCABULARY ====================
@@ -152,7 +177,7 @@ export class EducationController {
     @Request() req: any,
     @Query('limit') limit?: number,
   ) {
-    return this.educationService.getVocabularyToReview(req.user.id, limit);
+    return this.educationService.getVocabularyToReview(this.getUserId(req), limit);
   }
 
   // Student: Review vocabulary
@@ -163,7 +188,7 @@ export class EducationController {
     @Body() dto: ReviewVocabularyDto,
   ) {
     return this.educationService.reviewVocabulary(
-      req.user.id,
+      this.getUserId(req),
       vocabularyId,
       dto,
     );
@@ -189,22 +214,22 @@ export class EducationController {
     @Param('lessonId') lessonId: string,
     @Body() dto: SubmitExercisesDto,
   ) {
-    return this.educationService.submitExercises(req.user.id, lessonId, dto);
+    return this.educationService.submitExercises(this.getUserId(req), lessonId, dto);
   }
 
   // ==================== PROGRESS & STREAK ====================
   @Get('progress')
   async getUserProgress(@Request() req: any) {
-    return this.educationService.getUserProgress(req.user.id);
+    return this.educationService.getUserProgress(this.getUserId(req));
   }
 
   @Get('learning-plan')
   async getLearningPlan(@Request() req: any) {
-    return this.educationService.getLearningPlan(req.user.id);
+    return this.educationService.getLearningPlan(this.getUserId(req));
   }
 
   @Get('streak')
   async getUserStreak(@Request() req: any) {
-    return this.educationService.getUserStreak(req.user.id);
+    return this.educationService.getUserStreak(this.getUserId(req));
   }
 }

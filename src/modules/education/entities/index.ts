@@ -14,3 +14,4 @@ export * from './review-session.entity';
 export * from './quiz.entity';
 export * from './quiz-question.entity';
 export * from './quiz-session.entity';
+export * from './daily-learning-task.entity';
