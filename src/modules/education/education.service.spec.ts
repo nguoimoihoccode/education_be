@@ -291,4 +291,76 @@ describe('EducationService learning plan', () => {
 
     expect(dailyLearningTaskRepository.upsert).toHaveBeenCalledTimes(2);
   });
+
+  it('adds lesson time spent to enrolled course total time', async () => {
+    const userCourseRepository = createRepository({
+      increment: jest.fn().mockResolvedValue({ affected: 1 }),
+      update: jest.fn(),
+    });
+    const service = new EducationService(
+      createRepository() as any,
+      createRepository({ findOne: jest.fn().mockResolvedValue({ id: 'course-1', totalLessons: 1 }) }) as any,
+      createRepository({ findOne: jest.fn().mockResolvedValue({ id: 'lesson-1', courseId: 'course-1' }) }) as any,
+      createRepository() as any,
+      createRepository() as any,
+      userCourseRepository as any,
+      createRepository({
+        count: jest.fn().mockResolvedValue(1),
+        create: jest.fn((value) => value),
+        findOne: jest.fn().mockResolvedValue(null),
+        save: jest.fn((value) => Promise.resolve(value)),
+      }) as any,
+      createRepository() as any,
+      createRepository({
+        create: jest.fn((value) => value),
+        findOne: jest.fn().mockResolvedValue({
+          currentStreak: 0,
+          longestStreak: 0,
+          totalDays: 0,
+          totalXp: 0,
+          level: 1,
+          lastActivityDate: null,
+        }),
+        save: jest.fn(),
+      }) as any,
+      createRepository() as any,
+      createRepository() as any,
+    );
+
+    await service.completeLesson('user-1', 'lesson-1', { timeSpent: 120 });
+
+    expect(userCourseRepository.increment).toHaveBeenCalledWith(
+      { userId: 'user-1', courseId: 'course-1' },
+      'totalTimeSpent',
+      120,
+    );
+  });
+
+  it('reports completed review target when review flashcards task is completed today', async () => {
+    const dailyLearningTaskRepository = createRepository({
+      find: jest.fn().mockResolvedValue([
+        { taskId: 'review-flashcards', taskType: 'review_flashcards', completed: true },
+      ]),
+    });
+    const service = new EducationService(
+      createRepository() as any,
+      createRepository() as any,
+      createRepository() as any,
+      createRepository() as any,
+      createRepository() as any,
+      createRepository({ find: jest.fn().mockResolvedValue([]) }) as any,
+      createRepository({ find: jest.fn().mockResolvedValue([]) }) as any,
+      createRepository({ count: jest.fn().mockResolvedValue(5) }) as any,
+      createRepository({ findOne: jest.fn().mockResolvedValue(null) }) as any,
+      createRepository({ find: jest.fn().mockResolvedValue([]) }) as any,
+      dailyLearningTaskRepository as any,
+    );
+
+    await expect(service.getLearningPlan('user-1')).resolves.toMatchObject({
+      dailyGoal: {
+        targetReviews: 20,
+        completedReviews: 20,
+      },
+    });
+  });
 });

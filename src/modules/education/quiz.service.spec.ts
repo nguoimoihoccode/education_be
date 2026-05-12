@@ -1,9 +1,21 @@
 import {
+  QuizService,
   buildQuizSessionQuestionOrder,
   calculateQuizSessionProgress,
   hasAnsweredQuestion,
   isQuestionInSessionOrder,
 } from './quiz.service';
+
+const createRepository = (overrides: Record<string, unknown> = {}) => ({
+  count: jest.fn(),
+  create: jest.fn((value) => value),
+  find: jest.fn(),
+  findAndCount: jest.fn(),
+  findOne: jest.fn(),
+  increment: jest.fn(),
+  save: jest.fn((value) => Promise.resolve(value)),
+  ...overrides,
+});
 
 describe('quiz session helpers', () => {
   it('stores selected question ids in the order presented to the learner', () => {
@@ -41,5 +53,46 @@ describe('quiz session helpers', () => {
   it('detects duplicate answers by question id', () => {
     expect(hasAnsweredQuestion([{ questionId: 'q1' }], 'q1')).toBe(true);
     expect(hasAnsweredQuestion([{ questionId: 'q1' }], 'q2')).toBe(false);
+  });
+});
+
+describe('QuizService retry limits', () => {
+  const createService = (quiz: Record<string, unknown>, completedAttempts: number) => {
+    const quizRepository = createRepository({
+      findOne: jest.fn().mockResolvedValue(quiz),
+    });
+    const quizSessionRepository = createRepository({
+      count: jest.fn().mockResolvedValue(completedAttempts),
+    });
+
+    return new QuizService(
+      quizRepository as any,
+      createRepository() as any,
+      quizSessionRepository as any,
+      createRepository() as any,
+      createRepository() as any,
+    );
+  };
+
+  it('blocks quizzes that do not allow retry after one completed attempt', async () => {
+    const service = createService(
+      { id: 'quiz-1', userId: 1, isPublic: false, allowRetry: false },
+      1,
+    );
+
+    await expect(service.startQuizSession(1, { quizId: 'quiz-1' })).rejects.toThrow(
+      'Quiz does not allow retries',
+    );
+  });
+
+  it('blocks quizzes when max retry attempts are exhausted', async () => {
+    const service = createService(
+      { id: 'quiz-1', userId: 1, isPublic: false, allowRetry: true, maxRetries: 2 },
+      2,
+    );
+
+    await expect(service.startQuizSession(1, { quizId: 'quiz-1' })).rejects.toThrow(
+      'Quiz retry limit reached',
+    );
   });
 });

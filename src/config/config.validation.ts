@@ -89,4 +89,25 @@ export const configValidationSchema = Joi.object({
   THROTTLE_LIMIT: Joi.number()
     .default(100)
     .description('Rate limit max requests'),
+
+  // AI Tutor (Groq OpenAI-compatible API)
+  GROQ_API_KEY: Joi.string().optional().description('Groq API key'),
+  GROQ_BASE_URL: Joi.string()
+    .uri()
+    .default('https://api.groq.com/openai/v1')
+    .description('Groq OpenAI-compatible base URL'),
+  AI_MODEL: Joi.string()
+    .default('llama-3.3-70b-versatile')
+    .description('AI tutor chat model'),
+  AI_TUTOR_MAX_TOKENS: Joi.number()
+    .integer()
+    .min(64)
+    .max(4096)
+    .default(700)
+    .description('AI tutor maximum response tokens'),
+  AI_TUTOR_TEMPERATURE: Joi.number()
+    .min(0)
+    .max(2)
+    .default(0.4)
+    .description('AI tutor response temperature'),
 });

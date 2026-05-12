@@ -35,6 +35,11 @@ import {
 import type { RequestWithUser } from '../../common/types/auth.types';
 import { DocumentConversionService } from './document-conversion.service';
 import { DocumentTextExtractionService } from './document-text-extraction.service';
+import { DocumentPreviewService } from './document-preview.service';
+import {
+  ConfirmDocumentImportDto,
+  DocumentPreviewRequestDto,
+} from './dto/document-preview.dto';
 import {
   ExpensiveActionRateLimit,
   UploadRateLimit,
@@ -59,6 +64,7 @@ export class DocumentImportController {
     private readonly documentImportService: DocumentImportService,
     private readonly documentConversionService: DocumentConversionService,
     private readonly documentTextExtractionService: DocumentTextExtractionService,
+    private readonly documentPreviewService: DocumentPreviewService,
   ) {}
 
   private getUserId(req: RequestWithUser): number {
@@ -268,6 +274,71 @@ export class DocumentImportController {
   })
   getSupportedTypes(): FileType[] {
     return this.documentImportService.getSupportedFileTypes();
+  }
+
+  @Post('preview')
+  @ExpensiveActionRateLimit()
+  @ApiOperation({
+    summary: 'Preview document import without creating content',
+    description:
+      'Upload a document and return suggested flashcards without writing to the database',
+  })
+  @ApiConsumes('multipart/form-data')
+  @UseInterceptors(
+    FileInterceptor('file', {
+      storage: memoryStorage(),
+      limits: { fileSize: MAX_FILE_SIZE },
+      fileFilter: (_req, file, cb) => {
+        if (!ALLOWED_MIME_TYPES.has(file.mimetype)) {
+          return cb(
+            new BadRequestException(`Unsupported file type: ${file.mimetype}`),
+            false,
+          );
+        }
+        cb(null, true);
+      },
+    }),
+  )
+  @HttpCode(200)
+  async previewDocument(
+    @UploadedFile() file?: Express.Multer.File,
+    @Body() dto?: DocumentPreviewRequestDto,
+  ) {
+    if (!file) {
+      throw new BadRequestException('File is required');
+    }
+
+    let fileType = this.documentTextExtractionService.getFileTypeFromExtension(
+      file.originalname,
+    );
+    if (!fileType) {
+      fileType = this.documentTextExtractionService.getFileTypeFromMimeType(
+        file.mimetype,
+      );
+    }
+    if (!fileType) {
+      throw new BadRequestException('Unsupported file type');
+    }
+
+    return this.documentPreviewService.previewDocument(
+      file.buffer,
+      fileType,
+      file.originalname,
+      dto ?? {},
+    );
+  }
+
+  @Post('confirm')
+  @ApiOperation({
+    summary: 'Confirm selected document preview cards and create flashcards',
+  })
+  @HttpCode(200)
+  async confirmDocumentImport(
+    @Req() req: RequestWithUser,
+    @Body() dto: ConfirmDocumentImportDto,
+  ) {
+    const userId = this.getUserId(req);
+    return this.documentPreviewService.confirmImport(userId, dto);
   }
 
   @Post('convert')

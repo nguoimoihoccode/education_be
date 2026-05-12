@@ -484,14 +484,20 @@ export class QuizService {
       throw new NotFoundException('Quiz not found');
     }
 
-    // Check retry limit
-    if (!quiz.allowRetry) {
-      const existingSessions = await this.quizSessionRepository.count({
-        where: { userId, quizId: dto.quizId, completed: true },
-      });
-      if (existingSessions > 0) {
-        throw new BadRequestException('Quiz does not allow retries');
-      }
+    const completedAttempts = await this.quizSessionRepository.count({
+      where: { userId, quizId: dto.quizId, completed: true },
+    });
+
+    if (!quiz.allowRetry && completedAttempts > 0) {
+      throw new BadRequestException('Quiz does not allow retries');
+    }
+
+    if (
+      quiz.allowRetry &&
+      quiz.maxRetries > 0 &&
+      completedAttempts >= quiz.maxRetries
+    ) {
+      throw new BadRequestException('Quiz retry limit reached');
     }
 
     // Get questions

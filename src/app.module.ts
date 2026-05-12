@@ -36,6 +36,12 @@ import { MediaModule } from './modules/media/media.module';
 // Document import
 import { DocumentImportModule } from './modules/document-import/document-import.module';
 
+// Community endpoints
+import { CommunityModule } from './modules/community/community.module';
+
+// AI tutor endpoints
+import { AiModule } from './modules/ai/ai.module';
+
 // Entities
 import { User } from './modules/users/entities/user.entity';
 import { RefreshToken } from './modules/auth/entities/refresh-token.entity';
@@ -161,6 +167,8 @@ import { NotificationToken } from './modules/soulie/entities/notification-token.
     SoulieModule,
     MediaModule,
     DocumentImportModule,
+    CommunityModule,
+    AiModule,
   ],
   controllers: [
     AppController,

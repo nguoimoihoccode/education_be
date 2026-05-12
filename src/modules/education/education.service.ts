@@ -310,6 +310,14 @@ export class EducationService {
 
     const savedUserLesson = await this.userLessonRepository.save(userLesson);
 
+    if (dto.timeSpent && dto.timeSpent > 0) {
+      await this.userCourseRepository.increment(
+        { userId, courseId: lesson.courseId },
+        'totalTimeSpent',
+        dto.timeSpent,
+      );
+    }
+
     // Update course progress
     await this.updateCourseProgress(userId, lesson.courseId);
 
@@ -779,6 +787,14 @@ export class EducationService {
         ) / 60,
       ),
     );
+    const todayCompletedTasks = await this.dailyLearningTaskRepository.find({
+      where: { userId, date: getTodayDateKey(), completed: true },
+    });
+    const completedReviews = (todayCompletedTasks ?? []).some(
+      (task) => task.taskType === 'review_flashcards',
+    )
+      ? targetReviews
+      : 0;
     const recommendedActions = [];
 
     if (nextLesson) {
@@ -826,7 +842,7 @@ export class EducationService {
         targetMinutes,
         completedMinutes,
         targetReviews,
-        completedReviews: 0,
+        completedReviews,
       },
       nextLesson,
       dueReviews: {

@@ -6,6 +6,8 @@ import { DocumentImportService } from './document-import.service';
 import { DocumentTextExtractionService } from './document-text-extraction.service';
 import { KeywordExtractionService } from './keyword-extraction.service';
 import { DocumentConversionService } from './document-conversion.service';
+import { DocumentPreviewMapper } from './document-preview.mapper';
+import { DocumentPreviewService } from './document-preview.service';
 import {
   DOCUMENT_PARSERS,
   ParserRegistry,
@@ -27,6 +29,8 @@ import { QuizGenerator } from './generators/quiz-generator.service';
     DocumentTextExtractionService,
     KeywordExtractionService,
     DocumentConversionService,
+    DocumentPreviewMapper,
+    DocumentPreviewService,
     ParserRegistry,
     // Parsers
     FreetextParser,
@@ -54,6 +58,7 @@ import { QuizGenerator } from './generators/quiz-generator.service';
     DocumentTextExtractionService,
     KeywordExtractionService,
     DocumentConversionService,
+    DocumentPreviewService,
     ParserRegistry,
   ],
 })
