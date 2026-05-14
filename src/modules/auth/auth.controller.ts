@@ -138,6 +138,10 @@ export class AuthController {
         accessToken: tokens.accessToken,
         refreshToken: tokens.refreshToken,
       });
+      const state = typeof req.query.state === 'string' ? req.query.state : '';
+      if (state) {
+        hashParams.set('state', state);
+      }
       redirectUrl.hash = hashParams.toString();
 
       return res.redirect(redirectUrl.toString());

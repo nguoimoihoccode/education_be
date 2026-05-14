@@ -29,7 +29,8 @@ export class CommunityService {
     {
       id: 'daily-speaking',
       name: 'Daily Speaking Practice',
-      description: 'Nhóm luyện nói mỗi ngày với prompt ngắn và phản hồi từ cộng đồng.',
+      description:
+        'Nhóm luyện nói mỗi ngày với prompt ngắn và phản hồi từ cộng đồng.',
       members: 860,
       icon: 'Mic',
       color: 'violet',
@@ -124,20 +125,44 @@ export class CommunityService {
   ];
 
   private readonly topMembers = [
-    { name: 'Mai Anh', badge: 'Tone Master', level: 18, xp: 48200, streak: 62, contributions: 142 },
-    { name: 'Quang Huy', badge: 'SRS Pro', level: 15, xp: 37100, streak: 48, contributions: 96 },
-    { name: 'Minh Khoa', badge: 'Quiz Ace', level: 13, xp: 29800, streak: 35, contributions: 74 },
+    {
+      name: 'Mai Anh',
+      badge: 'Tone Master',
+      level: 18,
+      xp: 48200,
+      streak: 62,
+      contributions: 142,
+    },
+    {
+      name: 'Quang Huy',
+      badge: 'SRS Pro',
+      level: 15,
+      xp: 37100,
+      streak: 48,
+      contributions: 96,
+    },
+    {
+      name: 'Minh Khoa',
+      badge: 'Quiz Ace',
+      level: 13,
+      xp: 29800,
+      streak: 35,
+      contributions: 74,
+    },
   ];
 
   getGroups(params: PaginationParams = {}) {
     return this.paginate(this.groups, params);
   }
 
-  joinGroup(groupId: string) {
+  joinGroup(userId: number, groupId: string) {
+    void userId;
     return { isJoined: this.groups.some((group) => group.id === groupId) };
   }
 
-  leaveGroup() {
+  leaveGroup(userId: number, groupId: string) {
+    void userId;
+    void groupId;
     return { isJoined: false };
   }
 
@@ -145,11 +170,14 @@ export class CommunityService {
     return this.paginate(this.events, params);
   }
 
-  registerEvent(eventId: string) {
+  registerEvent(userId: number, eventId: string) {
+    void userId;
     return { isRegistered: this.events.some((event) => event.id === eventId) };
   }
 
-  unregisterEvent() {
+  unregisterEvent(userId: number, eventId: string) {
+    void userId;
+    void eventId;
     return { isRegistered: false };
   }
 
@@ -168,13 +196,19 @@ export class CommunityService {
   getStats() {
     return {
       totalMembers: this.groups.reduce((sum, group) => sum + group.members, 0),
-      totalDiscussions: this.threads.reduce((sum, thread) => sum + thread.replies, 0),
+      totalDiscussions: this.threads.reduce(
+        (sum, thread) => sum + thread.replies,
+        0,
+      ),
       totalResources: this.resources.length,
       eventsThisMonth: this.events.length,
     };
   }
 
-  private paginate<T>(items: T[], params: PaginationParams): PaginatedResponse<T> {
+  private paginate<T>(
+    items: T[],
+    params: PaginationParams,
+  ): PaginatedResponse<T> {
     const page = Math.max(1, Number(params.page) || 1);
     const limit = Math.max(1, Math.min(100, Number(params.limit) || 20));
     const start = (page - 1) * limit;

@@ -1,6 +1,7 @@
 import {
   Controller,
   BadRequestException,
+  Get,
   HttpCode,
   Post,
   UseInterceptors,
@@ -256,7 +257,7 @@ export class DocumentImportController {
     });
   }
 
-  @Post('supported-types')
+  @Get('supported-types')
   @ApiOperation({
     summary: 'Get supported file types',
     description: 'Returns list of supported file types for document import',

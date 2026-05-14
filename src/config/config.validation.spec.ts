@@ -47,4 +47,20 @@ describe('configValidationSchema', () => {
     expect(result.error).toBeUndefined();
     expect(result.value.TRUST_PROXY_HOPS).toBe(1);
   });
+
+  it('does not require Google OAuth variables when OAuth is not configured', () => {
+    const {
+      GOOGLE_CLIENT_ID,
+      GOOGLE_CLIENT_SECRET,
+      GOOGLE_CALLBACK_URL,
+      ...env
+    } = baseEnv;
+
+    const result = configValidationSchema.validate(env);
+
+    expect(result.error).toBeUndefined();
+    expect(result.value.GOOGLE_CLIENT_ID).toBeUndefined();
+    expect(result.value.GOOGLE_CLIENT_SECRET).toBeUndefined();
+    expect(result.value.GOOGLE_CALLBACK_URL).toBeUndefined();
+  });
 });

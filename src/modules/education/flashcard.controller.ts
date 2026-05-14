@@ -286,7 +286,7 @@ export class FlashcardController {
     const result = await this.flashcardService.completeReviewSession(userId, dto);
     await this.educationService.markTodayPlanTasksCompleteByType(
       String(userId),
-      ['review_flashcards'],
+      ['review_flashcards', 'review_vocabulary'],
     );
     return result;
   }

@@ -56,14 +56,14 @@ export const configValidationSchema = Joi.object({
 
   // Google OAuth
   GOOGLE_CLIENT_ID: Joi.string()
-    .required()
+    .optional()
     .description('Google OAuth client ID'),
   GOOGLE_CLIENT_SECRET: Joi.string()
-    .required()
+    .optional()
     .description('Google OAuth client secret'),
   GOOGLE_CALLBACK_URL: Joi.string()
     .uri()
-    .required()
+    .optional()
     .description('Google OAuth callback URL'),
 
   // Supabase (optional)

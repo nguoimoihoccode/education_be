@@ -9,7 +9,36 @@ describe('CommunityModule', () => {
       imports: [CommunityModule],
     }).compile();
 
-    expect(moduleRef.get(CommunityController)).toBeInstanceOf(CommunityController);
+    expect(moduleRef.get(CommunityController)).toBeInstanceOf(
+      CommunityController,
+    );
     expect(moduleRef.get(CommunityService)).toBeInstanceOf(CommunityService);
+  });
+
+  it('passes authenticated user id into membership actions', () => {
+    const service = {
+      joinGroup: jest.fn(),
+      leaveGroup: jest.fn(),
+      registerEvent: jest.fn(),
+      unregisterEvent: jest.fn(),
+    } as unknown as CommunityService;
+    const controller = new CommunityController(service);
+    const req = { user: { sub: 42 } };
+
+    controller.joinGroup(req, 'hsk-beginners');
+    controller.leaveGroup(req, 'hsk-beginners');
+    controller.registerEvent(req, 'weekly-quiz-sprint');
+    controller.unregisterEvent(req, 'weekly-quiz-sprint');
+
+    expect(service.joinGroup).toHaveBeenCalledWith(42, 'hsk-beginners');
+    expect(service.leaveGroup).toHaveBeenCalledWith(42, 'hsk-beginners');
+    expect(service.registerEvent).toHaveBeenCalledWith(
+      42,
+      'weekly-quiz-sprint',
+    );
+    expect(service.unregisterEvent).toHaveBeenCalledWith(
+      42,
+      'weekly-quiz-sprint',
+    );
   });
 });

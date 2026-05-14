@@ -3,6 +3,7 @@ import { EducationController } from './education.controller';
 describe('EducationController authenticated user id handling', () => {
   const createService = () => ({
     getTodayPlan: jest.fn().mockResolvedValue({}),
+    getTodayRecommendations: jest.fn().mockResolvedValue({}),
     markTodayPlanTaskComplete: jest.fn().mockResolvedValue({}),
     completeLesson: jest.fn().mockResolvedValue({}),
     markTodayPlanTasksCompleteByTarget: jest.fn().mockResolvedValue(undefined),
@@ -15,6 +16,15 @@ describe('EducationController authenticated user id handling', () => {
     await controller.getTodayPlan({ user: { sub: 42 } } as any);
 
     expect(service.getTodayPlan).toHaveBeenCalledWith('42');
+  });
+
+  it('uses the JWT subject as a string for today recommendations', async () => {
+    const service = createService();
+    const controller = new EducationController(service as any);
+
+    await controller.getTodayRecommendations({ user: { sub: 42 } } as any);
+
+    expect(service.getTodayRecommendations).toHaveBeenCalledWith('42');
   });
 
   it('uses the JWT subject as a string for explicit today plan completion', async () => {
@@ -36,11 +46,9 @@ describe('EducationController authenticated user id handling', () => {
     const service = createService();
     const controller = new EducationController(service as any);
 
-    await controller.completeLesson(
-      { user: { sub: 42 } } as any,
-      'lesson-1',
-      { timeSpent: 120 },
-    );
+    await controller.completeLesson({ user: { sub: 42 } } as any, 'lesson-1', {
+      timeSpent: 120,
+    });
 
     expect(service.completeLesson).toHaveBeenCalledWith('42', 'lesson-1', {
       timeSpent: 120,

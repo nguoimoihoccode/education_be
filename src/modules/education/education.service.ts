@@ -66,6 +66,41 @@ export interface TodayPlan {
   tasks: TodayPlanTask[];
 }
 
+export type TodayLearningHubTaskType =
+  | 'continue_lesson'
+  | 'review_vocabulary'
+  | 'quick_quiz'
+  | 'fix_mistakes';
+
+export interface TodayLearningHubTask {
+  id: string;
+  type: TodayLearningHubTaskType;
+  title: string;
+  description: string;
+  ctaLabel: string;
+  targetUrl: string;
+  estimatedMinutes: number;
+  completed: boolean;
+  priority: number;
+  metadata?: Record<string, unknown>;
+}
+
+export interface TodayLearningHub {
+  date: string;
+  dailyGoalMinutes: number;
+  minutesLearnedToday: number;
+  xpToday: number;
+  completedTasks: number;
+  totalTasks: number;
+  streak: {
+    current: number;
+    longest: number;
+    isAtRisk: boolean;
+  };
+  primaryTask?: TodayLearningHubTask;
+  tasks: TodayLearningHubTask[];
+}
+
 const getTodayDateKey = (): string => {
   const now = new Date();
   const timezoneOffsetMs = now.getTimezoneOffset() * 60 * 1000;
@@ -791,7 +826,9 @@ export class EducationService {
       where: { userId, date: getTodayDateKey(), completed: true },
     });
     const completedReviews = (todayCompletedTasks ?? []).some(
-      (task) => task.taskType === 'review_flashcards',
+      (task) =>
+        task.taskType === 'review_flashcards' ||
+        task.taskType === 'review_vocabulary',
     )
       ? targetReviews
       : 0;
@@ -924,7 +961,9 @@ export class EducationService {
     });
 
     const date = getTodayDateKey();
-    const sortedTasks = tasks.sort((a, b) => a.priority - b.priority).slice(0, 4);
+    const sortedTasks = tasks
+      .sort((a, b) => a.priority - b.priority)
+      .slice(0, 4);
     const completionRows = await this.dailyLearningTaskRepository.find({
       where: { userId, date, completed: true },
     });
@@ -933,7 +972,9 @@ export class EducationService {
       ...task,
       completed: completedTaskIds.has(task.id),
     }));
-    const completedTasks = tasksWithCompletion.filter((task) => task.completed).length;
+    const completedTasks = tasksWithCompletion.filter(
+      (task) => task.completed,
+    ).length;
 
     return {
       date,
@@ -951,9 +992,129 @@ export class EducationService {
     };
   }
 
+  async getTodayLearningHub(userId: string): Promise<TodayLearningHub> {
+    const learningPlan = await this.getLearningPlan(userId);
+    const tasks: TodayLearningHubTask[] = [];
+
+    if (learningPlan.nextLesson) {
+      tasks.push({
+        id: `continue-lesson-${learningPlan.nextLesson.id}`,
+        type: 'continue_lesson',
+        title: `Tiếp tục: ${learningPlan.nextLesson.title}`,
+        description: `Bài tiếp theo trong ${learningPlan.nextLesson.courseTitle}`,
+        ctaLabel: 'Học tiếp',
+        targetUrl: learningPlan.nextLesson.route,
+        estimatedMinutes: learningPlan.nextLesson.estimatedMinutes,
+        completed: false,
+        priority: 1,
+      });
+    }
+
+    if (learningPlan.dueReviews.count > 0) {
+      tasks.push({
+        id: 'review-vocabulary',
+        type: 'review_vocabulary',
+        title: `Ôn ${learningPlan.dueReviews.count} từ vựng đến hạn`,
+        description: 'Ôn đúng hạn giúp bạn nhớ lâu hơn.',
+        ctaLabel: 'Ôn từ vựng',
+        targetUrl: '/flashcards/review',
+        estimatedMinutes: Math.min(
+          15,
+          Math.max(5, Math.ceil(learningPlan.dueReviews.count / 2)),
+        ),
+        completed: false,
+        priority: 2,
+      });
+    }
+
+    learningPlan.weakQuizzes.slice(0, 1).forEach((quiz) => {
+      tasks.push({
+        id: `fix-mistakes-${quiz.quizId}`,
+        type: 'fix_mistakes',
+        title: `Sửa lỗi: ${quiz.title}`,
+        description: quiz.recommendation,
+        ctaLabel: 'Luyện lại',
+        targetUrl: quiz.route,
+        estimatedMinutes: 10,
+        completed: false,
+        priority: 3,
+        metadata: { quizId: quiz.quizId, score: quiz.score, topic: quiz.topic },
+      });
+    });
+
+    tasks.push({
+      id: 'quick-quiz',
+      type: 'quick_quiz',
+      title: 'Làm quiz ngắn',
+      description: 'Duy trì nhịp học bằng một bài luyện tập nhanh.',
+      ctaLabel: 'Mở quiz',
+      targetUrl: '/quiz',
+      estimatedMinutes: 10,
+      completed: false,
+      priority: tasks.length ? 4 : 1,
+    });
+
+    const date = getTodayDateKey();
+    const sortedTasks = tasks.sort((a, b) => a.priority - b.priority).slice(0, 4);
+    const completionRows = await this.dailyLearningTaskRepository.find({
+      where: { userId, date, completed: true },
+    });
+    const completedTaskIds = new Set(
+      completionRows.flatMap((task) =>
+        task.taskId === 'review-flashcards'
+          ? [task.taskId, 'review-vocabulary']
+          : [task.taskId],
+      ),
+    );
+    const tasksWithCompletion = sortedTasks.map((task) => ({
+      ...task,
+      completed: completedTaskIds.has(task.id),
+    }));
+    const completedTasks = tasksWithCompletion.filter((task) => task.completed).length;
+    const dailyGoalMinutes = 10;
+
+    const minutesLearnedToday = Math.min(
+      dailyGoalMinutes,
+      tasksWithCompletion
+        .filter((task) => task.completed)
+        .reduce((total, task) => total + task.estimatedMinutes, 0),
+    );
+
+    return {
+      date,
+      dailyGoalMinutes,
+      minutesLearnedToday,
+      xpToday: 0,
+      completedTasks,
+      totalTasks: tasksWithCompletion.length,
+      streak: {
+        current: learningPlan.streak.current,
+        longest: learningPlan.streak.longest,
+        isAtRisk:
+          completedTasks === 0 &&
+          minutesLearnedToday === 0 &&
+          learningPlan.streak.current > 0,
+      },
+      primaryTask: tasksWithCompletion.find((task) => !task.completed),
+      tasks: tasksWithCompletion,
+    };
+  }
+
+  async getTodayRecommendations(userId: string) {
+    return this.getLearningPlan(userId);
+  }
+
   async markTodayPlanTaskComplete(userId: string, taskId: string) {
-    const todayPlan = await this.getTodayPlan(userId);
-    const task = todayPlan.tasks.find((item) => item.id === taskId);
+    const todayHub = await this.getTodayLearningHub(userId);
+    let task: TodayLearningHubTask | TodayPlanTask | undefined =
+      todayHub.tasks.find((item) => item.id === taskId);
+    let date = todayHub.date;
+
+    if (!task) {
+      const todayPlan = await this.getTodayPlan(userId);
+      task = todayPlan.tasks.find((item) => item.id === taskId);
+      date = todayPlan.date;
+    }
 
     if (!task) {
       throw new NotFoundException('Today plan task not found');
@@ -961,7 +1122,7 @@ export class EducationService {
 
     const completion = {
       userId,
-      date: todayPlan.date,
+      date,
       taskId,
       taskType: task.type,
       targetUrl: task.targetUrl,
@@ -976,7 +1137,7 @@ export class EducationService {
     ]);
 
     return this.dailyLearningTaskRepository.findOne({
-      where: { userId, date: todayPlan.date, taskId },
+      where: { userId, date, taskId },
     });
   }
 
@@ -993,14 +1154,22 @@ export class EducationService {
 
   async markTodayPlanTasksCompleteByType(
     userId: string,
-    taskTypes: TodayPlanTaskType[],
+    taskTypes: Array<TodayPlanTaskType | TodayLearningHubTaskType>,
   ) {
+    const todayHub = await this.getTodayLearningHub(userId);
     const todayPlan = await this.getTodayPlan(userId);
-    const matchingTasks = todayPlan.tasks.filter((task) =>
-      taskTypes.includes(task.type),
-    );
+    const matchingTasksById = new Map<
+      string,
+      TodayLearningHubTask | TodayPlanTask
+    >();
 
-    for (const task of matchingTasks) {
+    for (const task of [...todayHub.tasks, ...todayPlan.tasks]) {
+      if (taskTypes.includes(task.type)) {
+        matchingTasksById.set(task.id, task);
+      }
+    }
+
+    for (const task of matchingTasksById.values()) {
       await this.markTodayPlanTaskComplete(userId, task.id);
     }
   }

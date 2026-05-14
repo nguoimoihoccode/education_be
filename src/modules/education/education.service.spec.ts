@@ -166,6 +166,158 @@ describe('EducationService learning plan', () => {
     });
   });
 
+  it('builds today learning hub from learning plan and completion rows', async () => {
+    const course = {
+      id: 'course-1',
+      title: 'English Starter',
+      totalLessons: 3,
+      language: { name: 'English' },
+    };
+    const nextLesson = {
+      id: 'lesson-2',
+      title: 'Daily conversations',
+      courseId: 'course-1',
+      estimatedMinutes: 20,
+      orderIndex: 2,
+    };
+    const userCourseRepository = createRepository({
+      find: jest.fn().mockResolvedValue([
+        {
+          userId: 'user-1',
+          courseId: 'course-1',
+          course,
+          status: EnrollmentStatus.IN_PROGRESS,
+          progress: 33,
+          completedLessons: 1,
+          totalTimeSpent: 360,
+        },
+      ]),
+    });
+    const userLessonRepository = createRepository({
+      find: jest.fn().mockResolvedValue([{ lessonId: 'lesson-1' }]),
+    });
+    const lessonRepository = createRepository({
+      find: jest.fn().mockResolvedValue([
+        { id: 'lesson-1', courseId: 'course-1', title: 'Intro', orderIndex: 1 },
+        nextLesson,
+      ]),
+    });
+    const userVocabularyRepository = createRepository({
+      count: jest.fn().mockResolvedValue(12),
+    });
+    const userStreakRepository = createRepository({
+      findOne: jest.fn().mockResolvedValue({
+        currentStreak: 4,
+        longestStreak: 7,
+        totalXp: 180,
+        level: 2,
+      }),
+    });
+    const quizSessionRepository = createRepository({
+      find: jest.fn().mockResolvedValue([]),
+    });
+    const dailyLearningTaskRepository = createRepository({
+      find: jest.fn().mockResolvedValue([]),
+    });
+    const service = new EducationService(
+      createRepository() as any,
+      createRepository() as any,
+      lessonRepository as any,
+      createRepository() as any,
+      createRepository() as any,
+      userCourseRepository as any,
+      userLessonRepository as any,
+      userVocabularyRepository as any,
+      userStreakRepository as any,
+      quizSessionRepository as any,
+      dailyLearningTaskRepository as any,
+    );
+
+    await expect(service.getTodayLearningHub('user-1')).resolves.toMatchObject({
+      dailyGoalMinutes: 10,
+      minutesLearnedToday: 0,
+      xpToday: 0,
+      completedTasks: 0,
+      totalTasks: 3,
+      streak: { current: 4, longest: 7, isAtRisk: true },
+      primaryTask: {
+        id: 'continue-lesson-lesson-2',
+        type: 'continue_lesson',
+        title: 'Tiếp tục: Daily conversations',
+        targetUrl: '/education/lessons/lesson-2',
+        priority: 1,
+      },
+      tasks: [
+        {
+          id: 'continue-lesson-lesson-2',
+          type: 'continue_lesson',
+          title: 'Tiếp tục: Daily conversations',
+          targetUrl: '/education/lessons/lesson-2',
+          priority: 1,
+        },
+        { id: 'review-vocabulary', type: 'review_vocabulary', priority: 2 },
+        { id: 'quick-quiz', type: 'quick_quiz', priority: 4 },
+      ],
+    });
+  });
+
+  it('counts completed today learning hub task estimates toward learned minutes', async () => {
+    const userCourseRepository = createRepository({
+      find: jest.fn().mockResolvedValue([
+        {
+          userId: 'user-1',
+          courseId: 'course-1',
+          course: { id: 'course-1', title: 'English Starter', totalLessons: 3 },
+          status: EnrollmentStatus.IN_PROGRESS,
+          progress: 33,
+          completedLessons: 1,
+          totalTimeSpent: 360,
+        },
+      ]),
+    });
+    const userLessonRepository = createRepository({
+      find: jest.fn().mockResolvedValue([{ lessonId: 'lesson-1' }]),
+    });
+    const lessonRepository = createRepository({
+      find: jest.fn().mockResolvedValue([
+        { id: 'lesson-1', courseId: 'course-1', title: 'Intro', orderIndex: 1 },
+        {
+          id: 'lesson-2',
+          title: 'Daily conversations',
+          courseId: 'course-1',
+          estimatedMinutes: 20,
+          orderIndex: 2,
+        },
+      ]),
+    });
+    const dailyLearningTaskRepository = createRepository({
+      find: jest.fn().mockResolvedValue([
+        { taskId: 'continue-lesson-lesson-2', completed: true },
+      ]),
+    });
+    const service = new EducationService(
+      createRepository() as any,
+      createRepository() as any,
+      lessonRepository as any,
+      createRepository() as any,
+      createRepository() as any,
+      userCourseRepository as any,
+      userLessonRepository as any,
+      createRepository({ count: jest.fn().mockResolvedValue(0) }) as any,
+      createRepository({ findOne: jest.fn().mockResolvedValue({ currentStreak: 4, longestStreak: 7, totalXp: 180, level: 2 }) }) as any,
+      createRepository({ find: jest.fn().mockResolvedValue([]) }) as any,
+      dailyLearningTaskRepository as any,
+    );
+
+    await expect(service.getTodayLearningHub('user-1')).resolves.toMatchObject({
+      dailyGoalMinutes: 10,
+      minutesLearnedToday: 10,
+      xpToday: 0,
+      completedTasks: 1,
+      streak: { current: 4, longest: 7, isAtRisk: false },
+    });
+  });
+
   it('adds low score quizzes as weak area actions', async () => {
     const quizSessionRepository = createRepository({
       find: jest.fn().mockResolvedValue([
@@ -290,6 +442,89 @@ describe('EducationService learning plan', () => {
     await service.markTodayPlanTaskComplete('user-1', 'quick-quiz');
 
     expect(dailyLearningTaskRepository.upsert).toHaveBeenCalledTimes(2);
+  });
+
+  it('marks a today learning hub review vocabulary task complete', async () => {
+    const completion = {
+      userId: 'user-1',
+      taskId: 'review-vocabulary',
+      taskType: 'review_vocabulary',
+      completed: true,
+    };
+    const dailyLearningTaskRepository = createRepository({
+      find: jest.fn().mockResolvedValue([]),
+      findOne: jest.fn().mockResolvedValue(completion),
+      upsert: jest.fn(async (value) => value),
+    });
+    const service = new EducationService(
+      createRepository() as any,
+      createRepository() as any,
+      createRepository() as any,
+      createRepository() as any,
+      createRepository() as any,
+      createRepository({ find: jest.fn().mockResolvedValue([]) }) as any,
+      createRepository({ find: jest.fn().mockResolvedValue([]) }) as any,
+      createRepository({ count: jest.fn().mockResolvedValue(5) }) as any,
+      createRepository({ findOne: jest.fn().mockResolvedValue(null) }) as any,
+      createRepository({ find: jest.fn().mockResolvedValue([]) }) as any,
+      dailyLearningTaskRepository as any,
+    );
+
+    const hub = await service.getTodayLearningHub('user-1');
+    const reviewTask = hub.tasks.find(
+      (task) => task.type === 'review_vocabulary',
+    );
+
+    expect(reviewTask).toBeDefined();
+    await expect(
+      service.markTodayPlanTaskComplete('user-1', reviewTask!.id),
+    ).resolves.toMatchObject({
+      taskId: 'review-vocabulary',
+      taskType: 'review_vocabulary',
+      completed: true,
+    });
+  });
+
+  it('marks today learning hub tasks complete by type', async () => {
+    const completion = {
+      userId: 'user-1',
+      taskId: 'review-vocabulary',
+      taskType: 'review_vocabulary',
+      completed: true,
+    };
+    const dailyLearningTaskRepository = createRepository({
+      find: jest.fn().mockResolvedValue([]),
+      findOne: jest.fn().mockResolvedValue(completion),
+      upsert: jest.fn(async (value) => value),
+    });
+    const service = new EducationService(
+      createRepository() as any,
+      createRepository() as any,
+      createRepository() as any,
+      createRepository() as any,
+      createRepository() as any,
+      createRepository({ find: jest.fn().mockResolvedValue([]) }) as any,
+      createRepository({ find: jest.fn().mockResolvedValue([]) }) as any,
+      createRepository({ count: jest.fn().mockResolvedValue(5) }) as any,
+      createRepository({ findOne: jest.fn().mockResolvedValue(null) }) as any,
+      createRepository({ find: jest.fn().mockResolvedValue([]) }) as any,
+      dailyLearningTaskRepository as any,
+    );
+
+    await service.markTodayPlanTasksCompleteByType('user-1', [
+      'review_vocabulary' as any,
+    ]);
+
+    expect(dailyLearningTaskRepository.upsert).toHaveBeenCalledTimes(1);
+    expect(dailyLearningTaskRepository.upsert).toHaveBeenCalledWith(
+      expect.objectContaining({
+        userId: 'user-1',
+        taskId: 'review-vocabulary',
+        taskType: 'review_vocabulary',
+        completed: true,
+      }),
+      ['userId', 'date', 'taskId'],
+    );
   });
 
   it('adds lesson time spent to enrolled course total time', async () => {

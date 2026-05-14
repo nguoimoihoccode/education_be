@@ -13,6 +13,7 @@ import {
   DocumentStructureType,
 } from '../../../src/modules/document-import/dto/document-conversion.dto';
 import { DocumentImportService } from '../../../src/modules/document-import/document-import.service';
+import { DocumentPreviewService } from '../../../src/modules/document-import/document-preview.service';
 import { DocumentTextExtractionService } from '../../../src/modules/document-import/document-text-extraction.service';
 import { RequestWithUser } from '../../../src/common/types/auth.types';
 import { FileType } from '../../../src/modules/document-import/dto/upload-document.dto';
@@ -44,6 +45,10 @@ describe('DocumentImportController (e2e)', () => {
       mimeType === 'text/plain' ? FileType.TXT : null,
     ),
   };
+  const mockDocumentPreviewService = {
+    previewDocument: jest.fn(),
+    confirmImport: jest.fn(),
+  };
   const mockResponse: DocumentConversionResponseDto = {
     id: '1-123456',
     originalName: 'test.txt',
@@ -74,6 +79,10 @@ describe('DocumentImportController (e2e)', () => {
           provide: DocumentTextExtractionService,
           useValue: mockTextExtractionService,
         },
+        {
+          provide: DocumentPreviewService,
+          useValue: mockDocumentPreviewService,
+        },
       ],
     }).compile();
 
@@ -91,6 +100,14 @@ describe('DocumentImportController (e2e)', () => {
 
   beforeEach(() => {
     jest.clearAllMocks();
+  });
+
+  it('/document-import/supported-types (GET) - returns supported types', async () => {
+    const response = await request(app.getHttpServer())
+      .get('/document-import/supported-types')
+      .expect(200);
+
+    expect(response.body).toEqual(Object.values(FileType));
   });
 
   it('/document-import/convert (POST) - success', async () => {

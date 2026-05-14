@@ -1,11 +1,29 @@
-import { Controller, Delete, Get, Param, Post, Query } from '@nestjs/common';
+import {
+  Controller,
+  Delete,
+  Get,
+  Param,
+  Post,
+  Query,
+  Req,
+  UnauthorizedException,
+} from '@nestjs/common';
 import { ApiOperation, ApiTags } from '@nestjs/swagger';
+import type { RequestWithUser } from '../../common/types/auth.types';
 import { CommunityService } from './community.service';
 
 @ApiTags('Community')
 @Controller('community')
 export class CommunityController {
   constructor(private readonly communityService: CommunityService) {}
+
+  private getUserId(req: RequestWithUser): number {
+    const userId = req.user?.sub ?? req.user?.id;
+    if (!userId) {
+      throw new UnauthorizedException('User not authenticated');
+    }
+    return userId;
+  }
 
   @Get('groups')
   @ApiOperation({ summary: 'Get study groups' })
@@ -15,14 +33,14 @@ export class CommunityController {
 
   @Post('groups/:groupId/join')
   @ApiOperation({ summary: 'Join a study group' })
-  joinGroup(@Param('groupId') groupId: string) {
-    return this.communityService.joinGroup(groupId);
+  joinGroup(@Req() req: RequestWithUser, @Param('groupId') groupId: string) {
+    return this.communityService.joinGroup(this.getUserId(req), groupId);
   }
 
   @Delete('groups/:groupId/join')
   @ApiOperation({ summary: 'Leave a study group' })
-  leaveGroup() {
-    return this.communityService.leaveGroup();
+  leaveGroup(@Req() req: RequestWithUser, @Param('groupId') groupId: string) {
+    return this.communityService.leaveGroup(this.getUserId(req), groupId);
   }
 
   @Get('events')
@@ -33,14 +51,20 @@ export class CommunityController {
 
   @Post('events/:eventId/register')
   @ApiOperation({ summary: 'Register for an event' })
-  registerEvent(@Param('eventId') eventId: string) {
-    return this.communityService.registerEvent(eventId);
+  registerEvent(
+    @Req() req: RequestWithUser,
+    @Param('eventId') eventId: string,
+  ) {
+    return this.communityService.registerEvent(this.getUserId(req), eventId);
   }
 
   @Delete('events/:eventId/register')
   @ApiOperation({ summary: 'Unregister from an event' })
-  unregisterEvent() {
-    return this.communityService.unregisterEvent();
+  unregisterEvent(
+    @Req() req: RequestWithUser,
+    @Param('eventId') eventId: string,
+  ) {
+    return this.communityService.unregisterEvent(this.getUserId(req), eventId);
   }
 
   @Get('forum/threads')

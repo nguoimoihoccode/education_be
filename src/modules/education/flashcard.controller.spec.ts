@@ -51,5 +51,9 @@ describe('FlashcardController', () => {
     );
 
     expect(calls).toEqual(['marked']);
+    expect(educationService.markTodayPlanTasksCompleteByType).toHaveBeenCalledWith(
+      '7',
+      ['review_flashcards', 'review_vocabulary'],
+    );
   });
 });

@@ -39,9 +39,19 @@ export class EducationController {
     return String(userId);
   }
 
+  @Get('today')
+  async getTodayLearningHub(@Request() req: any) {
+    return this.educationService.getTodayLearningHub(this.getUserId(req));
+  }
+
   @Get('today-plan')
   async getTodayPlan(@Request() req: any) {
     return this.educationService.getTodayPlan(this.getUserId(req));
+  }
+
+  @Get('recommendations/today')
+  async getTodayRecommendations(@Request() req: any) {
+    return this.educationService.getTodayRecommendations(this.getUserId(req));
   }
 
   @Post('today-plan/tasks/:taskId/complete')
@@ -177,7 +187,10 @@ export class EducationController {
     @Request() req: any,
     @Query('limit') limit?: number,
   ) {
-    return this.educationService.getVocabularyToReview(this.getUserId(req), limit);
+    return this.educationService.getVocabularyToReview(
+      this.getUserId(req),
+      limit,
+    );
   }
 
   // Student: Review vocabulary
@@ -214,7 +227,11 @@ export class EducationController {
     @Param('lessonId') lessonId: string,
     @Body() dto: SubmitExercisesDto,
   ) {
-    return this.educationService.submitExercises(this.getUserId(req), lessonId, dto);
+    return this.educationService.submitExercises(
+      this.getUserId(req),
+      lessonId,
+      dto,
+    );
   }
 
   // ==================== PROGRESS & STREAK ====================
