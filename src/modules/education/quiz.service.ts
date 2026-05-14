@@ -559,15 +559,21 @@ export class QuizService {
     }
 
     if (question.quizId !== session.quizId) {
-      throw new BadRequestException('Question does not belong to this quiz session');
+      throw new BadRequestException(
+        'Question does not belong to this quiz session',
+      );
     }
 
     if (!isQuestionInSessionOrder(session.questionOrder, dto.questionId)) {
-      throw new BadRequestException('Question is not part of this quiz session');
+      throw new BadRequestException(
+        'Question is not part of this quiz session',
+      );
     }
 
     if (hasAnsweredQuestion(session.answers, dto.questionId)) {
-      throw new BadRequestException('Question already answered in this session');
+      throw new BadRequestException(
+        'Question already answered in this session',
+      );
     }
 
     const gradedAnswer = gradeQuizAnswer({
@@ -743,9 +749,15 @@ export class QuizService {
       where: { userId, completed: true },
     });
 
-    const avgScore = await this.quizSessionRepository
+    const scoreStats = await this.quizSessionRepository
       .createQueryBuilder('s')
       .select('AVG(s.score)', 'average')
+      .addSelect('MAX(s.score)', 'highest')
+      .addSelect('MIN(s.score)', 'lowest')
+      .addSelect(
+        'AVG(s.timeSpent::float / NULLIF(s.correctAnswers + s.wrongAnswers + s.skippedAnswers, 0))',
+        'averageTimePerQuestion',
+      )
       .where('s.userId = :userId', { userId })
       .andWhere('s.completed = :completed', { completed: true })
       .getRawOne();
@@ -757,12 +769,20 @@ export class QuizService {
     const passRate =
       totalSessions > 0 ? (passedSessions / totalSessions) * 100 : 0;
 
-    return {
+    const quizzes = await this.quizRepository.find({ where: { userId } });
+
+    return buildQuizStatsResult({
       totalQuizzes,
       totalSessions,
-      averageScore: avgScore?.average ? parseFloat(avgScore.average) : 0,
+      averageScore: parseNumericStat(scoreStats?.average),
+      highestScore: parseNumericStat(scoreStats?.highest),
+      lowestScore: parseNumericStat(scoreStats?.lowest),
+      averageTimePerQuestion: parseNumericStat(
+        scoreStats?.averageTimePerQuestion,
+      ),
       passRate: Math.round(passRate),
-    };
+      watchedTopics: uniqueNonEmpty(quizzes.map((quiz) => quiz.topic)),
+    });
   }
 
   async getQuizStatsByTopic(userId: number, topic: string) {
@@ -772,13 +792,28 @@ export class QuizService {
 
     const quizIds = quizzes.map((q) => q.id);
 
+    if (quizIds.length === 0) {
+      return buildTopicQuizStatsResult({
+        topic,
+        totalQuizzes: 0,
+        totalSessions: 0,
+        averageScore: 0,
+        highestScore: 0,
+        lowestScore: 0,
+        passRate: 0,
+        favoriteQuestionTypes: [],
+      });
+    }
+
     const totalSessions = await this.quizSessionRepository.count({
       where: { userId, quizId: In(quizIds), completed: true },
     });
 
-    const avgScore = await this.quizSessionRepository
+    const scoreStats = await this.quizSessionRepository
       .createQueryBuilder('s')
       .select('AVG(s.score)', 'average')
+      .addSelect('MAX(s.score)', 'highest')
+      .addSelect('MIN(s.score)', 'lowest')
       .where('s.userId = :userId', { userId })
       .andWhere('s.quizId IN (:...quizIds)', { quizIds })
       .andWhere('s.completed = :completed', { completed: true })
@@ -791,13 +826,18 @@ export class QuizService {
     const passRate =
       totalSessions > 0 ? (passedSessions / totalSessions) * 100 : 0;
 
-    return {
+    return buildTopicQuizStatsResult({
       topic,
       totalQuizzes: quizzes.length,
       totalSessions,
-      averageScore: avgScore?.average ? parseFloat(avgScore.average) : 0,
+      averageScore: parseNumericStat(scoreStats?.average),
+      highestScore: parseNumericStat(scoreStats?.highest),
+      lowestScore: parseNumericStat(scoreStats?.lowest),
       passRate: Math.round(passRate),
-    };
+      favoriteQuestionTypes: uniqueNonEmpty(
+        quizzes.map((quiz) => quiz.questionType),
+      ),
+    });
   }
 
   async getQuizHistory(userId: number, page: number = 1, limit: number = 10) {
@@ -911,7 +951,8 @@ export const isQuestionInSessionOrder = (
 export const hasAnsweredQuestion = (
   answers: Array<{ questionId: string }> | null | undefined,
   questionId: string,
-): boolean => (answers ?? []).some((answer) => answer.questionId === questionId);
+): boolean =>
+  (answers ?? []).some((answer) => answer.questionId === questionId);
 
 export function calculateQuizSessionProgress(input: {
   questionOrder?: string[] | null;
@@ -925,4 +966,66 @@ export function calculateQuizSessionProgress(input: {
     answeredQuestions,
     currentQuestionIndex: Math.min(answeredQuestions, totalQuestions),
   };
+}
+
+export interface QuizStatsResultInput {
+  totalQuizzes: number;
+  totalSessions: number;
+  averageScore: number;
+  highestScore: number;
+  lowestScore: number;
+  averageTimePerQuestion: number;
+  passRate: number;
+  watchedTopics: string[];
+}
+
+export function buildQuizStatsResult(input: QuizStatsResultInput) {
+  return {
+    totalQuizzes: input.totalQuizzes,
+    totalSessions: input.totalSessions,
+    averageScore: input.averageScore,
+    highestScore: input.highestScore,
+    lowestScore: input.lowestScore,
+    averageTimePerQuestion: input.averageTimePerQuestion,
+    passRate: input.passRate,
+    watchedTopics: input.watchedTopics,
+    passedQuizzes: Math.round((input.totalSessions * input.passRate) / 100),
+  };
+}
+
+export interface TopicQuizStatsResultInput {
+  topic: string;
+  totalQuizzes: number;
+  totalSessions: number;
+  averageScore: number;
+  highestScore: number;
+  lowestScore: number;
+  passRate: number;
+  favoriteQuestionTypes: string[];
+}
+
+export function buildTopicQuizStatsResult(input: TopicQuizStatsResultInput) {
+  return {
+    topic: input.topic,
+    totalQuizzes: input.totalQuizzes,
+    totalSessions: input.totalSessions,
+    averageScore: input.averageScore,
+    highestScore: input.highestScore,
+    lowestScore: input.lowestScore,
+    passRate: input.passRate,
+    favoriteQuestionTypes: input.favoriteQuestionTypes,
+    strengths: input.averageScore >= 70 ? input.favoriteQuestionTypes : [],
+    weaknesses: input.averageScore < 70 ? input.favoriteQuestionTypes : [],
+  };
+}
+
+function parseNumericStat(value: unknown): number {
+  const numberValue = Number(value);
+  return Number.isFinite(numberValue) ? numberValue : 0;
+}
+
+function uniqueNonEmpty(values: Array<string | null | undefined>): string[] {
+  return [
+    ...new Set(values.filter((value): value is string => Boolean(value))),
+  ];
 }

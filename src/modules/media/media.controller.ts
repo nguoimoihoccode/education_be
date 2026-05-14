@@ -3,6 +3,7 @@ import {
   Controller,
   Post,
   Req,
+  UnauthorizedException,
   UploadedFile,
   UseInterceptors,
 } from '@nestjs/common';
@@ -82,6 +83,9 @@ export class MediaController {
     }
 
     const userId = Number(req.user?.sub);
+    if (!Number.isFinite(userId)) {
+      throw new UnauthorizedException('User not authenticated');
+    }
     const target = MediaController.normalizeTarget(req.body?.target);
     const directory = await this.mediaService.ensureDirectory(target, userId);
     const filename = this.mediaService.createFilename(file.originalname);

@@ -41,4 +41,16 @@ describe('CommunityModule', () => {
       'weekly-quiz-sprint',
     );
   });
+
+  it('returns personalized group and event status after user actions', () => {
+    const service = new CommunityService();
+
+    service.joinGroup(42, 'hsk-beginners');
+    service.registerEvent(42, 'weekly-quiz-sprint');
+
+    expect(service.getGroups({ userId: 42 }).data[0].isJoined).toBe(true);
+    expect(service.getGroups({ userId: 7 }).data[0].isJoined).toBe(false);
+    expect(service.getEvents({ userId: 42 }).data[0].isRegistered).toBe(true);
+    expect(service.getEvents({ userId: 7 }).data[0].isRegistered).toBe(false);
+  });
 });

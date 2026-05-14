@@ -5,13 +5,7 @@ import {
   ConflictException,
 } from '@nestjs/common';
 import { InjectRepository } from '@nestjs/typeorm';
-import {
-  Repository,
-  Between,
-  LessThanOrEqual,
-  In,
-  ILike,
-} from 'typeorm';
+import { Repository, Between, LessThanOrEqual, In, ILike } from 'typeorm';
 import {
   FlashcardDeck,
   Flashcard,
@@ -600,7 +594,8 @@ export class FlashcardService {
       newUserFlashcard.totalReviews++;
       newUserFlashcard.lastReviewed = new Date();
 
-      reviewedFlashcard = await this.userFlashcardRepository.save(newUserFlashcard);
+      reviewedFlashcard =
+        await this.userFlashcardRepository.save(newUserFlashcard);
     } else {
       // Update SRS
       this.calculateSRS(reviewedFlashcard, dto.quality);
@@ -616,7 +611,8 @@ export class FlashcardService {
       reviewedFlashcard.totalReviews++;
       reviewedFlashcard.lastReviewed = new Date();
 
-      reviewedFlashcard = await this.userFlashcardRepository.save(reviewedFlashcard);
+      reviewedFlashcard =
+        await this.userFlashcardRepository.save(reviewedFlashcard);
     }
 
     // Update flashcard status
@@ -647,8 +643,12 @@ export class FlashcardService {
         isCorrect: result.isCorrect ?? result.quality >= 3,
         timeSpent: result.timeSpent ?? 0,
       }));
-      session.correctCards = session.results.filter((result) => result.isCorrect).length;
-      session.wrongCards = session.results.filter((result) => !result.isCorrect).length;
+      session.correctCards = session.results.filter(
+        (result) => result.isCorrect,
+      ).length;
+      session.wrongCards = session.results.filter(
+        (result) => !result.isCorrect,
+      ).length;
       session.timeSpent = session.results.reduce(
         (total, result) => total + (result.timeSpent || 0),
         0,
@@ -692,8 +692,8 @@ export class FlashcardService {
     const flashcardIds = userFlashcards.map((uf) => uf.flashcardId);
     const reviewedFlashcards = flashcardIds.length
       ? await this.flashcardRepository.find({
-      where: { id: In(flashcardIds) },
-      })
+          where: { id: In(flashcardIds) },
+        })
       : [];
 
     const remaining = Math.max(take - reviewedFlashcards.length, 0);
@@ -896,7 +896,31 @@ export class FlashcardService {
       },
     });
 
-    return {
+    const totalReviews = await this.userFlashcardRepository
+      .createQueryBuilder('uf')
+      .select('SUM(uf.totalReviews)', 'total')
+      .where('uf.userId = :userId', { userId })
+      .andWhere('uf.deckId = :deckId', { deckId })
+      .getRawOne<TotalRow>();
+
+    const correctRate = await this.userFlashcardRepository
+      .createQueryBuilder('uf')
+      .select(
+        'SUM(uf.correctCount)::float / NULLIF(SUM(uf.totalReviews), 0)',
+        'rate',
+      )
+      .where('uf.userId = :userId', { userId })
+      .andWhere('uf.deckId = :deckId', { deckId })
+      .getRawOne<RateRow>();
+
+    const lastReviewed = await this.userFlashcardRepository
+      .createQueryBuilder('uf')
+      .select('MAX(uf.lastReviewed)', 'lastReviewed')
+      .where('uf.userId = :userId', { userId })
+      .andWhere('uf.deckId = :deckId', { deckId })
+      .getRawOne<{ lastReviewed?: Date | string | null }>();
+
+    return buildDeckStatsResult({
       deck,
       totalFlashcards,
       statusStats: statusStats.reduce<Record<string, number>>((acc, item) => {
@@ -904,7 +928,10 @@ export class FlashcardService {
         return acc;
       }, {}),
       dueCount,
-    };
+      totalReviews: parseInt(totalReviews?.total || '0', 10),
+      correctRate: parseFloat(correctRate?.rate || '0'),
+      lastReviewed: lastReviewed?.lastReviewed ?? null,
+    });
   }
 
   async getReviewHistory(userId: number, page: number = 1, limit: number = 10) {
@@ -965,5 +992,27 @@ export function buildFlashcardStatsResult(input: FlashcardStatsResultInput) {
     currentStreak: input.currentStreak,
     longestStreak: input.longestStreak,
     totalXp: input.totalXp,
+  };
+}
+
+export interface DeckStatsResultInput {
+  deck: unknown;
+  totalFlashcards: number;
+  statusStats: Record<string, number>;
+  dueCount: number;
+  totalReviews: number;
+  correctRate: number;
+  lastReviewed: Date | string | null;
+}
+
+export function buildDeckStatsResult(input: DeckStatsResultInput) {
+  return {
+    deck: input.deck,
+    totalFlashcards: input.totalFlashcards,
+    statusStats: input.statusStats,
+    dueCount: input.dueCount,
+    totalReviews: input.totalReviews,
+    correctRate: input.correctRate,
+    lastReviewed: input.lastReviewed,
   };
 }

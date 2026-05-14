@@ -899,6 +899,47 @@ export class EducationService {
     };
   }
 
+  async getLearningCoachSummary(userId: string) {
+    const [learningPlan, todayPlan, progress] = await Promise.all([
+      this.getLearningPlan(userId),
+      this.getTodayPlan(userId),
+      this.getUserProgress(userId),
+    ]);
+    const goalMinutes = learningPlan.dailyGoal.targetMinutes || 1;
+    const planCompletion = todayPlan.totalTasks
+      ? Math.round((todayPlan.completedTasks / todayPlan.totalTasks) * 100)
+      : 0;
+    const minuteCompletion = Math.round(
+      (learningPlan.dailyGoal.completedMinutes / goalMinutes) * 100,
+    );
+    const focusArea = learningPlan.weakQuizzes[0]?.topic || 'Duy trì nhịp học';
+
+    return {
+      headline:
+        todayPlan.completedTasks > 0
+          ? 'Bạn đang giữ nhịp học tốt hôm nay'
+          : 'Coach đã xếp lộ trình học hôm nay',
+      focusArea,
+      dailyGoal: learningPlan.dailyGoal,
+      progress: {
+        planCompletion,
+        minuteCompletion: Math.min(100, minuteCompletion),
+        completedLessons: progress.completedLessons,
+        masteredVocabularies: progress.masteredVocabularies,
+      },
+      streak: learningPlan.streak,
+      nextBestAction: learningPlan.recommendedActions[0],
+      risks: learningPlan.weakQuizzes.map((quiz) => ({
+        title: quiz.title,
+        topic: quiz.topic,
+        score: quiz.score,
+        route: quiz.route,
+      })),
+      tasks: todayPlan.tasks,
+      recommendations: learningPlan.recommendedActions,
+    };
+  }
+
   async getTodayPlan(userId: string): Promise<TodayPlan> {
     const learningPlan = await this.getLearningPlan(userId);
     const tasks: TodayPlanTask[] = [];

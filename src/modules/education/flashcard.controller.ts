@@ -12,6 +12,7 @@ import {
   UseGuards,
   Req,
   BadRequestException,
+  UnauthorizedException,
 } from '@nestjs/common';
 import {
   ApiTags,
@@ -52,7 +53,7 @@ export class FlashcardController {
   private getUserId(req: RequestWithUser): number {
     const userId = req.user?.sub;
     if (!userId) {
-      throw new Error('User not authenticated');
+      throw new UnauthorizedException('User not authenticated');
     }
     return userId;
   }
@@ -283,7 +284,10 @@ export class FlashcardController {
     @Body() dto: CompleteReviewSessionDto,
   ) {
     const userId = this.getUserId(req);
-    const result = await this.flashcardService.completeReviewSession(userId, dto);
+    const result = await this.flashcardService.completeReviewSession(
+      userId,
+      dto,
+    );
     await this.educationService.markTodayPlanTasksCompleteByType(
       String(userId),
       ['review_flashcards', 'review_vocabulary'],

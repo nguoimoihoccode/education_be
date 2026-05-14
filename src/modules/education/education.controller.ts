@@ -3,12 +3,12 @@ import {
   Get,
   Post,
   Put,
-  Delete,
   Body,
   Param,
   Query,
   UseGuards,
   Request,
+  UnauthorizedException,
 } from '@nestjs/common';
 import { EducationService } from './education.service';
 import { Public } from '../../common/decorators/public.decorator';
@@ -36,6 +36,9 @@ export class EducationController {
 
   private getUserId(req: any): string {
     const userId = req.user?.sub ?? req.user?.id;
+    if (!userId) {
+      throw new UnauthorizedException('User not authenticated');
+    }
     return String(userId);
   }
 
@@ -52,6 +55,11 @@ export class EducationController {
   @Get('recommendations/today')
   async getTodayRecommendations(@Request() req: any) {
     return this.educationService.getTodayRecommendations(this.getUserId(req));
+  }
+
+  @Get('coach/summary')
+  async getLearningCoachSummary(@Request() req: any) {
+    return this.educationService.getLearningCoachSummary(this.getUserId(req));
   }
 
   @Post('today-plan/tasks/:taskId/complete')

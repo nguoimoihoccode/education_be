@@ -1,3 +1,4 @@
+import { UnauthorizedException } from '@nestjs/common';
 import { PATH_METADATA } from '@nestjs/common/constants';
 import { QuizController } from './quiz.controller';
 
@@ -29,10 +30,15 @@ describe('QuizController today plan completion', () => {
       completeQuizSession: jest.fn().mockResolvedValue({ quizId: 'quiz-1' }),
     };
     const educationService = {
-      markTodayPlanTasksCompleteByTarget: jest.fn().mockResolvedValue(undefined),
+      markTodayPlanTasksCompleteByTarget: jest
+        .fn()
+        .mockResolvedValue(undefined),
       markTodayPlanTasksCompleteByType: jest.fn().mockResolvedValue(undefined),
     };
-    const controller = new QuizController(quizService as any, educationService as any);
+    const controller = new QuizController(
+      quizService as any,
+      educationService as any,
+    );
 
     const result = await controller.completeQuizSession(
       { user: { sub: 42 } } as any,
@@ -40,13 +46,27 @@ describe('QuizController today plan completion', () => {
     );
 
     expect(result).toEqual({ quizId: 'quiz-1' });
-    expect(educationService.markTodayPlanTasksCompleteByType).toHaveBeenCalledWith(
-      '42',
-      ['quick_quiz'],
+    expect(
+      educationService.markTodayPlanTasksCompleteByType,
+    ).toHaveBeenCalledWith('42', ['quick_quiz']);
+    expect(
+      educationService.markTodayPlanTasksCompleteByTarget,
+    ).toHaveBeenCalledWith('42', '/quiz/quiz-1');
+  });
+
+  it('rejects protected quiz actions without an authenticated user', async () => {
+    const quizService = {
+      getQuizStats: jest.fn(),
+    };
+    const educationService = {};
+    const controller = new QuizController(
+      quizService as any,
+      educationService as any,
     );
-    expect(educationService.markTodayPlanTasksCompleteByTarget).toHaveBeenCalledWith(
-      '42',
-      '/quiz/quiz-1',
+
+    await expect(controller.getQuizStats({} as any)).rejects.toBeInstanceOf(
+      UnauthorizedException,
     );
+    expect(quizService.getQuizStats).not.toHaveBeenCalled();
   });
 });

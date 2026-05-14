@@ -8,6 +8,7 @@ import {
   UploadedFile,
   Body,
   Req,
+  UnauthorizedException,
 } from '@nestjs/common';
 import {
   ApiTags,
@@ -71,7 +72,7 @@ export class DocumentImportController {
   private getUserId(req: RequestWithUser): number {
     const userId = req.user?.sub;
     if (!userId) {
-      throw new Error('User not authenticated');
+      throw new UnauthorizedException('User not authenticated');
     }
     return userId;
   }

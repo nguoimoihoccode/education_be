@@ -27,8 +27,16 @@ export class CommunityController {
 
   @Get('groups')
   @ApiOperation({ summary: 'Get study groups' })
-  getGroups(@Query('page') page?: number, @Query('limit') limit?: number) {
-    return this.communityService.getGroups({ page, limit });
+  getGroups(
+    @Req() req: RequestWithUser,
+    @Query('page') page?: number,
+    @Query('limit') limit?: number,
+  ) {
+    return this.communityService.getGroups({
+      page,
+      limit,
+      userId: this.getUserId(req),
+    });
   }
 
   @Post('groups/:groupId/join')
@@ -45,8 +53,16 @@ export class CommunityController {
 
   @Get('events')
   @ApiOperation({ summary: 'Get community events' })
-  getEvents(@Query('page') page?: number, @Query('limit') limit?: number) {
-    return this.communityService.getEvents({ page, limit });
+  getEvents(
+    @Req() req: RequestWithUser,
+    @Query('page') page?: number,
+    @Query('limit') limit?: number,
+  ) {
+    return this.communityService.getEvents({
+      page,
+      limit,
+      userId: this.getUserId(req),
+    });
   }
 
   @Post('events/:eventId/register')

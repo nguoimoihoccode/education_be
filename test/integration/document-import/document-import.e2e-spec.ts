@@ -134,6 +134,42 @@ describe('DocumentImportController (e2e)', () => {
     );
   });
 
+  it('/document-import/confirm (POST) - rejects missing authenticated user', async () => {
+    class MissingUserGuard implements CanActivate {
+      canActivate(context: ExecutionContext): boolean {
+        const req: RequestWithUser = context.switchToHttp().getRequest();
+        req.user = undefined;
+        return true;
+      }
+    }
+    const module: TestingModule = await Test.createTestingModule({
+      controllers: [DocumentImportController],
+      providers: [
+        { provide: DocumentImportService, useValue: mockDocumentImportService },
+        { provide: DocumentConversionService, useValue: mockConversionService },
+        {
+          provide: DocumentTextExtractionService,
+          useValue: mockTextExtractionService,
+        },
+        {
+          provide: DocumentPreviewService,
+          useValue: mockDocumentPreviewService,
+        },
+      ],
+    }).compile();
+    const missingUserApp = module.createNestApplication();
+    missingUserApp.useGlobalGuards(new MissingUserGuard());
+    await missingUserApp.init();
+
+    await request(missingUserApp.getHttpServer())
+      .post('/document-import/confirm')
+      .send({ deckName: 'Imported', cards: [] })
+      .expect(401);
+
+    expect(mockDocumentPreviewService.confirmImport).not.toHaveBeenCalled();
+    await missingUserApp.close();
+  });
+
   it('/document-import/convert (POST) - missing file', async () => {
     const response = await request(app.getHttpServer())
       .post('/document-import/convert')

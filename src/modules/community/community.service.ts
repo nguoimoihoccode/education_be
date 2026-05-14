@@ -3,6 +3,7 @@ import { Injectable } from '@nestjs/common';
 export interface PaginationParams {
   page?: number;
   limit?: number;
+  userId?: number;
 }
 
 export interface PaginatedResponse<T> {
@@ -12,6 +13,9 @@ export interface PaginatedResponse<T> {
 
 @Injectable()
 export class CommunityService {
+  private readonly joinedGroupIdsByUser = new Map<number, Set<string>>();
+  private readonly registeredEventIdsByUser = new Map<number, Set<string>>();
+
   private readonly groups = [
     {
       id: 'hsk-beginners',
@@ -152,32 +156,48 @@ export class CommunityService {
   ];
 
   getGroups(params: PaginationParams = {}) {
-    return this.paginate(this.groups, params);
+    const joinedGroupIds = this.joinedGroupIdsByUser.get(params.userId ?? 0);
+    const groups = this.groups.map((group) => ({
+      ...group,
+      isJoined: joinedGroupIds?.has(group.id) ?? false,
+    }));
+    return this.paginate(groups, params);
   }
 
   joinGroup(userId: number, groupId: string) {
-    void userId;
-    return { isJoined: this.groups.some((group) => group.id === groupId) };
+    const isValidGroup = this.groups.some((group) => group.id === groupId);
+    if (isValidGroup) {
+      this.getUserSet(this.joinedGroupIdsByUser, userId).add(groupId);
+    }
+    return { isJoined: isValidGroup };
   }
 
   leaveGroup(userId: number, groupId: string) {
-    void userId;
-    void groupId;
+    this.joinedGroupIdsByUser.get(userId)?.delete(groupId);
     return { isJoined: false };
   }
 
   getEvents(params: PaginationParams = {}) {
-    return this.paginate(this.events, params);
+    const registeredEventIds = this.registeredEventIdsByUser.get(
+      params.userId ?? 0,
+    );
+    const events = this.events.map((event) => ({
+      ...event,
+      isRegistered: registeredEventIds?.has(event.id) ?? false,
+    }));
+    return this.paginate(events, params);
   }
 
   registerEvent(userId: number, eventId: string) {
-    void userId;
-    return { isRegistered: this.events.some((event) => event.id === eventId) };
+    const isValidEvent = this.events.some((event) => event.id === eventId);
+    if (isValidEvent) {
+      this.getUserSet(this.registeredEventIdsByUser, userId).add(eventId);
+    }
+    return { isRegistered: isValidEvent };
   }
 
   unregisterEvent(userId: number, eventId: string) {
-    void userId;
-    void eventId;
+    this.registeredEventIdsByUser.get(userId)?.delete(eventId);
     return { isRegistered: false };
   }
 
@@ -223,5 +243,14 @@ export class CommunityService {
         totalPages: Math.ceil(items.length / limit),
       },
     };
+  }
+
+  private getUserSet(map: Map<number, Set<string>>, userId: number) {
+    let items = map.get(userId);
+    if (!items) {
+      items = new Set<string>();
+      map.set(userId, items);
+    }
+    return items;
   }
 }

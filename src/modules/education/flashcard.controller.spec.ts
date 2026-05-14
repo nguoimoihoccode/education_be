@@ -1,4 +1,5 @@
 import { FlashcardController } from './flashcard.controller';
+import { UnauthorizedException } from '@nestjs/common';
 
 describe('FlashcardController', () => {
   const createController = () => {
@@ -12,7 +13,10 @@ describe('FlashcardController', () => {
     };
 
     return {
-      controller: new FlashcardController(flashcardService as any, educationService as any),
+      controller: new FlashcardController(
+        flashcardService as any,
+        educationService as any,
+      ),
       educationService,
       flashcardService,
     };
@@ -45,15 +49,22 @@ describe('FlashcardController', () => {
       },
     );
 
-    await controller.completeReviewSession(
-      { user: { sub: 7 } } as any,
-      { sessionId: 'session-1' },
-    );
+    await controller.completeReviewSession({ user: { sub: 7 } } as any, {
+      sessionId: 'session-1',
+    });
 
     expect(calls).toEqual(['marked']);
-    expect(educationService.markTodayPlanTasksCompleteByType).toHaveBeenCalledWith(
-      '7',
-      ['review_flashcards', 'review_vocabulary'],
-    );
+    expect(
+      educationService.markTodayPlanTasksCompleteByType,
+    ).toHaveBeenCalledWith('7', ['review_flashcards', 'review_vocabulary']);
+  });
+
+  it('rejects protected flashcard actions without an authenticated user', async () => {
+    const { controller, flashcardService } = createController();
+
+    await expect(
+      controller.searchFlashcards({} as any, 'hello'),
+    ).rejects.toBeInstanceOf(UnauthorizedException);
+    expect(flashcardService.searchFlashcards).not.toHaveBeenCalled();
   });
 });

@@ -1,9 +1,11 @@
 import { EducationController } from './education.controller';
+import { UnauthorizedException } from '@nestjs/common';
 
 describe('EducationController authenticated user id handling', () => {
   const createService = () => ({
     getTodayPlan: jest.fn().mockResolvedValue({}),
     getTodayRecommendations: jest.fn().mockResolvedValue({}),
+    getLearningCoachSummary: jest.fn().mockResolvedValue({}),
     markTodayPlanTaskComplete: jest.fn().mockResolvedValue({}),
     completeLesson: jest.fn().mockResolvedValue({}),
     markTodayPlanTasksCompleteByTarget: jest.fn().mockResolvedValue(undefined),
@@ -25,6 +27,15 @@ describe('EducationController authenticated user id handling', () => {
     await controller.getTodayRecommendations({ user: { sub: 42 } } as any);
 
     expect(service.getTodayRecommendations).toHaveBeenCalledWith('42');
+  });
+
+  it('uses the JWT subject as a string for learning coach summary', async () => {
+    const service = createService();
+    const controller = new EducationController(service as any);
+
+    await controller.getLearningCoachSummary({ user: { sub: 42 } } as any);
+
+    expect(service.getLearningCoachSummary).toHaveBeenCalledWith('42');
   });
 
   it('uses the JWT subject as a string for explicit today plan completion', async () => {
@@ -79,5 +90,25 @@ describe('EducationController authenticated user id handling', () => {
 
     expect(result).toEqual({ id: 'lesson-progress' });
     expect(calls).toEqual(['lesson', 'marked']);
+  });
+
+  it('rejects protected reads without an authenticated user', async () => {
+    const service = createService();
+    const controller = new EducationController(service as any);
+
+    await expect(controller.getTodayPlan({} as any)).rejects.toBeInstanceOf(
+      UnauthorizedException,
+    );
+    expect(service.getTodayPlan).not.toHaveBeenCalled();
+  });
+
+  it('rejects learning coach summary without an authenticated user', async () => {
+    const service = createService();
+    const controller = new EducationController(service as any);
+
+    await expect(
+      controller.getLearningCoachSummary({} as any),
+    ).rejects.toBeInstanceOf(UnauthorizedException);
+    expect(service.getLearningCoachSummary).not.toHaveBeenCalled();
   });
 });

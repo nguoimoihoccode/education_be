@@ -1,4 +1,8 @@
-import { FlashcardService, buildFlashcardStatsResult } from './flashcard.service';
+import {
+  FlashcardService,
+  buildDeckStatsResult,
+  buildFlashcardStatsResult,
+} from './flashcard.service';
 
 const createRepository = (overrides: Record<string, unknown> = {}) => ({
   count: jest.fn(),
@@ -15,13 +19,19 @@ const createRepository = (overrides: Record<string, unknown> = {}) => ({
 });
 
 const createService = (repositories: Record<string, any> = {}) => {
-  const flashcardDeckRepository = repositories.flashcardDeckRepository ?? createRepository();
-  const flashcardRepository = repositories.flashcardRepository ?? createRepository();
-  const userFlashcardRepository = repositories.userFlashcardRepository ?? createRepository();
-  const reviewSessionRepository = repositories.reviewSessionRepository ?? createRepository();
-  const vocabularyRepository = repositories.vocabularyRepository ?? createRepository();
+  const flashcardDeckRepository =
+    repositories.flashcardDeckRepository ?? createRepository();
+  const flashcardRepository =
+    repositories.flashcardRepository ?? createRepository();
+  const userFlashcardRepository =
+    repositories.userFlashcardRepository ?? createRepository();
+  const reviewSessionRepository =
+    repositories.reviewSessionRepository ?? createRepository();
+  const vocabularyRepository =
+    repositories.vocabularyRepository ?? createRepository();
   const lessonRepository = repositories.lessonRepository ?? createRepository();
-  const userStreakRepository = repositories.userStreakRepository ?? createRepository();
+  const userStreakRepository =
+    repositories.userStreakRepository ?? createRepository();
 
   const service = new FlashcardService(
     flashcardDeckRepository as any,
@@ -108,6 +118,28 @@ describe('buildFlashcardStatsResult', () => {
       }).totalXp,
     ).toBe(230);
   });
+
+  it('builds deck stats with real review aggregates', () => {
+    expect(
+      buildDeckStatsResult({
+        deck: { id: 'deck-1', name: 'HSK1' },
+        totalFlashcards: 12,
+        statusStats: { NEW: 2, LEARNING: 4, MASTERED: 6 },
+        dueCount: 3,
+        totalReviews: 25,
+        correctRate: 0.84,
+        lastReviewed: new Date('2026-05-01T00:00:00.000Z'),
+      }),
+    ).toEqual({
+      deck: { id: 'deck-1', name: 'HSK1' },
+      totalFlashcards: 12,
+      statusStats: { NEW: 2, LEARNING: 4, MASTERED: 6 },
+      dueCount: 3,
+      totalReviews: 25,
+      correctRate: 0.84,
+      lastReviewed: new Date('2026-05-01T00:00:00.000Z'),
+    });
+  });
 });
 
 describe('FlashcardService review behavior', () => {
@@ -179,7 +211,9 @@ describe('FlashcardService review behavior', () => {
     });
     const { service } = createService({
       flashcardRepository: createRepository({
-        findOne: jest.fn().mockResolvedValue({ id: 'card-1', deckId: 'deck-1' }),
+        findOne: jest
+          .fn()
+          .mockResolvedValue({ id: 'card-1', deckId: 'deck-1' }),
         update: jest.fn(),
       }),
       userFlashcardRepository,

@@ -1,5 +1,7 @@
 import {
   QuizService,
+  buildQuizStatsResult,
+  buildTopicQuizStatsResult,
   buildQuizSessionQuestionOrder,
   calculateQuizSessionProgress,
   hasAnsweredQuestion,
@@ -18,6 +20,57 @@ const createRepository = (overrides: Record<string, unknown> = {}) => ({
 });
 
 describe('quiz session helpers', () => {
+  it('builds quiz stats with real score and timing aggregates', () => {
+    expect(
+      buildQuizStatsResult({
+        totalQuizzes: 3,
+        totalSessions: 4,
+        averageScore: 72.5,
+        highestScore: 98,
+        lowestScore: 40,
+        averageTimePerQuestion: 12,
+        passRate: 50,
+        watchedTopics: ['HSK1', 'Grammar'],
+      }),
+    ).toEqual({
+      totalQuizzes: 3,
+      totalSessions: 4,
+      averageScore: 72.5,
+      highestScore: 98,
+      lowestScore: 40,
+      averageTimePerQuestion: 12,
+      passRate: 50,
+      watchedTopics: ['HSK1', 'Grammar'],
+      passedQuizzes: 2,
+    });
+  });
+
+  it('builds topic stats with question type strengths and weaknesses', () => {
+    expect(
+      buildTopicQuizStatsResult({
+        topic: 'HSK1',
+        totalQuizzes: 2,
+        totalSessions: 3,
+        averageScore: 80,
+        highestScore: 95,
+        lowestScore: 60,
+        passRate: 67,
+        favoriteQuestionTypes: ['MULTIPLE_CHOICE'],
+      }),
+    ).toEqual({
+      topic: 'HSK1',
+      totalQuizzes: 2,
+      totalSessions: 3,
+      averageScore: 80,
+      highestScore: 95,
+      lowestScore: 60,
+      passRate: 67,
+      favoriteQuestionTypes: ['MULTIPLE_CHOICE'],
+      strengths: ['MULTIPLE_CHOICE'],
+      weaknesses: [],
+    });
+  });
+
   it('stores selected question ids in the order presented to the learner', () => {
     const questions = [
       { id: 'q3', points: 2 },
@@ -57,7 +110,10 @@ describe('quiz session helpers', () => {
 });
 
 describe('QuizService retry limits', () => {
-  const createService = (quiz: Record<string, unknown>, completedAttempts: number) => {
+  const createService = (
+    quiz: Record<string, unknown>,
+    completedAttempts: number,
+  ) => {
     const quizRepository = createRepository({
       findOne: jest.fn().mockResolvedValue(quiz),
     });
@@ -80,19 +136,25 @@ describe('QuizService retry limits', () => {
       1,
     );
 
-    await expect(service.startQuizSession(1, { quizId: 'quiz-1' })).rejects.toThrow(
-      'Quiz does not allow retries',
-    );
+    await expect(
+      service.startQuizSession(1, { quizId: 'quiz-1' }),
+    ).rejects.toThrow('Quiz does not allow retries');
   });
 
   it('blocks quizzes when max retry attempts are exhausted', async () => {
     const service = createService(
-      { id: 'quiz-1', userId: 1, isPublic: false, allowRetry: true, maxRetries: 2 },
+      {
+        id: 'quiz-1',
+        userId: 1,
+        isPublic: false,
+        allowRetry: true,
+        maxRetries: 2,
+      },
       2,
     );
 
-    await expect(service.startQuizSession(1, { quizId: 'quiz-1' })).rejects.toThrow(
-      'Quiz retry limit reached',
-    );
+    await expect(
+      service.startQuizSession(1, { quizId: 'quiz-1' }),
+    ).rejects.toThrow('Quiz retry limit reached');
   });
 });
