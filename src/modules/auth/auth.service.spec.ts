@@ -45,6 +45,8 @@ describe('AuthService', () => {
     create: jest.Mock;
     save: jest.Mock;
     findOne: jest.Mock;
+    find: jest.Mock;
+    createQueryBuilder: jest.Mock;
     remove: jest.Mock;
     update: jest.Mock;
     delete: jest.Mock;
@@ -56,6 +58,12 @@ describe('AuthService', () => {
     delete: jest.Mock;
   };
   let dataSource: { transaction: jest.Mock };
+  let queryBuilder: {
+    leftJoinAndSelect: jest.Mock;
+    orderBy: jest.Mock;
+    andWhere: jest.Mock;
+    getMany: jest.Mock;
+  };
 
   beforeEach(async () => {
     usersService = {
@@ -83,10 +91,18 @@ describe('AuthService', () => {
         .mockResolvedValueOnce('refresh-token'),
       decode: jest.fn(() => ({ exp: 2_000_000_000 })),
     };
+    queryBuilder = {
+      leftJoinAndSelect: jest.fn().mockReturnThis(),
+      orderBy: jest.fn().mockReturnThis(),
+      andWhere: jest.fn().mockReturnThis(),
+      getMany: jest.fn(),
+    };
     refreshTokenRepository = {
       create: jest.fn((entity) => entity),
       save: jest.fn(async (entity) => entity),
       findOne: jest.fn(),
+      find: jest.fn(),
+      createQueryBuilder: jest.fn(() => queryBuilder),
       remove: jest.fn(),
       update: jest.fn(),
       delete: jest.fn(),
@@ -103,7 +119,9 @@ describe('AuthService', () => {
           findOne: refreshTokenRepository.findOne,
           update: refreshTokenRepository.update,
           remove: refreshTokenRepository.remove,
+          create: jest.fn((entityClass, entity) => ({ entityClass, ...entity })),
           save: refreshTokenRepository.save,
+          query: jest.fn(),
         }),
       ),
     };
@@ -146,7 +164,23 @@ describe('AuthService', () => {
     );
 
     expect(usersService.touchLastSeen).toHaveBeenCalledWith(user.id);
-    expect(refreshTokenRepository.create).toHaveBeenCalledWith(
+    expect(refreshTokenRepository.update).toHaveBeenCalledWith(
+      RefreshToken,
+      { userId: user.id, isRevoked: false },
+      { isRevoked: true, revokedAt: expect.any(Date) },
+    );
+    const transactionCallback = dataSource.transaction.mock.calls[0][0];
+    const manager = {
+      update: refreshTokenRepository.update,
+      create: jest.fn((entityClass, entity) => ({ entityClass, ...entity })),
+      save: refreshTokenRepository.save,
+      query: jest.fn(),
+    };
+    await transactionCallback(manager);
+    expect(manager.query).toHaveBeenCalledWith('SELECT pg_advisory_xact_lock($1)', [
+      user.id,
+    ]);
+    expect(refreshTokenRepository.save).toHaveBeenCalledWith(
       expect.objectContaining({
         userId: user.id,
         ipAddress: '127.0.0.1',
@@ -161,6 +195,7 @@ describe('AuthService', () => {
         email: user.email,
         roles: [UserRole.USER, UserRole.STUDENT],
         type: 'access',
+        tokenId: expect.any(String),
       }),
       expect.objectContaining({ algorithm: 'RS256', expiresIn: '15m' }),
     );
@@ -193,6 +228,59 @@ describe('AuthService', () => {
     ).rejects.toThrow(UnauthorizedException);
   });
 
+  it('revokes existing active sessions when logging in', async () => {
+    usersService.findByEmail.mockResolvedValue(user);
+    usersService.findEntityByIdForAuth.mockResolvedValue(user);
+
+    await service.login(
+      { email: user.email, password: 'secret123' },
+      { fingerprint: 'device-2', ipAddress: '127.0.0.2', userAgent: 'test' },
+    );
+
+    expect(refreshTokenRepository.update).toHaveBeenCalledWith(
+      RefreshToken,
+      { userId: user.id, isRevoked: false },
+      { isRevoked: true, revokedAt: expect.any(Date) },
+    );
+  });
+
+  it('does not revoke existing sessions when new login token signing fails', async () => {
+    usersService.findByEmail.mockResolvedValue(user);
+    usersService.findEntityByIdForAuth.mockResolvedValue(user);
+    jwtService.signAsync.mockReset();
+    jwtService.signAsync.mockRejectedValueOnce(new Error('sign failed'));
+
+    await expect(
+      service.login({ email: user.email, password: 'secret123' }),
+    ).rejects.toThrow('sign failed');
+
+    expect(refreshTokenRepository.update).not.toHaveBeenCalledWith(
+      RefreshToken,
+      { userId: user.id, isRevoked: false },
+      { isRevoked: true, revokedAt: expect.any(Date) },
+    );
+  });
+
+  it('revokes existing active sessions when logging in with Google', async () => {
+    usersService.findByProviderId.mockResolvedValue(user);
+    usersService.findEntityByIdForAuth.mockResolvedValue(user);
+
+    await service.loginWithGoogle(
+      {
+        provider: 'google',
+        providerId: 'google-user-id',
+        email: user.email,
+      },
+      { fingerprint: 'device-google' },
+    );
+
+    expect(refreshTokenRepository.update).toHaveBeenCalledWith(
+      RefreshToken,
+      { userId: user.id, isRevoked: false },
+      { isRevoked: true, revokedAt: expect.any(Date) },
+    );
+  });
+
   it('rotates refresh tokens and revokes the used token', async () => {
     const storedToken = {
       tokenId: 'old-token-id',
@@ -210,23 +298,33 @@ describe('AuthService', () => {
     await service.refreshTokens('old-token-id', user.id);
 
     expect(dataSource.transaction).toHaveBeenCalled();
+    const revokedToken = refreshTokenRepository.save.mock.calls.find(
+      ([saved]) => saved.tokenId === 'old-token-id',
+    )?.[0];
+    const replacementToken = refreshTokenRepository.save.mock.calls.find(
+      ([saved]) => saved.tokenId !== 'old-token-id',
+    )?.[0];
+    expect(revokedToken.replacedBy).toBe(replacementToken.tokenId);
     expect(refreshTokenRepository.save).toHaveBeenCalledWith(
       expect.objectContaining({
         tokenId: 'old-token-id',
         isRevoked: true,
         replacedBy: expect.any(String),
+        lastUsedAt: expect.any(Date),
+        revokedAt: expect.any(Date),
       }),
     );
-    expect(refreshTokenRepository.create).toHaveBeenCalledWith(
-      expect.objectContaining({
-        userId: user.id,
-        isRevoked: false,
-      }),
+    expect(replacementToken).toEqual(
+      expect.objectContaining({ userId: user.id, isRevoked: false }),
     );
     expect(jwtService.signAsync).toHaveBeenNthCalledWith(
       1,
-      expect.objectContaining({ roles: user.roles }),
+      expect.objectContaining({ roles: user.roles, tokenId: expect.any(String) }),
       expect.objectContaining({ algorithm: 'RS256', expiresIn: '15m' }),
+    );
+    expect(refreshTokenRepository.update).not.toHaveBeenCalledWith(
+      { userId: user.id, isRevoked: false },
+      { isRevoked: true, revokedAt: expect.any(Date) },
     );
   });
 
@@ -244,7 +342,7 @@ describe('AuthService', () => {
     expect(refreshTokenRepository.update).toHaveBeenCalledWith(
       RefreshToken,
       { userId: user.id, isRevoked: false },
-      { isRevoked: true },
+      { isRevoked: true, revokedAt: expect.any(Date) },
     );
   });
 
@@ -304,7 +402,7 @@ describe('AuthService', () => {
     });
 
     expect(refreshTokenRepository.save).toHaveBeenCalledWith(
-      expect.objectContaining({ isRevoked: true }),
+      expect.objectContaining({ isRevoked: true, revokedAt: expect.any(Date) }),
     );
     expect(tokenBlacklistRepository.create).toHaveBeenCalledWith(
       expect.objectContaining({
@@ -312,6 +410,149 @@ describe('AuthService', () => {
         tokenType: 'access',
         reason: 'User logout',
       }),
+    );
+  });
+
+  it('returns active user sessions without device fingerprints', async () => {
+    const token = {
+      tokenId: 'token-id',
+      userId: user.id,
+      user: { email: user.email, displayName: 'Display', name: 'Name' },
+      ipAddress: '127.0.0.1',
+      userAgent:
+        'Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 Chrome/120.0 Safari/537.36',
+      deviceFingerprint: 'secret',
+      createdAt: new Date('2026-01-01T00:00:00.000Z'),
+      lastUsedAt: new Date('2026-01-01T01:00:00.000Z'),
+      expiresAt: new Date(Date.now() + 60_000),
+      isRevoked: false,
+    };
+    refreshTokenRepository.find.mockResolvedValue([token]);
+
+    const result = await service.getUserSessions(user.id, 'token-id');
+
+    expect(refreshTokenRepository.find).toHaveBeenCalledWith(
+      expect.objectContaining({
+        where: expect.objectContaining({ userId: user.id, isRevoked: false }),
+        relations: ['user'],
+        order: { createdAt: 'DESC' },
+      }),
+    );
+    expect(result[0]).toEqual(
+      expect.objectContaining({
+        tokenId: 'token-id',
+        email: user.email,
+        displayName: 'Display',
+        device: 'Desktop',
+        browser: 'Chrome',
+        os: 'macOS',
+        isCurrentSession: true,
+      }),
+    );
+    expect(result[0]).not.toHaveProperty('deviceFingerprint');
+  });
+
+  it('revokes owned sessions idempotently and rejects unknown sessions', async () => {
+    const token = { tokenId: 'token-id', userId: user.id, isRevoked: false };
+    refreshTokenRepository.findOne.mockResolvedValueOnce(token);
+
+    await service.revokeUserSession(user.id, 'token-id');
+
+    expect(refreshTokenRepository.save).toHaveBeenCalledWith(
+      expect.objectContaining({ isRevoked: true, revokedAt: expect.any(Date) }),
+    );
+
+    refreshTokenRepository.findOne.mockResolvedValueOnce(null);
+    await expect(service.revokeUserSession(user.id, 'missing')).rejects.toThrow(
+      'Session not found',
+    );
+  });
+
+  it('revokes other user sessions excluding the current token', async () => {
+    await service.revokeOtherUserSessions(user.id, 'current-token-id');
+
+    expect(refreshTokenRepository.update).toHaveBeenCalledWith(
+      expect.objectContaining({
+        userId: user.id,
+        isRevoked: false,
+        tokenId: expect.objectContaining({
+          _type: 'not',
+          _value: 'current-token-id',
+        }),
+      }),
+      expect.objectContaining({ isRevoked: true, revokedAt: expect.any(Date) }),
+    );
+  });
+
+  it('returns filtered admin sessions and revokes admin sessions', async () => {
+    const token = {
+      tokenId: 'token-id',
+      userId: user.id,
+      user: { email: user.email, name: 'Learner' },
+      userAgent: 'Mozilla/5.0 (iPhone; CPU iPhone OS 17_0 like Mac OS X) Version/17.0 Mobile Safari/604.1',
+      createdAt: new Date('2026-01-01T00:00:00.000Z'),
+      expiresAt: new Date(Date.now() + 60_000),
+      isRevoked: false,
+    };
+    queryBuilder.getMany.mockResolvedValue([token]);
+    refreshTokenRepository.findOne.mockResolvedValue(token);
+
+    const sessions = await service.getAdminSessions(
+      { userId: user.id, email: 'learner', active: true },
+      'other-token-id',
+    );
+    await service.revokeAdminSession('token-id');
+
+    expect(refreshTokenRepository.createQueryBuilder).toHaveBeenCalledWith('token');
+    expect(queryBuilder.leftJoinAndSelect).toHaveBeenCalledWith('token.user', 'user');
+    expect(queryBuilder.orderBy).toHaveBeenCalledWith('token.createdAt', 'DESC');
+    expect(queryBuilder.andWhere).toHaveBeenCalledWith('token.userId = :userId', {
+      userId: user.id,
+    });
+    expect(queryBuilder.andWhere).toHaveBeenCalledWith(
+      'LOWER(user.email) LIKE LOWER(:email)',
+      { email: '%learner%' },
+    );
+    expect(queryBuilder.andWhere).toHaveBeenCalledWith(
+      'token.isRevoked = :isRevoked',
+      { isRevoked: false },
+    );
+    expect(queryBuilder.andWhere).toHaveBeenCalledWith(
+      'token.expiresAt > :now',
+      { now: expect.any(Date) },
+    );
+    expect(sessions[0]).toEqual(
+      expect.objectContaining({
+        email: user.email,
+        displayName: 'Learner',
+        device: 'Mobile',
+        browser: 'Safari',
+        os: 'iOS',
+        isCurrentSession: false,
+      }),
+    );
+    expect(refreshTokenRepository.save).toHaveBeenCalledWith(
+      expect.objectContaining({ isRevoked: true, revokedAt: expect.any(Date) }),
+    );
+  });
+
+  it('filters admin inactive sessions as revoked or expired', async () => {
+    queryBuilder.getMany.mockResolvedValue([]);
+
+    await service.getAdminSessions({ active: false });
+
+    expect(queryBuilder.andWhere).toHaveBeenCalledWith(
+      '(token.isRevoked = :isRevoked OR token.expiresAt <= :now)',
+      { isRevoked: true, now: expect.any(Date) },
+    );
+  });
+
+  it('sets revokedAt when revoking all user tokens', async () => {
+    await service.revokeAllUserTokens(user.id);
+
+    expect(refreshTokenRepository.update).toHaveBeenCalledWith(
+      { userId: user.id, isRevoked: false },
+      { isRevoked: true, revokedAt: expect.any(Date) },
     );
   });
 });

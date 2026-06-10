@@ -43,6 +43,12 @@ export class RefreshToken {
   @Column({ name: 'user_agent', type: 'varchar', nullable: true })
   userAgent: string | null;
 
+  @Column({ name: 'last_used_at', type: 'timestamp', nullable: true })
+  lastUsedAt: Date | null;
+
+  @Column({ name: 'revoked_at', type: 'timestamp', nullable: true })
+  revokedAt: Date | null;
+
   @CreateDateColumn({ name: 'created_at' })
   createdAt: Date;
 

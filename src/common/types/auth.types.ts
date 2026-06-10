@@ -15,6 +15,7 @@ export interface RequestWithUser extends Request {
     sub: number;
     email: string;
     roles: string[];
+    tokenId?: string;
   };
 }
 

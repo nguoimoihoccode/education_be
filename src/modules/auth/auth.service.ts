@@ -1,6 +1,6 @@
 import { Injectable, UnauthorizedException } from '@nestjs/common';
 import { InjectRepository } from '@nestjs/typeorm';
-import { DataSource, Repository, LessThan } from 'typeorm';
+import { DataSource, Repository, LessThan, MoreThan, Not } from 'typeorm';
 import { JwtService } from '@nestjs/jwt';
 import * as bcrypt from 'bcryptjs';
 import { randomUUID } from 'crypto';
@@ -13,12 +13,14 @@ import { TokenBlacklist } from './entities/token-blacklist.entity';
 import { UserRole } from '../../common/enums/roles.enum';
 import { JwtKeyService } from './jwt-key.service';
 import { AuthResponseDto } from './dto/auth-response.dto';
+import { AdminSessionFilterDto, LoginSessionDto } from './dto/session.dto';
+import { DeviceInfo } from './helpers/device-info.helper';
 
-interface DeviceInfo {
-  fingerprint?: string;
-  ipAddress?: string;
-  userAgent?: string;
-}
+type SessionUser = {
+  email?: string | null;
+  displayName?: string | null;
+  name?: string | null;
+};
 
 @Injectable()
 export class AuthService {
@@ -145,6 +147,7 @@ export class AuthService {
     deviceInfo?: DeviceInfo,
   ) {
     const newTokenId = randomUUID();
+    const user = await this.usersService.findById(userId);
 
     await this.dataSource.transaction(async (manager) => {
       const storedToken = await manager.findOne(RefreshToken, {
@@ -162,7 +165,7 @@ export class AuthService {
         await manager.update(
           RefreshToken,
           { userId, isRevoked: false },
-          { isRevoked: true },
+          { isRevoked: true, revokedAt: new Date() },
         );
         throw new UnauthorizedException(
           'Token reuse detected. All sessions have been terminated.',
@@ -189,20 +192,34 @@ export class AuthService {
 
       storedToken.isRevoked = true;
       storedToken.replacedBy = newTokenId;
+      storedToken.lastUsedAt = new Date();
+      storedToken.revokedAt = new Date();
       await manager.save(storedToken);
+
+      const expiresAt = new Date();
+      expiresAt.setDate(expiresAt.getDate() + 7);
+      const refreshTokenEntity = manager.create(RefreshToken, {
+        tokenId: newTokenId,
+        userId: user.id,
+        expiresAt,
+        deviceFingerprint: deviceInfo?.fingerprint
+          ? this.hashToken(deviceInfo.fingerprint)
+          : null,
+        ipAddress: deviceInfo?.ipAddress,
+        userAgent: deviceInfo?.userAgent,
+        isRevoked: false,
+        lastUsedAt: new Date(),
+      });
+      await manager.save(refreshTokenEntity);
     });
 
-    // Get user to generate new tokens
-    const user = await this.usersService.findById(userId);
     await this.usersService.touchLastSeen(user.id);
 
-    // Generate new tokens
-    return this.generateTokens(
+    return this.signTokenPair(
       user.id,
       user.email,
-      deviceInfo,
       newTokenId,
-      user.roles,
+      user.roles || [UserRole.USER],
     );
   }
 
@@ -213,6 +230,7 @@ export class AuthService {
     });
     if (token) {
       token.isRevoked = true;
+      token.revokedAt = new Date();
       await this.refreshTokenRepository.save(token);
     }
 
@@ -229,12 +247,116 @@ export class AuthService {
     return { message: 'Logged out successfully' };
   }
 
-  async revokeAllUserTokens(userId: number, reason: string = 'User request') {
-    void reason;
+  async getUserSessions(
+    userId: number,
+    currentTokenId?: string,
+  ): Promise<LoginSessionDto[]> {
+    const tokens = await this.refreshTokenRepository.find({
+      where: { userId, isRevoked: false, expiresAt: MoreThan(new Date()) },
+      relations: ['user'],
+      order: { createdAt: 'DESC' },
+    });
+
+    return tokens.map((token) => this.toLoginSessionDto(token, currentTokenId));
+  }
+
+  async revokeUserSession(userId: number, tokenId: string) {
+    const token = await this.refreshTokenRepository.findOne({
+      where: { userId, tokenId },
+    });
+    if (!token) {
+      throw new UnauthorizedException('Session not found');
+    }
+
+    if (!token.isRevoked) {
+      token.isRevoked = true;
+      token.revokedAt = new Date();
+      await this.refreshTokenRepository.save(token);
+    }
+
+    return { message: 'Session revoked' };
+  }
+
+  async revokeOtherUserSessions(userId: number, currentTokenId?: string) {
+    const where = currentTokenId
+      ? { userId, isRevoked: false, tokenId: Not(currentTokenId) }
+      : { userId, isRevoked: false };
+    await this.refreshTokenRepository.update(where, {
+      isRevoked: true,
+      revokedAt: new Date(),
+    });
+
+    return { message: 'Other sessions revoked' };
+  }
+
+  private async revokeActiveUserSessions(
+    userId: number,
+    exceptTokenId?: string,
+  ) {
+    const where = exceptTokenId
+      ? { userId, isRevoked: false, tokenId: Not(exceptTokenId) }
+      : { userId, isRevoked: false };
+
+    await this.refreshTokenRepository.update(where, {
+      isRevoked: true,
+      revokedAt: new Date(),
+    });
+  }
+
+  async getAdminSessions(
+    filters: AdminSessionFilterDto = {},
+    currentTokenId?: string,
+  ): Promise<LoginSessionDto[]> {
+    const query = this.refreshTokenRepository
+      .createQueryBuilder('token')
+      .leftJoinAndSelect('token.user', 'user')
+      .orderBy('token.createdAt', 'DESC');
+
+    if (filters.userId) {
+      query.andWhere('token.userId = :userId', { userId: filters.userId });
+    }
+    if (filters.email) {
+      query.andWhere('LOWER(user.email) LIKE LOWER(:email)', {
+        email: `%${filters.email}%`,
+      });
+    }
+    if (filters.active === true) {
+      query.andWhere('token.isRevoked = :isRevoked', { isRevoked: false });
+      query.andWhere('token.expiresAt > :now', { now: new Date() });
+    } else if (filters.active === false) {
+      query.andWhere('(token.isRevoked = :isRevoked OR token.expiresAt <= :now)', {
+        isRevoked: true,
+        now: new Date(),
+      });
+    }
+
+    const tokens = await query.getMany();
+
+    return tokens.map((token) => this.toLoginSessionDto(token, currentTokenId));
+  }
+
+  async revokeAdminSession(tokenId: string) {
+    const token = await this.refreshTokenRepository.findOne({
+      where: { tokenId },
+    });
+    if (!token) {
+      throw new UnauthorizedException('Session not found');
+    }
+
+    if (!token.isRevoked) {
+      token.isRevoked = true;
+      token.revokedAt = new Date();
+      await this.refreshTokenRepository.save(token);
+    }
+
+    return { message: 'Session revoked' };
+  }
+
+  async revokeAllUserTokens(userId: number) {
     // Revoke all refresh tokens
     await this.refreshTokenRepository.update(
       { userId, isRevoked: false },
-      { isRevoked: true },
+      { isRevoked: true, revokedAt: new Date() },
     );
 
     // Note: Active access tokens will expire naturally (15 minutes)
@@ -285,6 +407,58 @@ export class AuthService {
     return createHash('sha256').update(token).digest('hex');
   }
 
+  private parseUserAgent(userAgent?: string | null) {
+    const ua = userAgent || '';
+    const device = /mobile|iphone|android/i.test(ua) ? 'Mobile' : 'Desktop';
+    const browser = /edg\//i.test(ua)
+      ? 'Edge'
+      : /chrome|crios/i.test(ua)
+        ? 'Chrome'
+        : /firefox|fxios/i.test(ua)
+          ? 'Firefox'
+          : /safari/i.test(ua)
+            ? 'Safari'
+            : 'Unknown';
+    const os = /iphone|ipad|ipod/i.test(ua)
+      ? 'iOS'
+      : /android/i.test(ua)
+        ? 'Android'
+        : /mac os x|macintosh/i.test(ua)
+          ? 'macOS'
+          : /windows/i.test(ua)
+            ? 'Windows'
+            : /linux/i.test(ua)
+              ? 'Linux'
+              : 'Unknown';
+
+    return { device, browser, os };
+  }
+
+  private toLoginSessionDto(
+    token: RefreshToken,
+    currentTokenId?: string,
+  ): LoginSessionDto {
+    const user: SessionUser | undefined = token.user;
+    const parsed = this.parseUserAgent(token.userAgent);
+
+    return {
+      tokenId: token.tokenId,
+      userId: token.userId,
+      email: user?.email || '',
+      displayName: user?.displayName || user?.name || undefined,
+      ipAddress: token.ipAddress || undefined,
+      userAgent: token.userAgent || undefined,
+      device: parsed.device,
+      browser: parsed.browser,
+      os: parsed.os,
+      createdAt: token.createdAt,
+      lastUsedAt: token.lastUsedAt || undefined,
+      expiresAt: token.expiresAt,
+      isRevoked: token.isRevoked,
+      isCurrentSession: token.tokenId === currentTokenId,
+    };
+  }
+
   private async generateTokens(
     userId: number,
     email: string,
@@ -311,14 +485,25 @@ export class AuthService {
       ipAddress: deviceInfo?.ipAddress,
       userAgent: deviceInfo?.userAgent,
       isRevoked: false,
+      lastUsedAt: new Date(),
     });
     await this.refreshTokenRepository.save(refreshTokenEntity);
 
+    return this.signTokenPair(userId, email, refreshTokenId, userRoles);
+  }
+
+  private async signTokenPair(
+    userId: number,
+    email: string,
+    refreshTokenId: string,
+    userRoles: UserRole[],
+  ) {
     // Generate access token with RS256 (short-lived: 15 minutes)
     const accessPayload = {
       sub: userId,
       email,
       roles: userRoles,
+      tokenId: refreshTokenId,
       type: 'access',
       iat: Math.floor(Date.now() / 1000),
     };
@@ -363,30 +548,14 @@ export class AuthService {
       ? this.hashToken(deviceInfo.fingerprint)
       : null;
 
-    const refreshTokenEntity = this.refreshTokenRepository.create({
-      tokenId: refreshTokenId,
-      userId: user!.id,
-      expiresAt,
-      deviceFingerprint: fingerprintHash,
-      ipAddress: deviceInfo?.ipAddress,
-      userAgent: deviceInfo?.userAgent,
-      isRevoked: false,
-    });
-    await this.refreshTokenRepository.save(refreshTokenEntity);
-
     const accessPayload = {
       sub: user!.id,
       email: user.email,
       roles: userRoles,
+      tokenId: refreshTokenId,
       type: 'access',
       iat: Math.floor(Date.now() / 1000),
     };
-    const accessToken = await this.jwtService.signAsync(accessPayload, {
-      algorithm: 'RS256',
-      privateKey: this.jwtKeyService.getPrivateKey(),
-      expiresIn: '15m',
-    });
-
     const refreshPayload = {
       sub: user!.id,
       email: user.email,
@@ -394,15 +563,43 @@ export class AuthService {
       type: 'refresh',
       iat: Math.floor(Date.now() / 1000),
     };
-    const refreshToken = await this.jwtService.signAsync(refreshPayload, {
-      algorithm: 'RS256',
-      privateKey: this.jwtKeyService.getPrivateKey(),
-      expiresIn: '7d',
+
+    let accessToken: string;
+    let refreshToken: string;
+
+    await this.dataSource.transaction(async (manager) => {
+      await manager.query?.('SELECT pg_advisory_xact_lock($1)', [user!.id]);
+      accessToken = await this.jwtService.signAsync(accessPayload, {
+        algorithm: 'RS256',
+        privateKey: this.jwtKeyService.getPrivateKey(),
+        expiresIn: '15m',
+      });
+      refreshToken = await this.jwtService.signAsync(refreshPayload, {
+        algorithm: 'RS256',
+        privateKey: this.jwtKeyService.getPrivateKey(),
+        expiresIn: '7d',
+      });
+      await manager.update(
+        RefreshToken,
+        { userId: user!.id, isRevoked: false },
+        { isRevoked: true, revokedAt: new Date() },
+      );
+      const refreshTokenEntity = manager.create(RefreshToken, {
+        tokenId: refreshTokenId,
+        userId: user!.id,
+        expiresAt,
+        deviceFingerprint: fingerprintHash,
+        ipAddress: deviceInfo?.ipAddress,
+        userAgent: deviceInfo?.userAgent,
+        isRevoked: false,
+        lastUsedAt: new Date(),
+      });
+      await manager.save(refreshTokenEntity);
     });
 
     return {
-      accessToken,
-      refreshToken,
+      accessToken: accessToken!,
+      refreshToken: refreshToken!,
       user: this.usersService.toAuthUserResponse(user),
     };
   }

@@ -1,8 +1,11 @@
 import {
   Body,
   Controller,
+  Delete,
   Get,
+  Param,
   Post,
+  Query,
   UseGuards,
   Req,
   Res,
@@ -27,9 +30,21 @@ import { extractDeviceInfo } from './helpers/device-info.helper';
 import type { Request, Response } from 'express';
 import type { RequestWithRefresh } from '../../common/types/auth.types';
 import { AuthRateLimit } from '../../common/decorators/rate-limit.decorator';
+import { Roles } from '../../common/decorators/roles.decorator';
+import { RolesGuard } from '../../common/guards/roles.guard';
+import { UserRole } from '../../common/enums/roles.enum';
+import { AdminSessionFilterDto } from './dto/session.dto';
+
+type RequestWithAccessUser = Request & {
+  user?: {
+    sub: number;
+    tokenId?: string;
+  };
+};
 
 @ApiTags('Auth')
 @Controller('auth')
+@UseGuards(RolesGuard)
 export class AuthController {
   constructor(
     private readonly authService: AuthService,
@@ -96,6 +111,49 @@ export class AuthController {
     const tokenId = req.user?.tokenId;
     const accessToken = authHeader?.replace('Bearer ', '');
     return this.authService.logout(tokenId!, accessToken);
+  }
+
+  @Get('sessions')
+  @ApiOperation({ summary: 'List current user sessions' })
+  @ApiResponse({ status: 200, description: 'Sessions returned' })
+  async getSessions(@Req() req: RequestWithAccessUser) {
+    return this.authService.getUserSessions(req.user!.sub, req.user?.tokenId);
+  }
+
+  @Delete('sessions/:tokenId')
+  @ApiOperation({ summary: 'Revoke current user session' })
+  @ApiResponse({ status: 200, description: 'Session revoked' })
+  async revokeSession(
+    @Param('tokenId') tokenId: string,
+    @Req() req: RequestWithAccessUser,
+  ) {
+    return this.authService.revokeUserSession(req.user!.sub, tokenId);
+  }
+
+  @Delete('sessions')
+  @ApiOperation({ summary: 'Revoke other current user sessions' })
+  @ApiResponse({ status: 200, description: 'Other sessions revoked' })
+  async revokeOtherSessions(@Req() req: RequestWithAccessUser) {
+    return this.authService.revokeOtherUserSessions(
+      req.user!.sub,
+      req.user?.tokenId,
+    );
+  }
+
+  @Get('admin/sessions')
+  @Roles(UserRole.ADMIN)
+  @ApiOperation({ summary: 'Admin list sessions' })
+  @ApiResponse({ status: 200, description: 'Sessions returned' })
+  async getAdminSessions(@Query() filters: AdminSessionFilterDto) {
+    return this.authService.getAdminSessions(filters);
+  }
+
+  @Delete('admin/sessions/:tokenId')
+  @Roles(UserRole.ADMIN)
+  @ApiOperation({ summary: 'Admin revoke session' })
+  @ApiResponse({ status: 200, description: 'Session revoked' })
+  async revokeAdminSession(@Param('tokenId') tokenId: string) {
+    return this.authService.revokeAdminSession(tokenId);
   }
 
   @Public()

@@ -13,6 +13,7 @@ import { TokenBlacklist } from './entities/token-blacklist.entity';
 import { GoogleStrategy } from './google.strategy';
 import { TokenCleanupTask } from './tasks/token-cleanup.task';
 import { JwtKeyService } from './jwt-key.service';
+import { RolesGuard } from '../../common/guards/roles.guard';
 
 @Module({
   imports: [
@@ -27,6 +28,7 @@ import { JwtKeyService } from './jwt-key.service';
     JwtStrategy,
     JwtRefreshStrategy,
     JwtAuthGuard,
+    RolesGuard,
     GoogleStrategy,
     TokenCleanupTask,
   ],
