@@ -15,6 +15,7 @@ const createRepository = (overrides: Record<string, unknown> = {}) => ({
   findAndCount: jest.fn(),
   findOne: jest.fn(),
   increment: jest.fn(),
+  remove: jest.fn(),
   save: jest.fn((value) => Promise.resolve(value)),
   ...overrides,
 });
@@ -156,5 +157,80 @@ describe('QuizService retry limits', () => {
     await expect(
       service.startQuizSession(1, { quizId: 'quiz-1' }),
     ).rejects.toThrow('Quiz retry limit reached');
+  });
+});
+
+describe('QuizService ownership checks', () => {
+  const createService = (repositories: Record<string, any> = {}) => {
+    const quizRepository = repositories.quizRepository ?? createRepository();
+    const quizQuestionRepository =
+      repositories.quizQuestionRepository ?? createRepository();
+
+    return {
+      service: new QuizService(
+        quizRepository as any,
+        quizQuestionRepository as any,
+        createRepository() as any,
+        createRepository() as any,
+        createRepository() as any,
+      ),
+      quizRepository,
+      quizQuestionRepository,
+    };
+  };
+
+  const findPublicQuizUnlessOwnershipChecked = jest.fn((options) => {
+    if (options?.where?.userId) {
+      return Promise.resolve(null);
+    }
+
+    return Promise.resolve({
+      id: 'quiz-1',
+      userId: 2,
+      isPublic: true,
+      questionCount: 0,
+    });
+  });
+
+  it('blocks updating another user public quiz', async () => {
+    const { service, quizRepository } = createService({
+      quizRepository: createRepository({
+        findOne: findPublicQuizUnlessOwnershipChecked,
+      }),
+    });
+
+    await expect(service.updateQuiz('quiz-1', 1, { title: 'Changed' })).rejects.toThrow(
+      'Quiz not found',
+    );
+    expect(quizRepository.save).not.toHaveBeenCalled();
+  });
+
+  it('blocks deleting another user public quiz', async () => {
+    const { service, quizRepository } = createService({
+      quizRepository: createRepository({
+        findOne: findPublicQuizUnlessOwnershipChecked,
+      }),
+    });
+
+    await expect(service.deleteQuiz('quiz-1', 1)).rejects.toThrow('Quiz not found');
+    expect(quizRepository.remove).not.toHaveBeenCalled();
+  });
+
+  it('blocks adding questions to another user public quiz', async () => {
+    const { service, quizQuestionRepository } = createService({
+      quizRepository: createRepository({
+        findOne: findPublicQuizUnlessOwnershipChecked,
+      }),
+      quizQuestionRepository: createRepository(),
+    });
+
+    await expect(
+      service.createQuizQuestion(1, 'quiz-1', {
+        question: 'Q?',
+        type: 'MULTIPLE_CHOICE' as any,
+        correctAnswer: 'A',
+      }),
+    ).rejects.toThrow('Quiz not found');
+    expect(quizQuestionRepository.save).not.toHaveBeenCalled();
   });
 });

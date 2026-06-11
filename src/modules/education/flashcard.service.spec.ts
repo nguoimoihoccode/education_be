@@ -143,6 +143,47 @@ describe('buildFlashcardStatsResult', () => {
 });
 
 describe('FlashcardService review behavior', () => {
+  it('blocks creating a flashcard in another user deck', async () => {
+    const { service, flashcardRepository, flashcardDeckRepository } = createService({
+      flashcardDeckRepository: createRepository({
+        findOne: jest.fn().mockResolvedValue(null),
+      }),
+      flashcardRepository: createRepository({
+        findOne: jest.fn().mockResolvedValue(null),
+      }),
+    });
+
+    await expect(
+      service.createFlashcard(1, {
+        front: 'hello',
+        back: 'xin chao',
+        deckId: 'other-deck',
+      } as any),
+    ).rejects.toThrow('Deck not found');
+    expect(flashcardRepository.save).not.toHaveBeenCalled();
+    expect(flashcardDeckRepository.increment).not.toHaveBeenCalled();
+  });
+
+  it('blocks bulk creating flashcards in another user deck', async () => {
+    const { service, flashcardRepository, flashcardDeckRepository } = createService({
+      flashcardDeckRepository: createRepository({
+        findOne: jest.fn().mockResolvedValue(null),
+      }),
+      flashcardRepository: createRepository({
+        findOne: jest.fn().mockResolvedValue(null),
+      }),
+    });
+
+    await expect(
+      service.bulkCreateFlashcards(1, {
+        deckId: 'other-deck',
+        flashcards: [{ front: 'hello', back: 'xin chao' }],
+      } as any),
+    ).rejects.toThrow('Deck not found');
+    expect(flashcardRepository.save).not.toHaveBeenCalled();
+    expect(flashcardDeckRepository.increment).not.toHaveBeenCalled();
+  });
+
   it('uses case-insensitive substring matching for flashcard search', async () => {
     const flashcardRepository = createRepository({
       findAndCount: jest.fn().mockResolvedValue([[{ id: 'card-1' }], 1]),

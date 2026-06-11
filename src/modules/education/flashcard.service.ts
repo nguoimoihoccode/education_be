@@ -200,6 +200,10 @@ export class FlashcardService {
   // ==================== Flashcard CRUD ====================
 
   async createFlashcard(userId: number, dto: CreateFlashcardDto) {
+    if (dto.deckId) {
+      await this.getDeckById(dto.deckId, userId);
+    }
+
     // Check for duplicate
     const duplicate = await this.checkDuplicateFlashcard(dto.front, userId);
     if (duplicate) {
@@ -227,6 +231,10 @@ export class FlashcardService {
   }
 
   async bulkCreateFlashcards(userId: number, dto: BulkCreateFlashcardDto) {
+    if (dto.deckId) {
+      await this.getDeckById(dto.deckId, userId);
+    }
+
     const created = [];
     const skipped = [];
 

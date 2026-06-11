@@ -97,13 +97,13 @@ export class QuizService {
   }
 
   async updateQuiz(quizId: string, userId: number, dto: UpdateQuizDto) {
-    const quiz = await this.getQuizById(quizId, userId);
+    const quiz = await this.getOwnedQuizById(quizId, userId);
     Object.assign(quiz, dto);
     return this.quizRepository.save(quiz);
   }
 
   async deleteQuiz(quizId: string, userId: number) {
-    const quiz = await this.getQuizById(quizId, userId);
+    const quiz = await this.getOwnedQuizById(quizId, userId);
     await this.quizRepository.remove(quiz);
     return { message: 'Quiz deleted successfully' };
   }
@@ -136,7 +136,7 @@ export class QuizService {
     quizId: string,
     dto: CreateQuizQuestionDto,
   ) {
-    const quiz = await this.getQuizById(quizId, userId);
+    const quiz = await this.getOwnedQuizById(quizId, userId);
 
     const question = this.quizQuestionRepository.create({
       ...dto,
@@ -150,6 +150,18 @@ export class QuizService {
     await this.quizRepository.increment({ id: quizId }, 'questionCount', 1);
 
     return savedQuestion;
+  }
+
+  private async getOwnedQuizById(quizId: string, userId: number) {
+    const quiz = await this.quizRepository.findOne({
+      where: { id: quizId, userId },
+    });
+
+    if (!quiz) {
+      throw new NotFoundException('Quiz not found');
+    }
+
+    return quiz;
   }
 
   async bulkCreateQuizQuestions(
