@@ -33,6 +33,7 @@ describe('AuthService', () => {
   let usersService: {
     create: jest.Mock;
     findByEmail: jest.Mock;
+    findByUsername: jest.Mock;
     findById: jest.Mock;
     findEntityByIdForAuth: jest.Mock;
     findByProviderId: jest.Mock;
@@ -69,6 +70,7 @@ describe('AuthService', () => {
     usersService = {
       create: jest.fn(),
       findByEmail: jest.fn(),
+      findByUsername: jest.fn(),
       findById: jest.fn(),
       findEntityByIdForAuth: jest.fn(),
       findByProviderId: jest.fn(),
@@ -242,6 +244,35 @@ describe('AuthService', () => {
       { userId: user.id, isRevoked: false },
       { isRevoked: true, revokedAt: expect.any(Date) },
     );
+  });
+
+  it('logs in with username and password', async () => {
+    usersService.findByUsername.mockResolvedValue(user);
+    usersService.findEntityByIdForAuth.mockResolvedValue(user);
+
+    await service.login({ identifier: 'Learner', password: 'secret123' } as never);
+
+    expect(usersService.findByUsername).toHaveBeenCalledWith('learner');
+    expect(usersService.findByEmail).not.toHaveBeenCalled();
+    expect(bcrypt.compare).toHaveBeenCalledWith('secret123', user.passwordHash);
+  });
+
+  it('keeps email login payload backward compatible', async () => {
+    usersService.findByEmail.mockResolvedValue(user);
+    usersService.findEntityByIdForAuth.mockResolvedValue(user);
+
+    await service.login({ email: user.email, password: 'secret123' } as never);
+
+    expect(usersService.findByEmail).toHaveBeenCalledWith(user.email);
+  });
+
+  it('preserves email casing when logging in with email identifier', async () => {
+    usersService.findByEmail.mockResolvedValue(user);
+    usersService.findEntityByIdForAuth.mockResolvedValue(user);
+
+    await service.login({ identifier: 'Learner@Example.com', password: 'secret123' } as never);
+
+    expect(usersService.findByEmail).toHaveBeenCalledWith('Learner@Example.com');
   });
 
   it('does not revoke existing sessions when new login token signing fails', async () => {

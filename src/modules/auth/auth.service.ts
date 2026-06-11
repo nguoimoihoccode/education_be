@@ -50,7 +50,10 @@ export class AuthService {
     loginDto: LoginDto,
     deviceInfo?: DeviceInfo,
   ): Promise<AuthResponseDto> {
-    const userEntity = await this.usersService.findByEmail(loginDto.email);
+    const identifier = (loginDto.identifier || loginDto.email || '').trim();
+    const userEntity = identifier.includes('@')
+      ? await this.usersService.findByEmail(identifier)
+      : await this.usersService.findByUsername(identifier.toLowerCase());
     if (!userEntity) {
       throw new UnauthorizedException('Invalid credentials');
     }
