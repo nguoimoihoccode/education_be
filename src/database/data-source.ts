@@ -27,6 +27,12 @@ import { SoulieConversation } from '../modules/soulie/entities/conversation.enti
 import { SoulieMessage } from '../modules/soulie/entities/message.entity';
 import { SoulieMoment } from '../modules/soulie/entities/moment.entity';
 import { NotificationToken } from '../modules/soulie/entities/notification-token.entity';
+import { EducationSocialPost } from '../modules/education-social/entities/social-post.entity';
+import { EducationSocialComment } from '../modules/education-social/entities/social-comment.entity';
+import { EducationSocialPostLike } from '../modules/education-social/entities/social-post-like.entity';
+import { EducationSocialPostBookmark } from '../modules/education-social/entities/social-post-bookmark.entity';
+import { EducationActivityLog } from '../modules/activity-log/entities/activity-log.entity';
+import { EducationDataExport } from '../modules/data-export/entities/data-export.entity';
 
 const isSupabaseHost = (host?: string) =>
   host?.includes('supabase') || host?.includes('pooler.supabase');
@@ -64,6 +70,12 @@ export default new DataSource({
     SoulieMessage,
     SoulieMoment,
     NotificationToken,
+    EducationSocialPost,
+    EducationSocialComment,
+    EducationSocialPostLike,
+    EducationSocialPostBookmark,
+    EducationActivityLog,
+    EducationDataExport,
   ],
   migrations: ['src/database/migrations/*.ts'],
   synchronize: false,
