@@ -18,6 +18,7 @@ export enum EducationSocialPostType {
 }
 
 @Entity('edu_social_posts')
+@Index('IDX_edu_social_posts_author', ['authorId'])
 @Index('IDX_edu_social_posts_created', ['createdAt'])
 @Index('IDX_edu_social_posts_type_created', ['type', 'createdAt'])
 export class EducationSocialPost {
@@ -28,7 +29,10 @@ export class EducationSocialPost {
   authorId: number;
 
   @ManyToOne(() => User, { onDelete: 'CASCADE' })
-  @JoinColumn({ name: 'author_id' })
+  @JoinColumn({
+    name: 'author_id',
+    foreignKeyConstraintName: 'FK_edu_social_posts_author',
+  })
   author: User;
 
   @Column({ type: 'text' })

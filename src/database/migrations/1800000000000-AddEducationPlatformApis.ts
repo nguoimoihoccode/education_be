@@ -66,6 +66,11 @@ export class AddEducationPlatformApis1800000000000 implements MigrationInterface
     `);
 
     await queryRunner.query(`
+      CREATE INDEX "IDX_edu_social_posts_author"
+      ON "edu_social_posts" ("author_id")
+    `);
+
+    await queryRunner.query(`
       CREATE INDEX "IDX_edu_social_posts_created"
       ON "edu_social_posts" ("created_at" DESC)
     `);
@@ -100,6 +105,11 @@ export class AddEducationPlatformApis1800000000000 implements MigrationInterface
     `);
 
     await queryRunner.query(`
+      CREATE INDEX "IDX_edu_social_comments_author"
+      ON "edu_social_comments" ("author_id")
+    `);
+
+    await queryRunner.query(`
       CREATE TABLE "edu_social_post_likes" (
         "id" uuid NOT NULL DEFAULT gen_random_uuid(),
         "post_id" uuid NOT NULL,
@@ -113,6 +123,11 @@ export class AddEducationPlatformApis1800000000000 implements MigrationInterface
     `);
 
     await queryRunner.query(`
+      CREATE INDEX "IDX_edu_social_post_likes_user"
+      ON "edu_social_post_likes" ("user_id")
+    `);
+
+    await queryRunner.query(`
       CREATE TABLE "edu_social_post_bookmarks" (
         "id" uuid NOT NULL DEFAULT gen_random_uuid(),
         "post_id" uuid NOT NULL,
@@ -123,6 +138,11 @@ export class AddEducationPlatformApis1800000000000 implements MigrationInterface
         CONSTRAINT "FK_edu_social_post_bookmarks_post" FOREIGN KEY ("post_id") REFERENCES "edu_social_posts"("id") ON DELETE CASCADE ON UPDATE NO ACTION,
         CONSTRAINT "FK_edu_social_post_bookmarks_user" FOREIGN KEY ("user_id") REFERENCES "users"("id") ON DELETE CASCADE ON UPDATE NO ACTION
       )
+    `);
+
+    await queryRunner.query(`
+      CREATE INDEX "IDX_edu_social_post_bookmarks_user"
+      ON "edu_social_post_bookmarks" ("user_id")
     `);
 
     await queryRunner.query(`

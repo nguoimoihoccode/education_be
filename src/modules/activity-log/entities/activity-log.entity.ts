@@ -28,7 +28,10 @@ export class EducationActivityLog {
   userId: number;
 
   @ManyToOne(() => User, { onDelete: 'CASCADE' })
-  @JoinColumn({ name: 'user_id' })
+  @JoinColumn({
+    name: 'user_id',
+    foreignKeyConstraintName: 'FK_edu_activity_logs_user',
+  })
   user: User;
 
   @Column({

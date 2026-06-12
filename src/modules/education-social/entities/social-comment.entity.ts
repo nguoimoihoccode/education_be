@@ -12,6 +12,7 @@ import { EducationSocialPost } from './social-post.entity';
 
 @Entity('edu_social_comments')
 @Index('IDX_edu_social_comments_post_created', ['postId', 'createdAt'])
+@Index('IDX_edu_social_comments_author', ['authorId'])
 export class EducationSocialComment {
   @PrimaryGeneratedColumn('uuid')
   id: string;
@@ -20,14 +21,20 @@ export class EducationSocialComment {
   postId: string;
 
   @ManyToOne(() => EducationSocialPost, { onDelete: 'CASCADE' })
-  @JoinColumn({ name: 'post_id' })
+  @JoinColumn({
+    name: 'post_id',
+    foreignKeyConstraintName: 'FK_edu_social_comments_post',
+  })
   post: EducationSocialPost;
 
   @Column({ name: 'author_id', type: 'integer' })
   authorId: number;
 
   @ManyToOne(() => User, { onDelete: 'CASCADE' })
-  @JoinColumn({ name: 'author_id' })
+  @JoinColumn({
+    name: 'author_id',
+    foreignKeyConstraintName: 'FK_edu_social_comments_author',
+  })
   author: User;
 
   @Column({ type: 'text' })
