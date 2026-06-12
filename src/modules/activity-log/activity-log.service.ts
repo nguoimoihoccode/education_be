@@ -1,13 +1,10 @@
 import { Injectable, Logger } from '@nestjs/common';
 import { InjectRepository } from '@nestjs/typeorm';
-import { Repository } from 'typeorm';
+import { DataSource, Repository } from 'typeorm';
 import {
   EducationActivityLog,
   EducationActivityType,
 } from './entities/activity-log.entity';
-import { QuizSession } from '../education/entities/quiz-session.entity';
-import { ReviewSession } from '../education/entities/review-session.entity';
-import { UserLesson } from '../education/entities/user-lesson.entity';
 import { ActivityLogQueryDto } from './dto/activity-log-query.dto';
 
 export type RecordActivityInput = {
@@ -28,10 +25,14 @@ export type ActivityLogResponse = {
   xp: number;
 };
 
-type ActivityLogRow = ActivityLogResponse & {
-  timestamp: number;
-  sourceKey?: string;
-  sequence: number;
+type ActivityLogQueryRow = {
+  id: string;
+  sourceKey: string;
+  createdAt: Date | string;
+  type: EducationActivityType;
+  action: string;
+  detail: string;
+  xp: number;
 };
 
 @Injectable()
@@ -41,12 +42,7 @@ export class ActivityLogService {
   constructor(
     @InjectRepository(EducationActivityLog)
     private readonly activityRepository: Repository<EducationActivityLog>,
-    @InjectRepository(UserLesson)
-    private readonly userLessonRepository: Repository<UserLesson>,
-    @InjectRepository(QuizSession)
-    private readonly quizSessionRepository: Repository<QuizSession>,
-    @InjectRepository(ReviewSession)
-    private readonly reviewSessionRepository: Repository<ReviewSession>,
+    private readonly dataSource: DataSource,
   ) {}
 
   async record(input: RecordActivityInput): Promise<void> {
@@ -77,148 +73,50 @@ export class ActivityLogService {
     data: ActivityLogResponse[];
     meta: { total: number; page: number; totalPages: number };
   }> {
-    const [persisted, userLessons, quizSessions, reviewSessions] =
-      await Promise.all([
-        this.activityRepository.find({
-          where: { userId },
-          order: { createdAt: 'DESC' },
-        }),
-        this.userLessonRepository.find({
-          where: { userId: String(userId), completed: true },
-          relations: ['lesson'],
-        }),
-        this.quizSessionRepository.find({
-          where: { userId, completed: true },
-          relations: ['quiz'],
-        }),
-        this.reviewSessionRepository.find({
-          where: { userId, completed: true },
-          relations: ['deck'],
-        }),
-      ]);
-
-    let sequence = 0;
-    const persistedRows = persisted.map<ActivityLogRow>((activity) => ({
-      id: activity.id,
-      createdAt: activity.createdAt.toISOString(),
-      type: activity.type,
-      action: activity.action,
-      detail: activity.detail,
-      xp: activity.xp,
-      timestamp: activity.createdAt.getTime(),
-      sourceKey: this.getSourceKey(activity.metadata),
-      sequence: sequence++,
-    }));
-    const persistedSourceKeys = new Set(
-      persistedRows
-        .map(({ sourceKey }) => sourceKey)
-        .filter((sourceKey): sourceKey is string => Boolean(sourceKey)),
-    );
-
-    const projectedRows = [
-      ...userLessons.flatMap<ActivityLogRow>((userLesson) => {
-        if (!userLesson.completedAt) {
-          return [];
-        }
-
-        const sourceKey = `lesson:${userLesson.id}`;
-        return [
-          this.createProjectedRow({
-            id: sourceKey,
-            createdAt: userLesson.completedAt,
-            type: EducationActivityType.LEARNING,
-            action: 'lesson_completed',
-            detail: this.buildDetail(
-              'Completed lesson',
-              userLesson.lesson?.title,
-            ),
-            xp: 0,
-            sourceKey,
-            sequence: sequence++,
-          }),
-        ];
-      }),
-      ...quizSessions.flatMap<ActivityLogRow>((quizSession) => {
-        if (!quizSession.completedAt) {
-          return [];
-        }
-
-        const quiz = quizSession.quiz as
-          | { name?: string; title?: string }
-          | undefined;
-        const sourceKey = `quiz:${quizSession.id}`;
-        return [
-          this.createProjectedRow({
-            id: sourceKey,
-            createdAt: quizSession.completedAt,
-            type: EducationActivityType.LEARNING,
-            action: 'quiz_completed',
-            detail: this.buildDetail(
-              'Completed quiz',
-              quiz?.name ?? quiz?.title,
-            ),
-            xp: 0,
-            sourceKey,
-            sequence: sequence++,
-          }),
-        ];
-      }),
-      ...reviewSessions.flatMap<ActivityLogRow>((reviewSession) => {
-        if (!reviewSession.completedAt) {
-          return [];
-        }
-
-        const sourceKey = `flashcard:${reviewSession.id}`;
-        return [
-          this.createProjectedRow({
-            id: sourceKey,
-            createdAt: reviewSession.completedAt,
-            type: EducationActivityType.PRACTICE,
-            action: 'flashcard_review_completed',
-            detail: this.buildDetail(
-              'Completed flashcard review',
-              reviewSession.deck?.name,
-            ),
-            xp: reviewSession.xpEarned,
-            sourceKey,
-            sequence: sequence++,
-          }),
-        ];
-      }),
-    ].filter(
-      ({ sourceKey }) => !sourceKey || !persistedSourceKeys.has(sourceKey),
-    );
-
-    const search = query.search?.trim().toLocaleLowerCase();
-    const filteredRows = [...persistedRows, ...projectedRows]
-      .filter((row) => !query.type || row.type === query.type)
-      .filter(
-        (row) =>
-          !search ||
-          row.action.toLocaleLowerCase().includes(search) ||
-          row.detail.toLocaleLowerCase().includes(search),
-      )
-      .sort(
-        (left, right) =>
-          right.timestamp - left.timestamp || left.sequence - right.sequence,
-      );
-
     const page = query.page ?? 1;
     const limit = query.limit ?? 10;
-    const total = filteredRows.length;
-    const start = (page - 1) * limit;
-    const data = filteredRows
-      .slice(start, start + limit)
-      .map<ActivityLogResponse>(
-        ({ id, createdAt, type, action, detail, xp }) => ({
-          id,
-          createdAt,
-          type,
-          action,
-          detail,
-          xp,
-        }),
-      );
+    const offset = (page - 1) * limit;
+    const search = query.search?.trim().toLocaleLowerCase();
+    const filterParams = [
+      userId,
+      query.type ?? null,
+      search ? `%${search}%` : null,
+    ];
+    const commonTableExpression = this.buildActivityRowsCte();
+    const countRows = await this.dataSource.query(
+      `${commonTableExpression}
+      SELECT COUNT(*)::int AS total
+      FROM filtered_rows`,
+      filterParams,
+    );
+    const rows = await this.dataSource.query(
+      `${commonTableExpression}
+      SELECT
+        id,
+        source_key AS "sourceKey",
+        created_at AS "createdAt",
+        type,
+        action,
+        detail,
+        xp
+      FROM filtered_rows
+      ORDER BY created_at DESC, source_priority ASC, id ASC
+      LIMIT $4 OFFSET $5`,
+      [...filterParams, limit, offset],
+    );
+    const total = Number(
+      (countRows as Array<{ total: number | string }>)[0]?.total ?? 0,
+    );
+    const data = (rows as ActivityLogQueryRow[]).map<ActivityLogResponse>(
+      ({ id, createdAt, type, action, detail, xp }) => ({
+        id,
+        createdAt: new Date(createdAt).toISOString(),
+        type,
+        action,
+        detail,
+        xp,
+      }),
+    );
 
     return {
       data,
@@ -230,32 +128,123 @@ export class ActivityLogService {
     };
   }
 
-  private getSourceKey(
-    metadata?: Record<string, unknown> | null,
-  ): string | undefined {
-    return typeof metadata?.sourceKey === 'string'
-      ? metadata.sourceKey
-      : undefined;
-  }
+  private buildActivityRowsCte(): string {
+    return `
+      WITH activity_rows AS (
+        SELECT
+          activity.id::text AS id,
+          COALESCE(activity.metadata->>'sourceKey', 'persisted:' || activity.id::text) AS source_key,
+          activity.created_at AS created_at,
+          activity.type::text AS type,
+          activity.action,
+          activity.detail,
+          activity.xp,
+          0 AS source_priority
+        FROM edu_activity_logs activity
+        WHERE activity.user_id = $1
 
-  private createProjectedRow(input: {
-    id: string;
-    createdAt: Date;
-    type: EducationActivityType;
-    action: string;
-    detail: string;
-    xp: number;
-    sourceKey: string;
-    sequence: number;
-  }): ActivityLogRow {
-    return {
-      ...input,
-      createdAt: input.createdAt.toISOString(),
-      timestamp: input.createdAt.getTime(),
-    };
-  }
+        UNION ALL
 
-  private buildDetail(action: string, subject?: string): string {
-    return subject ? `${action}: ${subject}` : action;
+        SELECT
+          'lesson:' || user_lesson.id::text AS id,
+          'lesson:' || user_lesson.lesson_id::text || ':user:' || $1::text AS source_key,
+          user_lesson.completed_at AS created_at,
+          'learning'::text AS type,
+          'lesson_completed'::text AS action,
+          CONCAT(
+            'Completed lesson',
+            CASE
+              WHEN lesson.title IS NULL OR lesson.title = '' THEN ''
+              ELSE ': ' || lesson.title
+            END
+          ) AS detail,
+          0 AS xp,
+          1 AS source_priority
+        FROM edu_user_lessons user_lesson
+        LEFT JOIN edu_lessons lesson ON lesson.id = user_lesson.lesson_id
+        WHERE user_lesson.user_id = $1::text
+          AND user_lesson.completed = true
+          AND user_lesson.completed_at IS NOT NULL
+
+        UNION ALL
+
+        SELECT
+          'quiz:' || quiz_session.id::text AS id,
+          'quiz:' || quiz_session.id::text AS source_key,
+          quiz_session."completedAt" AS created_at,
+          'learning'::text AS type,
+          'quiz_completed'::text AS action,
+          CONCAT(
+            'Completed quiz',
+            CASE
+              WHEN quiz.name IS NULL OR quiz.name = '' THEN ''
+              ELSE ': ' || quiz.name
+            END
+          ) AS detail,
+          0 AS xp,
+          1 AS source_priority
+        FROM edu_quiz_sessions quiz_session
+        LEFT JOIN edu_quizzes quiz ON quiz.id = quiz_session."quizId"
+        WHERE quiz_session."userId" = $1
+          AND quiz_session.completed = true
+          AND quiz_session."completedAt" IS NOT NULL
+
+        UNION ALL
+
+        SELECT
+          'flashcard:' || review_session.id::text AS id,
+          'flashcard:' || review_session.id::text AS source_key,
+          review_session."completedAt" AS created_at,
+          'practice'::text AS type,
+          'flashcard_review_completed'::text AS action,
+          CONCAT(
+            'Completed flashcard review',
+            CASE
+              WHEN deck.name IS NULL OR deck.name = '' THEN ''
+              ELSE ': ' || deck.name
+            END
+          ) AS detail,
+          review_session."xpEarned" AS xp,
+          1 AS source_priority
+        FROM edu_flashcard_review_sessions review_session
+        LEFT JOIN edu_flashcard_decks deck ON deck.id = review_session."deckId"
+        WHERE review_session."userId" = $1
+          AND review_session.completed = true
+          AND review_session."completedAt" IS NOT NULL
+      ),
+      ranked_rows AS (
+        SELECT
+          id,
+          source_key,
+          created_at,
+          type,
+          action,
+          detail,
+          xp,
+          source_priority,
+          ROW_NUMBER() OVER (
+            PARTITION BY source_key
+            ORDER BY source_priority ASC, created_at DESC, id ASC
+          ) AS source_rank
+        FROM activity_rows
+      ),
+      filtered_rows AS (
+        SELECT
+          id,
+          source_key,
+          created_at,
+          type,
+          action,
+          detail,
+          xp,
+          source_priority
+        FROM ranked_rows
+        WHERE source_rank = 1
+          AND ($2::text IS NULL OR type = $2::text)
+          AND (
+            $3::text IS NULL
+            OR LOWER(action || ' ' || detail) LIKE $3::text
+          )
+      )`;
   }
 }

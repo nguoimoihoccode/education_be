@@ -1,12 +1,15 @@
 import { Logger } from '@nestjs/common';
 import { Test, TestingModule } from '@nestjs/testing';
 import { getRepositoryToken } from '@nestjs/typeorm';
-import { EducationActivityType } from './entities/activity-log.entity';
-import { EducationActivityLog } from './entities/activity-log.entity';
+import { DataSource } from 'typeorm';
 import { QuizSession } from '../education/entities/quiz-session.entity';
 import { ReviewSession } from '../education/entities/review-session.entity';
 import { UserLesson } from '../education/entities/user-lesson.entity';
 import { ActivityLogService } from './activity-log.service';
+import {
+  EducationActivityLog,
+  EducationActivityType,
+} from './entities/activity-log.entity';
 
 type RepositoryMock = {
   create: jest.Mock;
@@ -26,16 +29,19 @@ describe('ActivityLogService', () => {
   let userLessonRepository: RepositoryMock;
   let quizSessionRepository: RepositoryMock;
   let reviewSessionRepository: RepositoryMock;
+  let dataSource: { query: jest.Mock };
 
   beforeEach(async () => {
     activityRepository = createRepositoryMock();
     userLessonRepository = createRepositoryMock();
     quizSessionRepository = createRepositoryMock();
     reviewSessionRepository = createRepositoryMock();
+    dataSource = { query: jest.fn() };
 
     const module: TestingModule = await Test.createTestingModule({
       providers: [
         ActivityLogService,
+        { provide: DataSource, useValue: dataSource },
         {
           provide: getRepositoryToken(EducationActivityLog),
           useValue: activityRepository,
@@ -112,260 +118,178 @@ describe('ActivityLogService', () => {
     );
   });
 
-  it('projects completed lesson, quiz, and flashcard history with deterministic IDs', async () => {
-    userLessonRepository.find.mockResolvedValue([
-      {
-        id: 'lesson-record',
-        completedAt: new Date('2026-06-01T10:00:00.000Z'),
-        lesson: { title: 'Intro' },
-      },
-      {
-        id: 'lesson-without-time',
-        completedAt: null,
-        lesson: { title: 'Ignored' },
-      },
-    ]);
-    quizSessionRepository.find.mockResolvedValue([
-      {
-        id: 'quiz-record',
-        completedAt: new Date('2026-06-02T10:00:00.000Z'),
-        quiz: { name: 'HSK Checkpoint' },
-      },
-    ]);
-    reviewSessionRepository.find.mockResolvedValue([
-      {
-        id: 'review-record',
-        completedAt: new Date('2026-06-03T10:00:00.000Z'),
-        deck: { name: 'HSK 1 Words' },
-        xpEarned: 12,
-      },
-    ]);
-
-    const result = await service.list(7, { page: 1, limit: 20 });
-
-    expect(userLessonRepository.find).toHaveBeenCalledWith({
-      where: { userId: '7', completed: true },
-      relations: ['lesson'],
-    });
-    expect(quizSessionRepository.find).toHaveBeenCalledWith({
-      where: { userId: 7, completed: true },
-      relations: ['quiz'],
-    });
-    expect(reviewSessionRepository.find).toHaveBeenCalledWith({
-      where: { userId: 7, completed: true },
-      relations: ['deck'],
-    });
-    expect(result.data).toEqual([
-      {
-        id: 'flashcard:review-record',
-        createdAt: '2026-06-03T10:00:00.000Z',
-        type: EducationActivityType.PRACTICE,
-        action: 'flashcard_review_completed',
-        detail: expect.stringContaining('HSK 1 Words'),
-        xp: 12,
-      },
-      {
-        id: 'quiz:quiz-record',
-        createdAt: '2026-06-02T10:00:00.000Z',
-        type: EducationActivityType.LEARNING,
-        action: 'quiz_completed',
-        detail: expect.stringContaining('HSK Checkpoint'),
-        xp: 0,
-      },
-      {
-        id: 'lesson:lesson-record',
-        createdAt: '2026-06-01T10:00:00.000Z',
-        type: EducationActivityType.LEARNING,
-        action: 'lesson_completed',
-        detail: expect.stringContaining('Intro'),
-        xp: 0,
-      },
-    ]);
-  });
-
-  it('merges persisted and projected rows in stable descending timestamp order', async () => {
-    activityRepository.find.mockResolvedValue([
-      {
-        id: 'persisted-first',
-        createdAt: new Date('2026-06-04T10:00:00.000Z'),
-        type: EducationActivityType.SYSTEM,
-        action: 'profile_updated',
-        detail: 'Updated profile',
-        xp: 0,
-        metadata: { internal: true },
-      },
-      {
-        id: 'persisted-second',
-        createdAt: new Date('2026-06-04T10:00:00.000Z'),
-        type: EducationActivityType.ACHIEVEMENT,
-        action: 'badge_earned',
-        detail: 'Earned a badge',
-        xp: 5,
-      },
-    ]);
-    userLessonRepository.find.mockResolvedValue([
-      {
-        id: 'older-lesson',
-        completedAt: new Date('2026-06-03T10:00:00.000Z'),
-        lesson: { title: 'Older lesson' },
-      },
-    ]);
-
-    const result = await service.list(7, { page: 1, limit: 20 });
-
-    expect(result.data.map(({ id }) => id)).toEqual([
-      'persisted-first',
-      'persisted-second',
-      'lesson:older-lesson',
-    ]);
-    expect(result.data[0]).not.toHaveProperty('metadata');
-  });
-
-  it('suppresses a projected row when a persisted source key matches it', async () => {
-    activityRepository.find.mockResolvedValue([
-      {
-        id: 'persisted-lesson',
-        createdAt: new Date('2026-06-05T10:00:00.000Z'),
-        type: EducationActivityType.LEARNING,
-        action: 'lesson_completed',
-        detail: 'Persisted lesson completion',
-        xp: 20,
-        metadata: { sourceKey: 'lesson:lesson-record' },
-      },
-    ]);
-    userLessonRepository.find.mockResolvedValue([
-      {
-        id: 'lesson-record',
-        completedAt: new Date('2026-06-01T10:00:00.000Z'),
-        lesson: { title: 'Intro' },
-      },
-    ]);
-
-    const result = await service.list(7, { page: 1, limit: 20 });
-
-    expect(result.data).toHaveLength(1);
-    expect(result.data[0].id).toBe('persisted-lesson');
-  });
-
-  it('filters by activity type', async () => {
-    activityRepository.find.mockResolvedValue([
-      {
-        id: 'system-log',
-        createdAt: new Date('2026-06-05T10:00:00.000Z'),
-        type: EducationActivityType.SYSTEM,
-        action: 'profile_updated',
-        detail: 'Updated profile',
-        xp: 0,
-      },
-      {
-        id: 'social-log',
-        createdAt: new Date('2026-06-04T10:00:00.000Z'),
-        type: EducationActivityType.SOCIAL,
-        action: 'social_post_created',
-        detail: 'Created a post',
-        xp: 0,
-      },
-    ]);
-
-    const result = await service.list(7, {
-      page: 1,
-      limit: 20,
-      type: EducationActivityType.SOCIAL,
-    });
-
-    expect(result.data.map(({ id }) => id)).toEqual(['social-log']);
-  });
-
-  it('searches action and detail case-insensitively', async () => {
-    activityRepository.find.mockResolvedValue([
-      {
-        id: 'action-match',
-        createdAt: new Date('2026-06-05T10:00:00.000Z'),
-        type: EducationActivityType.LEARNING,
-        action: 'QUIZ_COMPLETED',
-        detail: 'Finished an assessment',
-        xp: 0,
-      },
-      {
-        id: 'detail-match',
-        createdAt: new Date('2026-06-04T10:00:00.000Z'),
-        type: EducationActivityType.PRACTICE,
-        action: 'review_completed',
-        detail: 'Practiced Quiz vocabulary',
-        xp: 0,
-      },
-      {
-        id: 'no-match',
-        createdAt: new Date('2026-06-03T10:00:00.000Z'),
-        type: EducationActivityType.SYSTEM,
-        action: 'profile_updated',
-        detail: 'Updated profile',
-        xp: 0,
-      },
-    ]);
-
-    const result = await service.list(7, {
-      page: 1,
-      limit: 20,
-      search: 'qUiZ',
-    });
-
-    expect(result.data.map(({ id }) => id)).toEqual([
-      'action-match',
-      'detail-match',
-    ]);
-  });
-
-  it('paginates after merge, filtering, and deduplication with correct meta', async () => {
-    activityRepository.find.mockResolvedValue([
-      {
-        id: 'persisted-newest',
-        createdAt: new Date('2026-06-05T10:00:00.000Z'),
-        type: EducationActivityType.LEARNING,
-        action: 'lesson_completed',
-        detail: 'Completed Newest',
-        xp: 0,
-        metadata: { sourceKey: 'lesson:duplicate' },
-      },
-      {
-        id: 'filtered-system',
-        createdAt: new Date('2026-06-04T10:00:00.000Z'),
-        type: EducationActivityType.SYSTEM,
-        action: 'profile_updated',
-        detail: 'Updated profile',
-        xp: 0,
-      },
-    ]);
-    userLessonRepository.find.mockResolvedValue([
-      {
-        id: 'duplicate',
-        completedAt: new Date('2026-06-03T10:00:00.000Z'),
-        lesson: { title: 'Duplicate' },
-      },
-      {
-        id: 'middle',
-        completedAt: new Date('2026-06-02T10:00:00.000Z'),
-        lesson: { title: 'Middle' },
-      },
-      {
-        id: 'oldest',
-        completedAt: new Date('2026-06-01T10:00:00.000Z'),
-        lesson: { title: 'Oldest' },
-      },
-    ]);
+  it('uses bounded parameterized SQL for count and page data', async () => {
+    dataSource.query
+      .mockResolvedValueOnce([{ total: '3' }])
+      .mockResolvedValueOnce([
+        {
+          id: 'quiz:session-2',
+          sourceKey: 'quiz:session-2',
+          createdAt: new Date('2026-06-12T10:00:00.000Z'),
+          type: EducationActivityType.LEARNING,
+          action: 'quiz_completed',
+          detail: 'Completed quiz: HSK Checkpoint',
+          xp: 0,
+        },
+      ]);
 
     const result = await service.list(7, {
       page: 2,
-      limit: 1,
+      limit: 2,
       type: EducationActivityType.LEARNING,
-      search: 'completed',
+      search: '  QuIz  ',
     });
 
-    expect(result.data.map(({ id }) => id)).toEqual(['lesson:middle']);
-    expect(result.meta).toEqual({
-      total: 3,
-      page: 2,
-      totalPages: 3,
+    expect(dataSource.query).toHaveBeenCalledTimes(2);
+    const [countSql, countParams] = dataSource.query.mock.calls[0] as [
+      string,
+      unknown[],
+    ];
+    const [pageSql, pageParams] = dataSource.query.mock.calls[1] as [
+      string,
+      unknown[],
+    ];
+
+    expect(countSql).toContain('WITH activity_rows AS');
+    expect(countSql).toContain('UNION ALL');
+    expect(countSql).toContain('SELECT COUNT(*)::int AS total');
+    expect(countSql).toContain('LOWER(action ||');
+    expect(countSql).not.toMatch(/\bLIMIT\b|\bOFFSET\b/);
+    expect(countParams).toEqual([7, EducationActivityType.LEARNING, '%quiz%']);
+
+    expect(pageSql).toContain('LIMIT $4 OFFSET $5');
+    expect(pageParams).toEqual([
+      7,
+      EducationActivityType.LEARNING,
+      '%quiz%',
+      2,
+      2,
+    ]);
+    expect(pageSql).not.toContain('"answers"');
+    expect(pageSql).not.toContain('"results"');
+    expect(pageSql).not.toContain('AS kind');
+    expect(activityRepository.find).not.toHaveBeenCalled();
+    expect(userLessonRepository.find).not.toHaveBeenCalled();
+    expect(quizSessionRepository.find).not.toHaveBeenCalled();
+    expect(reviewSessionRepository.find).not.toHaveBeenCalled();
+    expect(result).toEqual({
+      data: [
+        {
+          id: 'quiz:session-2',
+          createdAt: '2026-06-12T10:00:00.000Z',
+          type: EducationActivityType.LEARNING,
+          action: 'quiz_completed',
+          detail: 'Completed quiz: HSK Checkpoint',
+          xp: 0,
+        },
+      ],
+      meta: { total: 3, page: 2, totalPages: 2 },
     });
+    expect(result.data[0]).not.toHaveProperty('sourceKey');
+  });
+
+  it('uses the canonical lesson source key while keeping the user lesson row ID public', async () => {
+    dataSource.query
+      .mockResolvedValueOnce([{ total: 0 }])
+      .mockResolvedValueOnce([]);
+
+    await service.list(7, { page: 1, limit: 20 });
+
+    const pageSql = dataSource.query.mock.calls[1][0] as string;
+    expect(pageSql).toContain(
+      "'lesson:' || user_lesson.lesson_id::text || ':user:' || $1::text",
+    );
+    expect(pageSql).toContain("'lesson:' || user_lesson.id::text AS id");
+  });
+
+  it('deduplicates repeated persisted source keys by retaining the newest persisted row', async () => {
+    dataSource.query
+      .mockResolvedValueOnce([{ total: 1 }])
+      .mockResolvedValueOnce([
+        {
+          id: 'persisted-newest',
+          sourceKey: 'quiz:session-1',
+          createdAt: '2026-06-12T10:00:00.000Z',
+          type: EducationActivityType.LEARNING,
+          action: 'quiz_completed',
+          detail: 'Newest persisted event',
+          xp: 5,
+        },
+      ]);
+
+    const result = await service.list(7, { page: 1, limit: 20 });
+
+    const pageSql = dataSource.query.mock.calls[1][0] as string;
+    expect(pageSql).toContain(
+      "COALESCE(activity.metadata->>'sourceKey', 'persisted:' || activity.id::text)",
+    );
+    expect(pageSql).toContain('PARTITION BY source_key');
+    expect(pageSql).toContain(
+      'ORDER BY source_priority ASC, created_at DESC, id ASC',
+    );
+    expect(pageSql).toContain('WHERE source_rank = 1');
+    expect(result.data.map(({ id }) => id)).toEqual(['persisted-newest']);
+  });
+
+  it('uses a deterministic tie break for shuffled equal-timestamp rows', async () => {
+    dataSource.query
+      .mockResolvedValueOnce([{ total: 3 }])
+      .mockResolvedValueOnce([
+        {
+          id: 'persisted-a',
+          sourceKey: 'persisted:persisted-a',
+          createdAt: '2026-06-12T10:00:00.000Z',
+          type: EducationActivityType.SYSTEM,
+          action: 'profile_updated',
+          detail: 'Persisted A',
+          xp: 0,
+        },
+        {
+          id: 'persisted-b',
+          sourceKey: 'persisted:persisted-b',
+          createdAt: '2026-06-12T10:00:00.000Z',
+          type: EducationActivityType.SYSTEM,
+          action: 'profile_updated',
+          detail: 'Persisted B',
+          xp: 0,
+        },
+        {
+          id: 'lesson:z',
+          sourceKey: 'lesson:lesson-z:user:7',
+          createdAt: '2026-06-12T10:00:00.000Z',
+          type: EducationActivityType.LEARNING,
+          action: 'lesson_completed',
+          detail: 'Completed lesson: Z',
+          xp: 0,
+        },
+      ]);
+
+    const result = await service.list(7, { page: 1, limit: 20 });
+
+    const pageSql = dataSource.query.mock.calls[1][0] as string;
+    expect(pageSql).toContain(
+      'ORDER BY created_at DESC, source_priority ASC, id ASC',
+    );
+    expect(result.data.map(({ id }) => id)).toEqual([
+      'persisted-a',
+      'persisted-b',
+      'lesson:z',
+    ]);
+  });
+
+  it('projects only normalized fields and reads the quiz name directly', async () => {
+    dataSource.query
+      .mockResolvedValueOnce([{ total: 0 }])
+      .mockResolvedValueOnce([]);
+
+    await service.list(7, { page: 1, limit: 20 });
+
+    const pageSql = dataSource.query.mock.calls[1][0] as string;
+    expect(pageSql).toContain('quiz.name');
+    expect(pageSql).not.toContain('quiz.title');
+    expect(pageSql).toContain('review_session."xpEarned" AS xp');
+    expect(pageSql).toContain(
+      "'flashcard:' || review_session.id::text AS source_key",
+    );
   });
 });
