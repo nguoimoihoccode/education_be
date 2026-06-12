@@ -25,14 +25,13 @@ export type ActivityLogResponse = {
   xp: number;
 };
 
-type ActivityLogQueryRow = {
-  id: string;
-  sourceKey: string;
-  createdAt: Date | string;
-  type: EducationActivityType;
-  action: string;
-  detail: string;
-  xp: number;
+type ActivityLogEnvelopeRow = {
+  total: number | string;
+  data: Array<
+    Omit<ActivityLogResponse, 'createdAt'> & {
+      createdAt: Date | string;
+    }
+  >;
 };
 
 @Injectable()
@@ -77,37 +76,55 @@ export class ActivityLogService {
     const limit = query.limit ?? 10;
     const offset = (page - 1) * limit;
     const search = query.search?.trim().toLocaleLowerCase();
-    const filterParams = [
-      userId,
-      query.type ?? null,
-      search ? `%${search}%` : null,
-    ];
+    const filterParams = [userId, query.type ?? null, search || null];
     const commonTableExpression = this.buildActivityRowsCte();
-    const countRows = await this.dataSource.query(
+    const rows = await this.dataSource.query<ActivityLogEnvelopeRow[]>(
       `${commonTableExpression}
-      SELECT COUNT(*)::int AS total
-      FROM filtered_rows`,
-      filterParams,
-    );
-    const rows = await this.dataSource.query(
-      `${commonTableExpression}
+      ,
+      filtered_count AS (
+        SELECT COUNT(*)::int AS total
+        FROM filtered_rows
+      ),
+      page_rows AS (
+        SELECT
+          id,
+          created_at,
+          type,
+          action,
+          detail,
+          xp,
+          source_priority
+        FROM filtered_rows
+        ORDER BY created_at DESC, source_priority ASC, id ASC
+        LIMIT $4 OFFSET $5
+      )
       SELECT
-        id,
-        source_key AS "sourceKey",
-        created_at AS "createdAt",
-        type,
-        action,
-        detail,
-        xp
-      FROM filtered_rows
-      ORDER BY created_at DESC, source_priority ASC, id ASC
-      LIMIT $4 OFFSET $5`,
+        filtered_count.total,
+        COALESCE(
+          jsonb_agg(
+            jsonb_build_object(
+              'id', page_rows.id,
+              'createdAt', page_rows.created_at,
+              'type', page_rows.type,
+              'action', page_rows.action,
+              'detail', page_rows.detail,
+              'xp', page_rows.xp
+            )
+            ORDER BY
+              page_rows.created_at DESC,
+              page_rows.source_priority ASC,
+              page_rows.id ASC
+          ) FILTER (WHERE page_rows.id IS NOT NULL),
+          '[]'::jsonb
+        ) AS data
+      FROM filtered_count
+      LEFT JOIN page_rows ON true
+      GROUP BY filtered_count.total`,
       [...filterParams, limit, offset],
     );
-    const total = Number(
-      (countRows as Array<{ total: number | string }>)[0]?.total ?? 0,
-    );
-    const data = (rows as ActivityLogQueryRow[]).map<ActivityLogResponse>(
+    const envelope = rows[0] ?? { total: 0, data: [] };
+    const total = Number(envelope.total);
+    const data = envelope.data.map<ActivityLogResponse>(
       ({ id, createdAt, type, action, detail, xp }) => ({
         id,
         createdAt: new Date(createdAt).toISOString(),
@@ -133,7 +150,12 @@ export class ActivityLogService {
       WITH activity_rows AS (
         SELECT
           activity.id::text AS id,
-          COALESCE(activity.metadata->>'sourceKey', 'persisted:' || activity.id::text) AS source_key,
+          CASE
+            WHEN jsonb_typeof(activity.metadata->'sourceKey') = 'string'
+              AND BTRIM(activity.metadata->>'sourceKey') <> ''
+            THEN BTRIM(activity.metadata->>'sourceKey')
+            ELSE 'persisted:' || activity.id::text
+          END AS source_key,
           activity.created_at AS created_at,
           activity.type::text AS type,
           activity.action,
@@ -243,7 +265,9 @@ export class ActivityLogService {
           AND ($2::text IS NULL OR type = $2::text)
           AND (
             $3::text IS NULL
-            OR LOWER(action || ' ' || detail) LIKE $3::text
+            OR POSITION(
+              $3::text IN LOWER(action || ' ' || detail)
+            ) > 0
           )
       )`;
   }
