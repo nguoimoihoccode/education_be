@@ -332,7 +332,7 @@ export class EducationLeaderboardService {
         FROM metrics m
         WHERE (
           m.xp <> 0 OR m.streak <> 0 OR m.lessons_completed <> 0
-          OR m.quiz_earned <> 0 OR m.quiz_total <> 0
+          OR m.quiz_score <> 0
         )
       )
     `;

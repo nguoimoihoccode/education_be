@@ -164,7 +164,8 @@ describe('EducationLeaderboardService', () => {
     expect(sql).toContain(
       'm.xp <> 0 OR m.streak <> 0 OR m.lessons_completed <> 0',
     );
-    expect(sql).toContain('m.quiz_earned <> 0 OR m.quiz_total <> 0');
+    expect(sql).toContain('OR m.quiz_score <> 0');
+    expect(sql).not.toContain('m.quiz_earned <> 0 OR m.quiz_total <> 0');
     expect(rankedIndex).toBeGreaterThan(-1);
     expect(searchedIndex).toBeGreaterThan(rankedIndex);
     expect(sql).toContain('LIMIT $3 OFFSET $4');
@@ -411,7 +412,7 @@ describe('EducationLeaderboardService', () => {
     expect(parameters).toEqual([null, 7]);
   });
 
-  it('returns an existing inactive user as rank zero with default metrics', async () => {
+  it('keeps a user with only a completed zero-score quiz unranked', async () => {
     query.mockResolvedValue([
       {
         row: {
@@ -442,6 +443,13 @@ describe('EducationLeaderboardService', () => {
       change: 'same',
       changeAmount: 0,
     });
+
+    const [sql] = query.mock.calls[0] as [string];
+    expect(sql).toContain(
+      'm.xp <> 0 OR m.streak <> 0 OR m.lessons_completed <> 0',
+    );
+    expect(sql).toContain('OR m.quiz_score <> 0');
+    expect(sql).not.toContain('m.quiz_earned <> 0 OR m.quiz_total <> 0');
   });
 
   it('throws 404 when the current user does not exist', async () => {
