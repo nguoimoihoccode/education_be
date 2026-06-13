@@ -14,10 +14,12 @@ import { GoogleStrategy } from './google.strategy';
 import { TokenCleanupTask } from './tasks/token-cleanup.task';
 import { JwtKeyService } from './jwt-key.service';
 import { RolesGuard } from '../../common/guards/roles.guard';
+import { ActivityLogModule } from '../activity-log/activity-log.module';
 
 @Module({
   imports: [
     UsersModule,
+    ActivityLogModule,
     PassportModule,
     TypeOrmModule.forFeature([RefreshToken, TokenBlacklist]),
     JwtModule.register({}), // Empty config - we'll use RS256 keys directly in service

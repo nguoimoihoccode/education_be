@@ -4,6 +4,7 @@ import {
   Delete,
   Get,
   Param,
+  Patch,
   Post,
   Query,
   UseGuards,
@@ -34,6 +35,8 @@ import { Roles } from '../../common/decorators/roles.decorator';
 import { RolesGuard } from '../../common/guards/roles.guard';
 import { UserRole } from '../../common/enums/roles.enum';
 import { AdminSessionFilterDto } from './dto/session.dto';
+import { ChangePasswordDto, UpdateAuthProfileDto } from './dto/profile.dto';
+import { UserResponseDto } from './dto/user-response.dto';
 
 type RequestWithAccessUser = Request & {
   user?: {
@@ -137,6 +140,36 @@ export class AuthController {
     return this.authService.revokeOtherUserSessions(
       req.user!.sub,
       req.user?.tokenId,
+    );
+  }
+
+  @Patch('profile')
+  @ApiOperation({ summary: 'Update current user profile' })
+  @ApiBody({ type: UpdateAuthProfileDto })
+  @ApiResponse({
+    status: 200,
+    description: 'Profile updated',
+    type: UserResponseDto,
+  })
+  updateProfile(
+    @Req() req: RequestWithAccessUser,
+    @Body() dto: UpdateAuthProfileDto,
+  ) {
+    return this.authService.updateProfile(req.user!.sub, dto);
+  }
+
+  @Post('change-password')
+  @ApiOperation({ summary: 'Change current user password' })
+  @ApiBody({ type: ChangePasswordDto })
+  @ApiResponse({ status: 201, description: 'Password changed' })
+  changePassword(
+    @Req() req: RequestWithAccessUser,
+    @Body() dto: ChangePasswordDto,
+  ) {
+    return this.authService.changePassword(
+      req.user!.sub,
+      req.user?.tokenId,
+      dto,
     );
   }
 

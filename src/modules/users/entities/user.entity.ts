@@ -28,7 +28,7 @@ export class User {
   avatar?: string;
 
   @Column({ nullable: true })
-  phone?: string;
+  phone?: string | null;
 
   @Column({ name: 'provider', nullable: true })
   provider?: string;

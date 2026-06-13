@@ -8,7 +8,8 @@ import { AuthService } from './auth.service';
 
 describe('AuthController', () => {
   it('registers controller-scoped roles guard in auth module', () => {
-    const providers = Reflect.getMetadata(MODULE_METADATA.PROVIDERS, AuthModule) ?? [];
+    const providers =
+      Reflect.getMetadata(MODULE_METADATA.PROVIDERS, AuthModule) ?? [];
 
     expect(providers).toContain(RolesGuard);
   });
@@ -19,9 +20,14 @@ describe('AuthController', () => {
     } as unknown as AuthService;
     const controller = new AuthController(authService, {} as ConfigService);
 
-    await controller.getSessions({ user: { sub: 7, tokenId: 'current-token' } } as never);
+    await controller.getSessions({
+      user: { sub: 7, tokenId: 'current-token' },
+    } as never);
 
-    expect(authService.getUserSessions).toHaveBeenCalledWith(7, 'current-token');
+    expect(authService.getUserSessions).toHaveBeenCalledWith(
+      7,
+      'current-token',
+    );
   });
 
   it('revokes one current user session', async () => {
@@ -41,9 +47,50 @@ describe('AuthController', () => {
     } as unknown as AuthService;
     const controller = new AuthController(authService, {} as ConfigService);
 
-    await controller.revokeOtherSessions({ user: { sub: 7, tokenId: 'current-token' } } as never);
+    await controller.revokeOtherSessions({
+      user: { sub: 7, tokenId: 'current-token' },
+    } as never);
 
-    expect(authService.revokeOtherUserSessions).toHaveBeenCalledWith(7, 'current-token');
+    expect(authService.revokeOtherUserSessions).toHaveBeenCalledWith(
+      7,
+      'current-token',
+    );
+  });
+
+  it('updates the current user profile', async () => {
+    const authService = {
+      updateProfile: jest.fn().mockResolvedValue({ id: '7' }),
+    } as unknown as AuthService;
+    const controller = new AuthController(authService, {} as ConfigService);
+    const dto = { displayName: 'New Name', phone: '0900000000' };
+
+    await controller.updateProfile({ user: { sub: 7 } } as never, dto);
+
+    expect(authService.updateProfile).toHaveBeenCalledWith(7, dto);
+  });
+
+  it('changes password while preserving the current session', async () => {
+    const authService = {
+      changePassword: jest.fn().mockResolvedValue({
+        message: 'Password changed successfully',
+      }),
+    } as unknown as AuthService;
+    const controller = new AuthController(authService, {} as ConfigService);
+    const dto = {
+      currentPassword: 'old-secret',
+      newPassword: 'new-secret',
+    };
+
+    await controller.changePassword(
+      { user: { sub: 7, tokenId: 'current-token' } } as never,
+      dto,
+    );
+
+    expect(authService.changePassword).toHaveBeenCalledWith(
+      7,
+      'current-token',
+      dto,
+    );
   });
 
   it('gets admin sessions with filters', async () => {

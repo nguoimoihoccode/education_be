@@ -154,4 +154,66 @@ describe('UsersService', () => {
     );
     expect(user.teacherVerified).toBe(true);
   });
+
+  it('updates and trims the auth profile fields', async () => {
+    repository.findOne.mockResolvedValue(
+      createUser({ name: 'Old Name', phone: null }),
+    );
+
+    const user = await service.updateAuthProfile(1, {
+      displayName: '  New Name  ',
+      phone: '  0900000000  ',
+    });
+
+    expect(repository.save).toHaveBeenCalledWith(
+      expect.objectContaining({
+        name: 'New Name',
+        phone: '0900000000',
+      }),
+    );
+    expect(user).toEqual(
+      expect.objectContaining({
+        id: 1,
+        name: 'New Name',
+        phone: '0900000000',
+      }),
+    );
+  });
+
+  it('clears an optional phone when the trimmed value is empty', async () => {
+    repository.findOne.mockResolvedValue(
+      createUser({ name: 'Learner', phone: '0900000000' }),
+    );
+
+    await service.updateAuthProfile(1, {
+      displayName: 'Learner',
+      phone: '   ',
+    });
+
+    expect(repository.save).toHaveBeenCalledWith(
+      expect.objectContaining({ phone: null }),
+    );
+  });
+
+  it('updates only the password hash for an existing user', async () => {
+    repository.findOne.mockResolvedValue(createUser());
+
+    await service.updatePasswordHash(1, 'new-hash');
+
+    expect(repository.update).toHaveBeenCalledWith(
+      { id: 1 },
+      { passwordHash: 'new-hash' },
+    );
+  });
+
+  it('throws when auth profile or password user does not exist', async () => {
+    repository.findOne.mockResolvedValue(null);
+
+    await expect(
+      service.updateAuthProfile(99, { displayName: 'Missing' }),
+    ).rejects.toThrow(NotFoundException);
+    await expect(service.updatePasswordHash(99, 'new-hash')).rejects.toThrow(
+      NotFoundException,
+    );
+  });
 });

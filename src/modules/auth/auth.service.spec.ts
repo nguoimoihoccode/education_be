@@ -1,19 +1,25 @@
-import { UnauthorizedException } from '@nestjs/common';
+import { BadRequestException, UnauthorizedException } from '@nestjs/common';
 import { JwtService } from '@nestjs/jwt';
 import { Test, TestingModule } from '@nestjs/testing';
 import { getRepositoryToken } from '@nestjs/typeorm';
 import { DataSource } from 'typeorm';
 import * as bcrypt from 'bcryptjs';
+import { plainToInstance } from 'class-transformer';
+import { validate } from 'class-validator';
+import { ActivityLogService } from '../activity-log/activity-log.service';
+import { EducationActivityType } from '../activity-log/entities/activity-log.entity';
 import { UserRole } from '../../common/enums/roles.enum';
 import { User } from '../users/entities/user.entity';
 import { UsersService } from '../users/users.service';
 import { AuthService } from './auth.service';
+import { ChangePasswordDto, UpdateAuthProfileDto } from './dto/profile.dto';
 import { TokenBlacklist } from './entities/token-blacklist.entity';
 import { RefreshToken } from './entities/refresh-token.entity';
 import { JwtKeyService } from './jwt-key.service';
 
 jest.mock('bcryptjs', () => ({
   compare: jest.fn(),
+  hash: jest.fn(),
 }));
 
 const user = {
@@ -39,8 +45,11 @@ describe('AuthService', () => {
     findByProviderId: jest.Mock;
     touchLastSeen: jest.Mock;
     updateProfile: jest.Mock;
+    updateAuthProfile: jest.Mock;
+    updatePasswordHash: jest.Mock;
     toAuthUserResponse: jest.Mock;
   };
+  let activityLogService: { recordBestEffort: jest.Mock };
   let jwtService: { signAsync: jest.Mock; decode: jest.Mock };
   let refreshTokenRepository: {
     create: jest.Mock;
@@ -67,6 +76,7 @@ describe('AuthService', () => {
   };
 
   beforeEach(async () => {
+    jest.clearAllMocks();
     usersService = {
       create: jest.fn(),
       findByEmail: jest.fn(),
@@ -76,6 +86,8 @@ describe('AuthService', () => {
       findByProviderId: jest.fn(),
       touchLastSeen: jest.fn(),
       updateProfile: jest.fn(),
+      updateAuthProfile: jest.fn(),
+      updatePasswordHash: jest.fn(),
       toAuthUserResponse: jest.fn(() => ({
         id: '1',
         email: 'learner@example.com',
@@ -85,6 +97,9 @@ describe('AuthService', () => {
         createdAt: '2026-01-01T00:00:00.000Z',
         updatedAt: '2026-01-01T00:00:00.000Z',
       })),
+    };
+    activityLogService = {
+      recordBestEffort: jest.fn().mockResolvedValue(undefined),
     };
     jwtService = {
       signAsync: jest
@@ -121,18 +136,23 @@ describe('AuthService', () => {
           findOne: refreshTokenRepository.findOne,
           update: refreshTokenRepository.update,
           remove: refreshTokenRepository.remove,
-          create: jest.fn((entityClass, entity) => ({ entityClass, ...entity })),
+          create: jest.fn((entityClass, entity) => ({
+            entityClass,
+            ...entity,
+          })),
           save: refreshTokenRepository.save,
           query: jest.fn(),
         }),
       ),
     };
     jest.mocked(bcrypt.compare).mockResolvedValue(true as never);
+    jest.mocked(bcrypt.hash).mockResolvedValue('new-hash' as never);
 
     const module: TestingModule = await Test.createTestingModule({
       providers: [
         AuthService,
         { provide: UsersService, useValue: usersService },
+        { provide: ActivityLogService, useValue: activityLogService },
         { provide: JwtService, useValue: jwtService },
         { provide: DataSource, useValue: dataSource },
         {
@@ -179,9 +199,10 @@ describe('AuthService', () => {
       query: jest.fn(),
     };
     await transactionCallback(manager);
-    expect(manager.query).toHaveBeenCalledWith('SELECT pg_advisory_xact_lock($1)', [
-      user.id,
-    ]);
+    expect(manager.query).toHaveBeenCalledWith(
+      'SELECT pg_advisory_xact_lock($1)',
+      [user.id],
+    );
     expect(refreshTokenRepository.save).toHaveBeenCalledWith(
       expect.objectContaining({
         userId: user.id,
@@ -250,7 +271,10 @@ describe('AuthService', () => {
     usersService.findByUsername.mockResolvedValue(user);
     usersService.findEntityByIdForAuth.mockResolvedValue(user);
 
-    await service.login({ identifier: 'Learner', password: 'secret123' } as never);
+    await service.login({
+      identifier: 'Learner',
+      password: 'secret123',
+    } as never);
 
     expect(usersService.findByUsername).toHaveBeenCalledWith('learner');
     expect(usersService.findByEmail).not.toHaveBeenCalled();
@@ -270,9 +294,14 @@ describe('AuthService', () => {
     usersService.findByEmail.mockResolvedValue(user);
     usersService.findEntityByIdForAuth.mockResolvedValue(user);
 
-    await service.login({ identifier: 'Learner@Example.com', password: 'secret123' } as never);
+    await service.login({
+      identifier: 'Learner@Example.com',
+      password: 'secret123',
+    } as never);
 
-    expect(usersService.findByEmail).toHaveBeenCalledWith('Learner@Example.com');
+    expect(usersService.findByEmail).toHaveBeenCalledWith(
+      'Learner@Example.com',
+    );
   });
 
   it('does not revoke existing sessions when new login token signing fails', async () => {
@@ -350,7 +379,10 @@ describe('AuthService', () => {
     );
     expect(jwtService.signAsync).toHaveBeenNthCalledWith(
       1,
-      expect.objectContaining({ roles: user.roles, tokenId: expect.any(String) }),
+      expect.objectContaining({
+        roles: user.roles,
+        tokenId: expect.any(String),
+      }),
       expect.objectContaining({ algorithm: 'RS256', expiresIn: '15m' }),
     );
     expect(refreshTokenRepository.update).not.toHaveBeenCalledWith(
@@ -520,7 +552,8 @@ describe('AuthService', () => {
       tokenId: 'token-id',
       userId: user.id,
       user: { email: user.email, name: 'Learner' },
-      userAgent: 'Mozilla/5.0 (iPhone; CPU iPhone OS 17_0 like Mac OS X) Version/17.0 Mobile Safari/604.1',
+      userAgent:
+        'Mozilla/5.0 (iPhone; CPU iPhone OS 17_0 like Mac OS X) Version/17.0 Mobile Safari/604.1',
       createdAt: new Date('2026-01-01T00:00:00.000Z'),
       expiresAt: new Date(Date.now() + 60_000),
       isRevoked: false,
@@ -534,12 +567,23 @@ describe('AuthService', () => {
     );
     await service.revokeAdminSession('token-id');
 
-    expect(refreshTokenRepository.createQueryBuilder).toHaveBeenCalledWith('token');
-    expect(queryBuilder.leftJoinAndSelect).toHaveBeenCalledWith('token.user', 'user');
-    expect(queryBuilder.orderBy).toHaveBeenCalledWith('token.createdAt', 'DESC');
-    expect(queryBuilder.andWhere).toHaveBeenCalledWith('token.userId = :userId', {
-      userId: user.id,
-    });
+    expect(refreshTokenRepository.createQueryBuilder).toHaveBeenCalledWith(
+      'token',
+    );
+    expect(queryBuilder.leftJoinAndSelect).toHaveBeenCalledWith(
+      'token.user',
+      'user',
+    );
+    expect(queryBuilder.orderBy).toHaveBeenCalledWith(
+      'token.createdAt',
+      'DESC',
+    );
+    expect(queryBuilder.andWhere).toHaveBeenCalledWith(
+      'token.userId = :userId',
+      {
+        userId: user.id,
+      },
+    );
     expect(queryBuilder.andWhere).toHaveBeenCalledWith(
       'LOWER(user.email) LIKE LOWER(:email)',
       { email: '%learner%' },
@@ -584,6 +628,145 @@ describe('AuthService', () => {
     expect(refreshTokenRepository.update).toHaveBeenCalledWith(
       { userId: user.id, isRevoked: false },
       { isRevoked: true, revokedAt: expect.any(Date) },
+    );
+  });
+
+  it('validates profile and password DTO constraints', async () => {
+    const invalidProfile = plainToInstance(UpdateAuthProfileDto, {
+      displayName: '   ',
+      phone: 'x'.repeat(31),
+    });
+    const invalidPassword = plainToInstance(ChangePasswordDto, {
+      currentPassword: '',
+      newPassword: 'short',
+    });
+
+    const profileErrors = await validate(invalidProfile);
+    const passwordErrors = await validate(invalidPassword);
+
+    expect(profileErrors.map((error) => error.property)).toEqual(
+      expect.arrayContaining(['displayName', 'phone']),
+    );
+    expect(passwordErrors.map((error) => error.property)).toEqual(
+      expect.arrayContaining(['currentPassword', 'newPassword']),
+    );
+  });
+
+  it('updates profile and returns the standard auth user shape', async () => {
+    const updated = {
+      ...user,
+      name: 'New Name',
+      phone: '0900000000',
+    };
+    usersService.updateAuthProfile.mockResolvedValue(updated);
+    usersService.toAuthUserResponse.mockReturnValue({
+      id: '1',
+      email: user.email,
+      displayName: 'New Name',
+      avatar: null,
+      phone: '0900000000',
+      createdAt: '2026-01-01T00:00:00.000Z',
+      updatedAt: '2026-01-01T00:00:00.000Z',
+    });
+
+    await expect(
+      service.updateProfile(user.id, {
+        displayName: ' New Name ',
+        phone: ' 0900000000 ',
+      }),
+    ).resolves.toEqual(
+      expect.objectContaining({
+        id: '1',
+        displayName: 'New Name',
+        phone: '0900000000',
+      }),
+    );
+    expect(usersService.updateAuthProfile).toHaveBeenCalledWith(user.id, {
+      displayName: ' New Name ',
+      phone: ' 0900000000 ',
+    });
+    expect(activityLogService.recordBestEffort).toHaveBeenCalledWith(
+      expect.objectContaining({
+        userId: user.id,
+        type: EducationActivityType.SYSTEM,
+        action: 'profile_updated',
+      }),
+    );
+  });
+
+  it('rejects password changes for oauth-only users', async () => {
+    usersService.findEntityByIdForAuth.mockResolvedValue({
+      ...user,
+      provider: 'google',
+    });
+
+    await expect(
+      service.changePassword(user.id, 'token-1', {
+        currentPassword: 'old-secret',
+        newPassword: 'new-secret',
+      }),
+    ).rejects.toThrow(new BadRequestException('Password login is not enabled'));
+    expect(bcrypt.compare).not.toHaveBeenCalled();
+  });
+
+  it('rejects password changes when the current password is incorrect', async () => {
+    usersService.findEntityByIdForAuth.mockResolvedValue({
+      ...user,
+      provider: 'email',
+    });
+    jest.mocked(bcrypt.compare).mockResolvedValue(false as never);
+
+    await expect(
+      service.changePassword(user.id, 'token-1', {
+        currentPassword: 'wrong-secret',
+        newPassword: 'new-secret',
+      }),
+    ).rejects.toThrow(UnauthorizedException);
+    expect(usersService.updatePasswordHash).not.toHaveBeenCalled();
+  });
+
+  it('hashes the new password and revokes every other session', async () => {
+    usersService.findEntityByIdForAuth.mockResolvedValue({
+      ...user,
+      provider: 'email',
+    });
+
+    await expect(
+      service.changePassword(user.id, 'current-token', {
+        currentPassword: 'old-secret',
+        newPassword: 'new-secret',
+      }),
+    ).resolves.toEqual({ message: 'Password changed successfully' });
+
+    expect(bcrypt.compare).toHaveBeenCalledWith(
+      'old-secret',
+      user.passwordHash,
+    );
+    expect(bcrypt.hash).toHaveBeenCalledWith('new-secret', 10);
+    expect(usersService.updatePasswordHash).toHaveBeenCalledWith(
+      user.id,
+      'new-hash',
+    );
+    expect(refreshTokenRepository.update).toHaveBeenCalledWith(
+      expect.objectContaining({
+        userId: user.id,
+        isRevoked: false,
+        tokenId: expect.objectContaining({
+          _type: 'not',
+          _value: 'current-token',
+        }),
+      }),
+      expect.objectContaining({
+        isRevoked: true,
+        revokedAt: expect.any(Date),
+      }),
+    );
+    expect(activityLogService.recordBestEffort).toHaveBeenCalledWith(
+      expect.objectContaining({
+        userId: user.id,
+        type: EducationActivityType.SYSTEM,
+        action: 'password_changed',
+      }),
     );
   });
 });

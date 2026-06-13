@@ -1,4 +1,8 @@
-import { Injectable, UnauthorizedException } from '@nestjs/common';
+import {
+  BadRequestException,
+  Injectable,
+  UnauthorizedException,
+} from '@nestjs/common';
 import { InjectRepository } from '@nestjs/typeorm';
 import { DataSource, Repository, LessThan, MoreThan, Not } from 'typeorm';
 import { JwtService } from '@nestjs/jwt';
@@ -15,6 +19,10 @@ import { JwtKeyService } from './jwt-key.service';
 import { AuthResponseDto } from './dto/auth-response.dto';
 import { AdminSessionFilterDto, LoginSessionDto } from './dto/session.dto';
 import { DeviceInfo } from './helpers/device-info.helper';
+import { ChangePasswordDto, UpdateAuthProfileDto } from './dto/profile.dto';
+import { UserResponseDto } from './dto/user-response.dto';
+import { ActivityLogService } from '../activity-log/activity-log.service';
+import { EducationActivityType } from '../activity-log/entities/activity-log.entity';
 
 type SessionUser = {
   email?: string | null;
@@ -33,6 +41,7 @@ export class AuthService {
     private readonly refreshTokenRepository: Repository<RefreshToken>,
     @InjectRepository(TokenBlacklist)
     private readonly tokenBlacklistRepository: Repository<TokenBlacklist>,
+    private readonly activityLogService: ActivityLogService,
   ) {}
 
   async register(createUserDto: CreateUserDto, deviceInfo?: DeviceInfo) {
@@ -292,6 +301,56 @@ export class AuthService {
     return { message: 'Other sessions revoked' };
   }
 
+  async updateProfile(
+    userId: number,
+    dto: UpdateAuthProfileDto,
+  ): Promise<UserResponseDto> {
+    const user = await this.usersService.updateAuthProfile(userId, dto);
+
+    await this.activityLogService.recordBestEffort({
+      userId,
+      type: EducationActivityType.SYSTEM,
+      action: 'profile_updated',
+      detail: 'Updated profile information',
+    });
+
+    return this.usersService.toAuthUserResponse(user);
+  }
+
+  async changePassword(
+    userId: number,
+    currentTokenId: string | undefined,
+    dto: ChangePasswordDto,
+  ): Promise<{ message: string }> {
+    const user = await this.usersService.findEntityByIdForAuth(userId);
+    if (!user) {
+      throw new UnauthorizedException('User not found');
+    }
+    if (user.provider !== 'email') {
+      throw new BadRequestException('Password login is not enabled');
+    }
+
+    const passwordValid = await bcrypt.compare(
+      dto.currentPassword,
+      user.passwordHash,
+    );
+    if (!passwordValid) {
+      throw new UnauthorizedException('Current password is incorrect');
+    }
+
+    const passwordHash = await bcrypt.hash(dto.newPassword, 10);
+    await this.usersService.updatePasswordHash(userId, passwordHash);
+    await this.revokeActiveUserSessions(userId, currentTokenId);
+    await this.activityLogService.recordBestEffort({
+      userId,
+      type: EducationActivityType.SYSTEM,
+      action: 'password_changed',
+      detail: 'Changed account password',
+    });
+
+    return { message: 'Password changed successfully' };
+  }
+
   private async revokeActiveUserSessions(
     userId: number,
     exceptTokenId?: string,
@@ -327,10 +386,13 @@ export class AuthService {
       query.andWhere('token.isRevoked = :isRevoked', { isRevoked: false });
       query.andWhere('token.expiresAt > :now', { now: new Date() });
     } else if (filters.active === false) {
-      query.andWhere('(token.isRevoked = :isRevoked OR token.expiresAt <= :now)', {
-        isRevoked: true,
-        now: new Date(),
-      });
+      query.andWhere(
+        '(token.isRevoked = :isRevoked OR token.expiresAt <= :now)',
+        {
+          isRevoked: true,
+          now: new Date(),
+        },
+      );
     }
 
     const tokens = await query.getMany();

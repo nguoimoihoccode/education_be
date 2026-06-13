@@ -149,6 +149,35 @@ export class UsersService {
     return this.toUserDto(savedUser);
   }
 
+  async updateAuthProfile(
+    userId: number,
+    changes: { displayName: string; phone?: string },
+  ): Promise<User> {
+    const user = await this.userRepository.findOne({ where: { id: userId } });
+    if (!user) {
+      throw new NotFoundException('User not found');
+    }
+
+    user.name = changes.displayName.trim();
+    if (changes.phone !== undefined) {
+      user.phone = changes.phone.trim() || null;
+    }
+
+    return this.userRepository.save(user);
+  }
+
+  async updatePasswordHash(
+    userId: number,
+    passwordHash: string,
+  ): Promise<void> {
+    const user = await this.userRepository.findOne({ where: { id: userId } });
+    if (!user) {
+      throw new NotFoundException('User not found');
+    }
+
+    await this.userRepository.update({ id: userId }, { passwordHash });
+  }
+
   async touchLastSeen(userId: number): Promise<void> {
     await this.userRepository.update(
       { id: userId },
