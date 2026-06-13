@@ -7,12 +7,16 @@ import {
   ManyToOne,
   JoinColumn,
   Unique,
+  Index,
 } from 'typeorm';
 import { User } from '../../users/entities/user.entity';
 import { Lesson } from './lesson.entity';
 
 @Entity('edu_user_lessons')
 @Unique(['userId', 'lessonId'])
+@Index('IDX_edu_user_lessons_completed_at_user', ['completedAt', 'userId'], {
+  where: '"completed" = true',
+})
 export class UserLesson {
   @PrimaryGeneratedColumn('uuid')
   id: string;

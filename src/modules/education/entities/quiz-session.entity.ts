@@ -22,6 +22,9 @@ export interface QuizAnswer {
 @Entity('edu_quiz_sessions')
 @Index(['userId', 'quizId'])
 @Index(['userId', 'startedAt'])
+@Index('IDX_edu_quiz_sessions_completed_at_user', ['completedAt', 'userId'], {
+  where: '"completed" = true',
+})
 export class QuizSession {
   @PrimaryGeneratedColumn('uuid')
   id: string;

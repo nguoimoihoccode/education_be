@@ -172,6 +172,33 @@ describe('EducationLeaderboardService', () => {
     expect(parameters).toEqual([null, 'Lan', 10, 20, 7]);
   });
 
+  it.each(['%', '_'])(
+    'treats the %s search character literally after global ranking',
+    async (search) => {
+      query.mockResolvedValue([{ data: [], total: 0, currentUser: null }]);
+
+      await service.list(7, {
+        category: LeaderboardCategory.XP,
+        period: LeaderboardPeriod.ALL,
+        page: 1,
+        limit: 20,
+        search,
+      });
+
+      const [sql, parameters] = query.mock.calls[0] as [string, unknown[]];
+      const rankedIndex = sql.indexOf('ranked AS');
+      const searchedIndex = sql.indexOf('searched AS');
+
+      expect(sql).toContain(
+        'POSITION(LOWER($2::text) IN LOWER(r.display_name)) > 0',
+      );
+      expect(sql).not.toContain('ILIKE');
+      expect(rankedIndex).toBeGreaterThan(-1);
+      expect(searchedIndex).toBeGreaterThan(rankedIndex);
+      expect(parameters[1]).toBe(search);
+    },
+  );
+
   it('applies period cutoff only to completed lesson and quiz metrics', async () => {
     query.mockResolvedValue([{ data: [], total: 0, currentUser: null }]);
 

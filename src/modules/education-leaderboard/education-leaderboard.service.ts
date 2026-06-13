@@ -225,7 +225,7 @@ export class EducationLeaderboardService {
         FROM ranked r
         WHERE (
           $2::text IS NULL
-          OR r.display_name ILIKE '%' || $2 || '%'
+          OR POSITION(LOWER($2::text) IN LOWER(r.display_name)) > 0
         )
       ),
       page_rows AS (
