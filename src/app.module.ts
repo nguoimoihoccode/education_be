@@ -27,6 +27,7 @@ import { UsersModule } from './modules/users/users.module';
 // Education Module
 import { EducationModule } from './modules/education/education.module';
 import { ActivityLogModule } from './modules/activity-log/activity-log.module';
+import { EducationSocialModule } from './modules/education-social/education-social.module';
 
 // Soulie social endpoints
 import { SoulieModule } from './modules/soulie/soulie.module';
@@ -178,6 +179,7 @@ import { EducationDataExport } from './modules/data-export/entities/data-export.
     AuthModule,
     EducationModule,
     ActivityLogModule,
+    EducationSocialModule,
     SoulieModule,
     MediaModule,
     DocumentImportModule,
