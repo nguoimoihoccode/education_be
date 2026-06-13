@@ -1,6 +1,7 @@
 import {
   BadRequestException,
   Injectable,
+  NotFoundException,
   UnauthorizedException,
 } from '@nestjs/common';
 import { InjectRepository } from '@nestjs/typeorm';
@@ -349,6 +350,33 @@ export class AuthService {
     });
 
     return { message: 'Password changed successfully' };
+  }
+
+  async getAvatar(userId: number): Promise<string | null> {
+    const user = await this.usersService.findEntityByIdForAuth(userId);
+    if (!user) {
+      throw new NotFoundException('User not found');
+    }
+
+    return user.avatar || null;
+  }
+
+  async updateAvatar(
+    userId: number,
+    avatarUrl: string,
+  ): Promise<UserResponseDto> {
+    const user = await this.usersService.findEntityByIdForAuth(userId);
+    if (!user) {
+      throw new NotFoundException('User not found');
+    }
+
+    await this.usersService.updateProfile(userId, { avatar: avatarUrl });
+    const refreshed = await this.usersService.findEntityByIdForAuth(userId);
+    if (!refreshed) {
+      throw new UnauthorizedException('User not found');
+    }
+
+    return this.usersService.toAuthUserResponse(refreshed);
   }
 
   private async revokeActiveUserSessions(

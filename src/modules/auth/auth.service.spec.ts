@@ -1,4 +1,8 @@
-import { BadRequestException, UnauthorizedException } from '@nestjs/common';
+import {
+  BadRequestException,
+  NotFoundException,
+  UnauthorizedException,
+} from '@nestjs/common';
 import { JwtService } from '@nestjs/jwt';
 import { Test, TestingModule } from '@nestjs/testing';
 import { getRepositoryToken } from '@nestjs/typeorm';
@@ -768,5 +772,45 @@ describe('AuthService', () => {
         action: 'password_changed',
       }),
     );
+  });
+
+  it('gets the current avatar and returns 404 for a missing user', async () => {
+    usersService.findEntityByIdForAuth.mockResolvedValueOnce({
+      ...user,
+      avatar: 'https://example.com/avatar.png',
+    });
+
+    await expect(service.getAvatar(user.id)).resolves.toBe(
+      'https://example.com/avatar.png',
+    );
+
+    usersService.findEntityByIdForAuth.mockResolvedValueOnce(null);
+    await expect(service.getAvatar(404)).rejects.toThrow(NotFoundException);
+  });
+
+  it('updates avatar and returns the standard auth user response', async () => {
+    const avatarUrl =
+      'http://localhost:3000/uploads/education/users/1/avatars/1-new.png';
+    usersService.updateProfile.mockResolvedValue({ id: user.id });
+    usersService.findEntityByIdForAuth.mockResolvedValue({
+      ...user,
+      avatar: avatarUrl,
+    });
+    usersService.toAuthUserResponse.mockReturnValue({
+      id: '1',
+      email: user.email,
+      displayName: 'Learner',
+      avatar: avatarUrl,
+      phone: null,
+      createdAt: '2026-01-01T00:00:00.000Z',
+      updatedAt: '2026-01-01T00:00:00.000Z',
+    });
+
+    await expect(service.updateAvatar(user.id, avatarUrl)).resolves.toEqual(
+      expect.objectContaining({ id: '1', avatar: avatarUrl }),
+    );
+    expect(usersService.updateProfile).toHaveBeenCalledWith(user.id, {
+      avatar: avatarUrl,
+    });
   });
 });

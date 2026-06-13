@@ -44,6 +44,7 @@ import { CommunityModule } from './modules/community/community.module';
 
 // AI tutor endpoints
 import { AiModule } from './modules/ai/ai.module';
+import { SlidesModule } from './modules/slides/slides.module';
 
 // Entities
 import { User } from './modules/users/entities/user.entity';
@@ -77,6 +78,7 @@ import { SoulieConversation } from './modules/soulie/entities/conversation.entit
 import { SoulieMessage } from './modules/soulie/entities/message.entity';
 import { SoulieMoment } from './modules/soulie/entities/moment.entity';
 import { NotificationToken } from './modules/soulie/entities/notification-token.entity';
+import { SlideDeck } from './modules/slides/entities/slide-deck.entity';
 import { EducationSocialPost } from './modules/education-social/entities/social-post.entity';
 import { EducationSocialComment } from './modules/education-social/entities/social-comment.entity';
 import { EducationSocialPostLike } from './modules/education-social/entities/social-post-like.entity';
@@ -146,6 +148,7 @@ import { EducationDataExport } from './modules/data-export/entities/data-export.
           SoulieMessage,
           SoulieMoment,
           NotificationToken,
+          SlideDeck,
           EducationSocialPost,
           EducationSocialComment,
           EducationSocialPostLike,
@@ -187,6 +190,7 @@ import { EducationDataExport } from './modules/data-export/entities/data-export.
     DocumentImportModule,
     CommunityModule,
     AiModule,
+    SlidesModule,
   ],
   controllers: [
     AppController,

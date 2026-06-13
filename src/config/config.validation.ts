@@ -77,6 +77,9 @@ export const configValidationSchema = Joi.object({
   MEDIA_STORAGE_PATH: Joi.string()
     .default('uploads')
     .description('Local storage path for uploaded media'),
+  EDUCATION_AVATAR_STORAGE_PATH: Joi.string()
+    .default('uploads/education')
+    .description('Local root for Education profile avatars'),
   MEDIA_PUBLIC_BASE_URL: Joi.string()
     .uri()
     .optional()

@@ -15,11 +15,13 @@ import { TokenCleanupTask } from './tasks/token-cleanup.task';
 import { JwtKeyService } from './jwt-key.service';
 import { RolesGuard } from '../../common/guards/roles.guard';
 import { ActivityLogModule } from '../activity-log/activity-log.module';
+import { ProfileStorageModule } from '../profile-storage/profile-storage.module';
 
 @Module({
   imports: [
     UsersModule,
     ActivityLogModule,
+    ProfileStorageModule,
     PassportModule,
     TypeOrmModule.forFeature([RefreshToken, TokenBlacklist]),
     JwtModule.register({}), // Empty config - we'll use RS256 keys directly in service

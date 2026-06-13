@@ -1,5 +1,6 @@
 import {
   Body,
+  BadRequestException,
   Controller,
   Delete,
   Get,
@@ -11,12 +12,16 @@ import {
   Req,
   Res,
   Headers,
+  UploadedFile,
+  UseInterceptors,
+  Optional,
 } from '@nestjs/common';
 import {
   ApiTags,
   ApiOperation,
   ApiResponse,
   ApiBody,
+  ApiConsumes,
   ApiHeader,
 } from '@nestjs/swagger';
 import { AuthService } from './auth.service';
@@ -31,12 +36,17 @@ import { extractDeviceInfo } from './helpers/device-info.helper';
 import type { Request, Response } from 'express';
 import type { RequestWithRefresh } from '../../common/types/auth.types';
 import { AuthRateLimit } from '../../common/decorators/rate-limit.decorator';
+import { UploadRateLimit } from '../../common/decorators/rate-limit.decorator';
 import { Roles } from '../../common/decorators/roles.decorator';
 import { RolesGuard } from '../../common/guards/roles.guard';
 import { UserRole } from '../../common/enums/roles.enum';
 import { AdminSessionFilterDto } from './dto/session.dto';
 import { ChangePasswordDto, UpdateAuthProfileDto } from './dto/profile.dto';
 import { UserResponseDto } from './dto/user-response.dto';
+import { FileInterceptor } from '@nestjs/platform-express';
+import { memoryStorage } from 'multer';
+import { unlink } from 'fs/promises';
+import { ProfileStorageService } from '../profile-storage/profile-storage.service';
 
 type RequestWithAccessUser = Request & {
   user?: {
@@ -52,6 +62,8 @@ export class AuthController {
   constructor(
     private readonly authService: AuthService,
     private readonly configService: ConfigService,
+    @Optional()
+    private readonly profileStorageService?: ProfileStorageService,
   ) {}
 
   @Public()
@@ -171,6 +183,76 @@ export class AuthController {
       req.user?.tokenId,
       dto,
     );
+  }
+
+  @Post('avatar')
+  @UploadRateLimit()
+  @ApiOperation({ summary: 'Upload current user avatar' })
+  @ApiConsumes('multipart/form-data')
+  @ApiBody({
+    schema: {
+      type: 'object',
+      properties: {
+        avatar: { type: 'string', format: 'binary' },
+      },
+      required: ['avatar'],
+    },
+  })
+  @ApiResponse({
+    status: 201,
+    description: 'Avatar uploaded',
+    type: UserResponseDto,
+  })
+  @UseInterceptors(
+    FileInterceptor('avatar', {
+      storage: memoryStorage(),
+      fileFilter: (_req, file, cb) => {
+        if (
+          !['image/jpeg', 'image/png', 'image/webp'].includes(file.mimetype)
+        ) {
+          return cb(
+            new BadRequestException(
+              'Only JPEG, PNG, and WebP avatars are allowed',
+            ),
+            false,
+          );
+        }
+        cb(null, true);
+      },
+      limits: {
+        fileSize: 5 * 1024 * 1024,
+      },
+    }),
+  )
+  async uploadAvatar(
+    @Req() req: RequestWithAccessUser,
+    @UploadedFile() file?: Express.Multer.File,
+  ) {
+    if (!file) {
+      throw new BadRequestException('Avatar file is required');
+    }
+
+    const previousAvatar = await this.authService.getAvatar(req.user!.sub);
+    const requestBaseUrl =
+      this.configService.get<string>('MEDIA_PUBLIC_BASE_URL') ||
+      `${req.protocol}://${req.get('host')}`;
+    const saved = await this.profileStorageService!.saveAvatar(
+      req.user!.sub,
+      file,
+      requestBaseUrl,
+    );
+
+    try {
+      const user = await this.authService.updateAvatar(
+        req.user!.sub,
+        saved.publicUrl,
+      );
+      await this.profileStorageService!.removeManagedAvatar(previousAvatar);
+      return user;
+    } catch (error) {
+      await unlink(saved.absolutePath).catch(() => undefined);
+      throw error;
+    }
   }
 
   @Get('admin/sessions')
