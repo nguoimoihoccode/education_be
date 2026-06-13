@@ -80,6 +80,9 @@ export const configValidationSchema = Joi.object({
   EDUCATION_AVATAR_STORAGE_PATH: Joi.string()
     .default('uploads/education')
     .description('Local root for Education profile avatars'),
+  EDUCATION_EXPORT_STORAGE_PATH: Joi.string()
+    .default('exports/education')
+    .description('Local root for Education data exports'),
   MEDIA_PUBLIC_BASE_URL: Joi.string()
     .uri()
     .optional()

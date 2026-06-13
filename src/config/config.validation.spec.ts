@@ -38,6 +38,15 @@ describe('configValidationSchema', () => {
     expect(result.value.TRUST_PROXY_HOPS).toBe(0);
   });
 
+  it('defaults EDUCATION_EXPORT_STORAGE_PATH for local exports', () => {
+    const result = configValidationSchema.validate(baseEnv);
+
+    expect(result.error).toBeUndefined();
+    expect(result.value.EDUCATION_EXPORT_STORAGE_PATH).toBe(
+      'exports/education',
+    );
+  });
+
   it('allows one trusted proxy hop for docker nginx', () => {
     const result = configValidationSchema.validate({
       ...baseEnv,

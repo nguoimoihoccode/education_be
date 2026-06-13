@@ -38,6 +38,7 @@ import { MediaModule } from './modules/media/media.module';
 
 // Document import
 import { DocumentImportModule } from './modules/document-import/document-import.module';
+import { DataExportModule } from './modules/data-export/data-export.module';
 
 // Community endpoints
 import { CommunityModule } from './modules/community/community.module';
@@ -188,6 +189,7 @@ import { EducationDataExport } from './modules/data-export/entities/data-export.
     SoulieModule,
     MediaModule,
     DocumentImportModule,
+    DataExportModule,
     CommunityModule,
     AiModule,
     SlidesModule,
