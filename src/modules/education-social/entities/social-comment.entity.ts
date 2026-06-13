@@ -43,6 +43,6 @@ export class EducationSocialComment {
   @Column({ name: 'likes_count', type: 'integer', default: 0 })
   likesCount: number;
 
-  @CreateDateColumn({ name: 'created_at', type: 'timestamp' })
+  @CreateDateColumn({ name: 'created_at', type: 'timestamptz' })
   createdAt: Date;
 }

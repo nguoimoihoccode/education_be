@@ -38,6 +38,6 @@ export class EducationSocialPostLike {
   })
   user: User;
 
-  @CreateDateColumn({ name: 'created_at', type: 'timestamp' })
+  @CreateDateColumn({ name: 'created_at', type: 'timestamptz' })
   createdAt: Date;
 }

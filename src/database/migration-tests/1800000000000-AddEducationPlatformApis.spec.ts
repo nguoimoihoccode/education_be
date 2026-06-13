@@ -53,17 +53,23 @@ describe('AddEducationPlatformApis1800000000000', () => {
     expect(sql).toContain('ON "edu_social_comments" ("author_id")');
     expect(sql).toContain('ON "edu_social_post_likes" ("user_id")');
     expect(sql).toContain('ON "edu_social_post_bookmarks" ("user_id")');
-    expect(sql).toContain('ON "edu_social_posts" ("created_at" DESC)');
-    expect(sql).toContain('ON "edu_social_posts" ("type", "created_at" DESC)');
+    expect(sql).toContain(
+      'ON "edu_social_posts" ("created_at" DESC, "id" ASC)',
+    );
+    expect(sql).toContain(
+      'ON "edu_social_posts" ("type", "created_at" DESC, "id" ASC)',
+    );
     expect(sql).toContain(
       'ON "edu_activity_logs" ("user_id", "created_at" DESC)',
     );
     expect(sql).toContain(
       'ON "edu_data_exports" ("user_id", "created_at" DESC)',
     );
+    expect(sql.match(/TIMESTAMPTZ/g)).toHaveLength(8);
+    expect(sql).not.toMatch(/\bTIMESTAMP\b/);
   });
 
-  it('aligns entity foreign key and index names with the migration', () => {
+  it('aligns entity foreign keys, indexes, and timestamps with the migration', () => {
     const entities = [
       EducationSocialPost,
       EducationSocialComment,
@@ -80,6 +86,28 @@ describe('AddEducationPlatformApis1800000000000', () => {
     const indexNames = metadata.indices
       .filter((index) => entitySet.has(index.target as Function))
       .map((index) => index.name);
+    const timestampColumns = metadata.columns
+      .filter(
+        (column) =>
+          entitySet.has(column.target as Function) &&
+          ['createdAt', 'updatedAt', 'completedAt'].includes(
+            column.propertyName,
+          ),
+      )
+      .map((column) => ({
+        entity: (column.target as Function).name,
+        property: column.propertyName,
+        type: column.options.type,
+      }));
+    const postIndexes = metadata.indices.filter(
+      (index) => index.target === EducationSocialPost,
+    );
+    const createdIndex = postIndexes.find(
+      (index) => index.name === 'IDX_edu_social_posts_created',
+    );
+    const typeCreatedIndex = postIndexes.find(
+      (index) => index.name === 'IDX_edu_social_posts_type_created',
+    );
 
     expect(foreignKeys).toEqual(
       expect.arrayContaining([
@@ -101,6 +129,19 @@ describe('AddEducationPlatformApis1800000000000', () => {
         'IDX_edu_social_post_likes_user',
         'IDX_edu_social_post_bookmarks_user',
       ]),
+    );
+    expect(resolveIndexColumns(createdIndex?.columns)).toEqual({
+      createdAt: -1,
+      id: 1,
+    });
+    expect(resolveIndexColumns(typeCreatedIndex?.columns)).toEqual({
+      type: 1,
+      createdAt: -1,
+      id: 1,
+    });
+    expect(timestampColumns).toHaveLength(8);
+    expect(timestampColumns.every(({ type }) => type === 'timestamptz')).toBe(
+      true,
     );
   });
 
@@ -133,3 +174,14 @@ describe('AddEducationPlatformApis1800000000000', () => {
     expect(sql).not.toContain('DROP EXTENSION');
   });
 });
+
+function resolveIndexColumns(
+  columns:
+    | string[]
+    | ((object?: object) => unknown[] | Record<string, number>)
+    | undefined,
+): unknown {
+  return typeof columns === 'function'
+    ? columns({ type: 'type', createdAt: 'createdAt', id: 'id' })
+    : columns;
+}

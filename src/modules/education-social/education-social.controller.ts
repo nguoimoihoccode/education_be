@@ -1,4 +1,13 @@
-import { Body, Controller, Get, Param, Post, Query, Req } from '@nestjs/common';
+import {
+  Body,
+  Controller,
+  Get,
+  Param,
+  ParseUUIDPipe,
+  Post,
+  Query,
+  Req,
+} from '@nestjs/common';
 import { ApiTags } from '@nestjs/swagger';
 import type { RequestWithUser } from '../../common/types/auth.types';
 import {
@@ -30,19 +39,25 @@ export class EducationSocialController {
   }
 
   @Post('posts/:postId/like')
-  toggleLike(@Req() req: RequestWithUser, @Param('postId') postId: string) {
+  toggleLike(
+    @Req() req: RequestWithUser,
+    @Param('postId', new ParseUUIDPipe({ version: '4' })) postId: string,
+  ) {
     return this.socialService.toggleLike(req.user!.sub, postId);
   }
 
   @Post('posts/:postId/bookmark')
-  toggleBookmark(@Req() req: RequestWithUser, @Param('postId') postId: string) {
+  toggleBookmark(
+    @Req() req: RequestWithUser,
+    @Param('postId', new ParseUUIDPipe({ version: '4' })) postId: string,
+  ) {
     return this.socialService.toggleBookmark(req.user!.sub, postId);
   }
 
   @Post('posts/:postId/comments')
   addComment(
     @Req() req: RequestWithUser,
-    @Param('postId') postId: string,
+    @Param('postId', new ParseUUIDPipe({ version: '4' })) postId: string,
     @Body() dto: CreateEducationSocialCommentDto,
   ) {
     return this.socialService.addComment(req.user!.sub, postId, dto);

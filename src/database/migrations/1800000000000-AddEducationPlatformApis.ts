@@ -58,8 +58,8 @@ export class AddEducationPlatformApis1800000000000 implements MigrationInterface
         "type" "public"."edu_social_post_type_enum" NOT NULL,
         "tags" text[] NOT NULL DEFAULT '{}',
         "shares_count" integer NOT NULL DEFAULT 0,
-        "created_at" TIMESTAMP NOT NULL DEFAULT now(),
-        "updated_at" TIMESTAMP NOT NULL DEFAULT now(),
+        "created_at" TIMESTAMPTZ NOT NULL DEFAULT now(),
+        "updated_at" TIMESTAMPTZ NOT NULL DEFAULT now(),
         CONSTRAINT "PK_edu_social_posts_id" PRIMARY KEY ("id"),
         CONSTRAINT "FK_edu_social_posts_author" FOREIGN KEY ("author_id") REFERENCES "users"("id") ON DELETE CASCADE ON UPDATE NO ACTION
       )
@@ -72,12 +72,12 @@ export class AddEducationPlatformApis1800000000000 implements MigrationInterface
 
     await queryRunner.query(`
       CREATE INDEX "IDX_edu_social_posts_created"
-      ON "edu_social_posts" ("created_at" DESC)
+      ON "edu_social_posts" ("created_at" DESC, "id" ASC)
     `);
 
     await queryRunner.query(`
       CREATE INDEX "IDX_edu_social_posts_type_created"
-      ON "edu_social_posts" ("type", "created_at" DESC)
+      ON "edu_social_posts" ("type", "created_at" DESC, "id" ASC)
     `);
 
     await queryRunner.query(`
@@ -92,7 +92,7 @@ export class AddEducationPlatformApis1800000000000 implements MigrationInterface
         "author_id" integer NOT NULL,
         "content" text NOT NULL,
         "likes_count" integer NOT NULL DEFAULT 0,
-        "created_at" TIMESTAMP NOT NULL DEFAULT now(),
+        "created_at" TIMESTAMPTZ NOT NULL DEFAULT now(),
         CONSTRAINT "PK_edu_social_comments_id" PRIMARY KEY ("id"),
         CONSTRAINT "FK_edu_social_comments_post" FOREIGN KEY ("post_id") REFERENCES "edu_social_posts"("id") ON DELETE CASCADE ON UPDATE NO ACTION,
         CONSTRAINT "FK_edu_social_comments_author" FOREIGN KEY ("author_id") REFERENCES "users"("id") ON DELETE CASCADE ON UPDATE NO ACTION
@@ -114,7 +114,7 @@ export class AddEducationPlatformApis1800000000000 implements MigrationInterface
         "id" uuid NOT NULL DEFAULT gen_random_uuid(),
         "post_id" uuid NOT NULL,
         "user_id" integer NOT NULL,
-        "created_at" TIMESTAMP NOT NULL DEFAULT now(),
+        "created_at" TIMESTAMPTZ NOT NULL DEFAULT now(),
         CONSTRAINT "PK_edu_social_post_likes_id" PRIMARY KEY ("id"),
         CONSTRAINT "UQ_edu_social_post_likes_post_user" UNIQUE ("post_id", "user_id"),
         CONSTRAINT "FK_edu_social_post_likes_post" FOREIGN KEY ("post_id") REFERENCES "edu_social_posts"("id") ON DELETE CASCADE ON UPDATE NO ACTION,
@@ -132,7 +132,7 @@ export class AddEducationPlatformApis1800000000000 implements MigrationInterface
         "id" uuid NOT NULL DEFAULT gen_random_uuid(),
         "post_id" uuid NOT NULL,
         "user_id" integer NOT NULL,
-        "created_at" TIMESTAMP NOT NULL DEFAULT now(),
+        "created_at" TIMESTAMPTZ NOT NULL DEFAULT now(),
         CONSTRAINT "PK_edu_social_post_bookmarks_id" PRIMARY KEY ("id"),
         CONSTRAINT "UQ_edu_social_post_bookmarks_post_user" UNIQUE ("post_id", "user_id"),
         CONSTRAINT "FK_edu_social_post_bookmarks_post" FOREIGN KEY ("post_id") REFERENCES "edu_social_posts"("id") ON DELETE CASCADE ON UPDATE NO ACTION,
@@ -154,7 +154,7 @@ export class AddEducationPlatformApis1800000000000 implements MigrationInterface
         "detail" text NOT NULL,
         "xp" integer NOT NULL DEFAULT 0,
         "metadata" jsonb,
-        "created_at" TIMESTAMP NOT NULL DEFAULT now(),
+        "created_at" TIMESTAMPTZ NOT NULL DEFAULT now(),
         CONSTRAINT "PK_edu_activity_logs_id" PRIMARY KEY ("id"),
         CONSTRAINT "FK_edu_activity_logs_user" FOREIGN KEY ("user_id") REFERENCES "users"("id") ON DELETE CASCADE ON UPDATE NO ACTION
       )
@@ -182,8 +182,8 @@ export class AddEducationPlatformApis1800000000000 implements MigrationInterface
         "file_path" character varying NOT NULL,
         "file_size" bigint NOT NULL DEFAULT 0,
         "error_message" text,
-        "created_at" TIMESTAMP NOT NULL DEFAULT now(),
-        "completed_at" TIMESTAMP,
+        "created_at" TIMESTAMPTZ NOT NULL DEFAULT now(),
+        "completed_at" TIMESTAMPTZ,
         CONSTRAINT "PK_edu_data_exports_id" PRIMARY KEY ("id"),
         CONSTRAINT "FK_edu_data_exports_user" FOREIGN KEY ("user_id") REFERENCES "users"("id") ON DELETE CASCADE ON UPDATE NO ACTION
       )

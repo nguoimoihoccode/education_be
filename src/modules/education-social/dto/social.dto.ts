@@ -23,7 +23,11 @@ export class CreateEducationSocialPostDto {
   content: string;
 
   @IsOptional()
-  @IsUrl()
+  @IsUrl({
+    protocols: ['http', 'https'],
+    require_protocol: true,
+    require_tld: false,
+  })
   image?: string;
 
   @IsOptional()

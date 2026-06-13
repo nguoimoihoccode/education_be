@@ -1,5 +1,13 @@
-import { RequestMethod } from '@nestjs/common';
-import { METHOD_METADATA, PATH_METADATA } from '@nestjs/common/constants';
+import {
+  BadRequestException,
+  ParseUUIDPipe,
+  RequestMethod,
+} from '@nestjs/common';
+import {
+  METHOD_METADATA,
+  PATH_METADATA,
+  ROUTE_ARGS_METADATA,
+} from '@nestjs/common/constants';
 import { Test } from '@nestjs/testing';
 import { IS_PUBLIC_KEY } from '../../common/decorators/public.decorator';
 import type { RequestWithUser } from '../../common/types/auth.types';
@@ -74,6 +82,39 @@ describe('EducationSocialController', () => {
       ).toBeUndefined();
     }
   });
+
+  it.each(['toggleLike', 'toggleBookmark', 'addComment'] as const)(
+    'validates %s postId as a UUID v4',
+    async (methodName) => {
+      const pipes = getPostIdPipes(methodName);
+      const uuidPipe = pipes.find(
+        (pipe): pipe is ParseUUIDPipe => pipe instanceof ParseUUIDPipe,
+      );
+
+      expect(uuidPipe).toBeDefined();
+      await expect(
+        uuidPipe!.transform('not-a-uuid', {
+          type: 'param',
+          metatype: String,
+          data: 'postId',
+        }),
+      ).rejects.toBeInstanceOf(BadRequestException);
+      await expect(
+        uuidPipe!.transform('11111111-1111-4111-8111-111111111111', {
+          type: 'param',
+          metatype: String,
+          data: 'postId',
+        }),
+      ).resolves.toBe('11111111-1111-4111-8111-111111111111');
+      await expect(
+        uuidPipe!.transform('11111111-1111-3111-8111-111111111111', {
+          type: 'param',
+          metatype: String,
+          data: 'postId',
+        }),
+      ).rejects.toBeInstanceOf(BadRequestException);
+    },
+  );
 
   it('passes the JWT subject to feed and create post operations', async () => {
     const query = Object.assign(new EducationSocialFeedQueryDto(), {
@@ -155,4 +196,24 @@ function expectRoute(
   const handler = EducationSocialController.prototype[methodName];
   expect(Reflect.getMetadata(PATH_METADATA, handler)).toBe(path);
   expect(Reflect.getMetadata(METHOD_METADATA, handler)).toBe(method);
+}
+
+function getPostIdPipes(
+  methodName: 'toggleLike' | 'toggleBookmark' | 'addComment',
+): unknown[] {
+  const metadata =
+    Reflect.getMetadata(
+      ROUTE_ARGS_METADATA,
+      EducationSocialController,
+      methodName,
+    ) ?? {};
+  const postIdArgument = Object.values(metadata).find(
+    (argument) =>
+      typeof argument === 'object' &&
+      argument !== null &&
+      'data' in argument &&
+      argument.data === 'postId',
+  ) as { pipes?: unknown[] } | undefined;
+
+  return postIdArgument?.pipes ?? [];
 }

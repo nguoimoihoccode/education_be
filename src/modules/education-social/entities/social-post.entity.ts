@@ -19,8 +19,12 @@ export enum EducationSocialPostType {
 
 @Entity('edu_social_posts')
 @Index('IDX_edu_social_posts_author', ['authorId'])
-@Index('IDX_edu_social_posts_created', ['createdAt'])
-@Index('IDX_edu_social_posts_type_created', ['type', 'createdAt'])
+@Index('IDX_edu_social_posts_created', () => ({ createdAt: -1, id: 1 }))
+@Index('IDX_edu_social_posts_type_created', () => ({
+  type: 1,
+  createdAt: -1,
+  id: 1,
+}))
 export class EducationSocialPost {
   @PrimaryGeneratedColumn('uuid')
   id: string;
@@ -55,9 +59,9 @@ export class EducationSocialPost {
   @Column({ name: 'shares_count', type: 'integer', default: 0 })
   sharesCount: number;
 
-  @CreateDateColumn({ name: 'created_at', type: 'timestamp' })
+  @CreateDateColumn({ name: 'created_at', type: 'timestamptz' })
   createdAt: Date;
 
-  @UpdateDateColumn({ name: 'updated_at', type: 'timestamp' })
+  @UpdateDateColumn({ name: 'updated_at', type: 'timestamptz' })
   updatedAt: Date;
 }

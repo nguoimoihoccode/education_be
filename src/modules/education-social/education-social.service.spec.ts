@@ -92,6 +92,23 @@ describe('EducationSocialService', () => {
     ).toHaveLength(10);
   });
 
+  it('normalizes tags without locale-sensitive case folding', () => {
+    const localeLowerCase = jest
+      .spyOn(String.prototype, 'toLocaleLowerCase')
+      .mockImplementation(() => {
+        throw new Error('locale-sensitive folding must not be used');
+      });
+
+    try {
+      expect(normalizeEducationSocialTags(['#Study', '#study'])).toEqual([
+        'Study',
+      ]);
+      expect(localeLowerCase).not.toHaveBeenCalled();
+    } finally {
+      localeLowerCase.mockRestore();
+    }
+  });
+
   it('derives a deterministic badge from level and streak', () => {
     expect(getEducationSocialBadge(20, 0)).toBe('trophy');
     expect(getEducationSocialBadge(4, 7)).toBe('streak');
@@ -122,6 +139,34 @@ describe('EducationSocialService', () => {
     expect(
       (await validate(invalidComment)).map((error) => error.property),
     ).toContain('content');
+  });
+
+  it('accepts only explicit HTTP and HTTPS image URLs', async () => {
+    const httpPost = plainToInstance(CreateEducationSocialPostDto, {
+      content: 'Local image',
+      image: 'http://localhost:3000/image.png',
+    });
+    const httpsPost = plainToInstance(CreateEducationSocialPostDto, {
+      content: 'Remote image',
+      image: 'https://example.com/image.png',
+    });
+    const ftpPost = plainToInstance(CreateEducationSocialPostDto, {
+      content: 'FTP image',
+      image: 'ftp://example.com/image.png',
+    });
+    const protocolRelativePost = plainToInstance(CreateEducationSocialPostDto, {
+      content: 'Protocol relative image',
+      image: '//example.com/image.png',
+    });
+
+    expect(await validate(httpPost)).toEqual([]);
+    expect(await validate(httpsPost)).toEqual([]);
+    expect((await validate(ftpPost)).map(({ property }) => property)).toContain(
+      'image',
+    );
+    expect(
+      (await validate(protocolRelativePost)).map(({ property }) => property),
+    ).toContain('image');
   });
 
   it('transforms and validates feed pagination and type', async () => {
@@ -201,11 +246,13 @@ describe('EducationSocialService', () => {
     );
     expect(dataSource.query).toHaveBeenCalledTimes(1);
     const feedSql = dataSource.query.mock.calls[0][0] as string;
-    expect(feedSql).toMatch(/ORDER BY created_at DESC, id ASC/);
-    expect(feedSql).toMatch(
-      /ORDER BY comment\.created_at ASC, comment\.id ASC/,
-    );
+    expect(feedSql).toContain('post.type = $2::edu_social_post_type_enum');
+    expect(feedSql).not.toContain('post.type::text');
+    expect(feedSql).not.toContain('WITH filtered_posts AS');
     expect(feedSql).toMatch(/ORDER BY post\.created_at DESC, post\.id ASC/);
+    expect(feedSql.indexOf('LIMIT $3 OFFSET $4')).toBeLessThan(
+      feedSql.indexOf('FROM edu_social_comments comment'),
+    );
     expect(result).toEqual({
       data: [
         {
@@ -236,6 +283,109 @@ describe('EducationSocialService', () => {
         totalPages: 2,
       },
     });
+  });
+
+  it('serializes feed and comment timestamps explicitly as UTC ISO strings', async () => {
+    dataSource.query.mockResolvedValue([
+      {
+        total: 1,
+        data: [
+          {
+            id: 'post-1',
+            authorId: 7,
+            authorName: 'Learner',
+            authorAvatar: null,
+            level: 1,
+            currentStreak: 0,
+            content: 'UTC post',
+            image: null,
+            likes: 0,
+            comments: [
+              {
+                id: 'comment-1',
+                authorId: 8,
+                author: 'Commenter',
+                avatar: null,
+                content: 'UTC comment',
+                createdAt: '2026-06-12T09:00:00.123Z',
+                likes: 0,
+              },
+            ],
+            shares: 0,
+            isLiked: false,
+            isBookmarked: false,
+            createdAt: '2026-06-12T10:00:00.456Z',
+            tags: [],
+            type: EducationSocialPostType.SHARE,
+          },
+        ],
+      },
+    ]);
+
+    const result = await service.getFeed(7, {});
+    const feedSql = dataSource.query.mock.calls[0][0] as string;
+
+    expect(feedSql).toMatch(
+      /to_char\(\s*post\.created_at AT TIME ZONE 'UTC',\s*'YYYY-MM-DD"T"HH24:MI:SS\.MS"Z"'\s*\)/,
+    );
+    expect(feedSql).toMatch(
+      /to_char\(\s*comment\.created_at AT TIME ZONE 'UTC',\s*'YYYY-MM-DD"T"HH24:MI:SS\.MS"Z"'\s*\)/,
+    );
+    expect(result.data[0].createdAt).toBe('2026-06-12T10:00:00.456Z');
+    expect(result.data[0].comments[0].createdAt).toBe(
+      '2026-06-12T09:00:00.123Z',
+    );
+  });
+
+  it('rejects timezone-less timestamps returned by the feed query', async () => {
+    dataSource.query.mockResolvedValue([
+      {
+        total: 1,
+        data: [
+          {
+            id: 'post-1',
+            authorId: 7,
+            authorName: 'Learner',
+            authorAvatar: null,
+            level: 1,
+            currentStreak: 0,
+            content: 'Invalid timestamp',
+            image: null,
+            likes: 0,
+            comments: [],
+            shares: 0,
+            isLiked: false,
+            isBookmarked: false,
+            createdAt: '2026-06-12 10:00:00',
+            tags: [],
+            type: EducationSocialPostType.SHARE,
+          },
+        ],
+      },
+    ]);
+
+    await expect(service.getFeed(7, {})).rejects.toThrow(
+      'Invalid UTC timestamp',
+    );
+  });
+
+  it('limits each feed preview to the latest 100 comments then orders them ascending', async () => {
+    dataSource.query.mockResolvedValue([{ total: 0, data: [] }]);
+
+    await service.getFeed(7, {});
+
+    const feedSql = dataSource.query.mock.calls[0][0] as string;
+    const commentsStart = feedSql.indexOf('FROM edu_social_comments comment');
+    const commentsLimit = feedSql.indexOf('LIMIT 100', commentsStart);
+
+    expect(commentsStart).toBeGreaterThan(-1);
+    expect(feedSql.slice(commentsStart, commentsLimit)).toMatch(
+      /ORDER BY comment\.created_at DESC, comment\.id DESC/,
+    );
+    expect(commentsLimit).toBeGreaterThan(commentsStart);
+    expect(feedSql).toMatch(
+      /SELECT jsonb_agg\([\s\S]*ORDER BY limited_comment\.created_at ASC, limited_comment\.id ASC[\s\S]*FROM \([\s\S]*FROM edu_social_comments comment[\s\S]*ORDER BY comment\.created_at DESC, comment\.id DESC[\s\S]*LIMIT 100[\s\S]*\) limited_comment/,
+    );
   });
 
   it('uses feed defaults and returns total metadata for an empty page', async () => {
@@ -274,7 +424,7 @@ describe('EducationSocialService', () => {
             shares: '3',
             isLiked: true,
             isBookmarked: false,
-            createdAt: new Date('2026-06-12T10:00:00.000Z'),
+            createdAt: '2026-06-12T10:00:00.000Z',
             tags: null,
             type: EducationSocialPostType.SHARE,
           },

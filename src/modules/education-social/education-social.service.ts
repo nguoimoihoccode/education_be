@@ -77,7 +77,7 @@ type FeedPostRow = {
   shares: number | string;
   isLiked: boolean;
   isBookmarked: boolean;
-  createdAt: Date | string;
+  createdAt: string;
   tags?: string[] | null;
   type: EducationSocialPostType;
 };
@@ -94,6 +94,8 @@ type TrendingRow = {
 
 const LIKE_UNIQUE_CONSTRAINT = 'UQ_edu_social_post_likes_post_user';
 const BOOKMARK_UNIQUE_CONSTRAINT = 'UQ_edu_social_post_bookmarks_post_user';
+const UTC_ISO_TIMESTAMP_PATTERN =
+  /^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}\.\d{3}Z$/;
 
 export function normalizeEducationSocialTags(tags?: string[]): string[] {
   const normalized: string[] = [];
@@ -101,7 +103,7 @@ export function normalizeEducationSocialTags(tags?: string[]): string[] {
 
   for (const rawTag of tags ?? []) {
     const tag = rawTag.trim().replace(/^#+/, '').trim();
-    const key = tag.toLocaleLowerCase();
+    const key = tag.toLowerCase();
     if (!tag || seen.has(key)) {
       continue;
     }
@@ -345,23 +347,25 @@ export class EducationSocialService {
 
   private buildFeedQuery(): string {
     return `
-      WITH filtered_posts AS (
+      WITH page_posts AS (
         SELECT post.*
         FROM edu_social_posts post
-        WHERE ($2::text IS NULL OR post.type::text = $2)
-      ),
-      post_count AS (
-        SELECT COUNT(*)::int AS total
-        FROM filtered_posts
-      ),
-      page_posts AS (
-        SELECT *
-        FROM filtered_posts
-        ORDER BY created_at DESC, id ASC
+        WHERE (
+          $2::edu_social_post_type_enum IS NULL
+          OR post.type = $2::edu_social_post_type_enum
+        )
+        ORDER BY post.created_at DESC, post.id ASC
         LIMIT $3 OFFSET $4
       )
       SELECT
-        post_count.total,
+        (
+          SELECT COUNT(*)::int
+          FROM edu_social_posts count_post
+          WHERE (
+            $2::edu_social_post_type_enum IS NULL
+            OR count_post.type = $2::edu_social_post_type_enum
+          )
+        ) AS total,
         COALESCE(
           jsonb_agg(
             jsonb_build_object(
@@ -377,33 +381,8 @@ export class EducationSocialService {
               'currentStreak', COALESCE(streak.current_streak, 0),
               'content', post.content,
               'image', post.image_url,
-              'likes', (
-                SELECT COUNT(*)::int
-                FROM edu_social_post_likes post_like
-                WHERE post_like.post_id = post.id
-              ),
-              'comments', COALESCE((
-                SELECT jsonb_agg(
-                  jsonb_build_object(
-                    'id', comment.id,
-                    'authorId', comment.author_id,
-                    'author', COALESCE(
-                      NULLIF(comment_author.name, ''),
-                      NULLIF(comment_author.username, ''),
-                      comment_author.email
-                    ),
-                    'avatar', comment_author.avatar,
-                    'content', comment.content,
-                    'createdAt', comment.created_at,
-                    'likes', comment.likes_count
-                  )
-                  ORDER BY comment.created_at ASC, comment.id ASC
-                )
-                FROM edu_social_comments comment
-                INNER JOIN users comment_author
-                  ON comment_author.id = comment.author_id
-                WHERE comment.post_id = post.id
-              ), '[]'::jsonb),
+              'likes', COALESCE(like_count.likes, 0),
+              'comments', COALESCE(comment_preview.comments, '[]'::jsonb),
               'shares', post.shares_count,
               'isLiked', EXISTS (
                 SELECT 1
@@ -417,7 +396,10 @@ export class EducationSocialService {
                 WHERE current_bookmark.post_id = post.id
                   AND current_bookmark.user_id = $1
               ),
-              'createdAt', post.created_at,
+              'createdAt', to_char(
+                post.created_at AT TIME ZONE 'UTC',
+                'YYYY-MM-DD"T"HH24:MI:SS.MS"Z"'
+              ),
               'tags', post.tags,
               'type', post.type
             )
@@ -425,12 +407,54 @@ export class EducationSocialService {
           ) FILTER (WHERE post.id IS NOT NULL),
           '[]'::jsonb
         ) AS data
-      FROM post_count
+      FROM (SELECT 1) envelope
       LEFT JOIN page_posts post ON TRUE
       LEFT JOIN users author ON author.id = post.author_id
       LEFT JOIN edu_user_streaks streak
         ON streak.user_id::text = post.author_id::text
-      GROUP BY post_count.total
+      LEFT JOIN LATERAL (
+        SELECT COUNT(*)::int AS likes
+        FROM edu_social_post_likes post_like
+        WHERE post_like.post_id = post.id
+      ) like_count ON post.id IS NOT NULL
+      LEFT JOIN LATERAL (
+        SELECT jsonb_agg(
+          jsonb_build_object(
+            'id', limited_comment.id,
+            'authorId', limited_comment.author_id,
+            'author', limited_comment.author_name,
+            'avatar', limited_comment.author_avatar,
+            'content', limited_comment.content,
+            'createdAt', limited_comment.created_at_iso,
+            'likes', limited_comment.likes_count
+          )
+          ORDER BY limited_comment.created_at ASC, limited_comment.id ASC
+        ) AS comments
+        FROM (
+          SELECT
+            comment.id,
+            comment.author_id,
+            COALESCE(
+              NULLIF(comment_author.name, ''),
+              NULLIF(comment_author.username, ''),
+              comment_author.email
+            ) AS author_name,
+            comment_author.avatar AS author_avatar,
+            comment.content,
+            comment.likes_count,
+            comment.created_at,
+            to_char(
+              comment.created_at AT TIME ZONE 'UTC',
+              'YYYY-MM-DD"T"HH24:MI:SS.MS"Z"'
+            ) AS created_at_iso
+          FROM edu_social_comments comment
+          INNER JOIN users comment_author
+            ON comment_author.id = comment.author_id
+          WHERE comment.post_id = post.id
+          ORDER BY comment.created_at DESC, comment.id DESC
+          LIMIT 100
+        ) limited_comment
+      ) comment_preview ON post.id IS NOT NULL
     `;
   }
 
@@ -462,7 +486,7 @@ export class EducationSocialService {
       shares: Number(post.shares),
       isLiked: Boolean(post.isLiked),
       isBookmarked: Boolean(post.isBookmarked),
-      createdAt: this.toIsoString(post.createdAt),
+      createdAt: this.requireUtcIsoString(post.createdAt),
       tags: post.tags ?? [],
       type: post.type,
     };
@@ -571,6 +595,13 @@ export class EducationSocialService {
   private toIsoString(value: Date | string): string {
     return value instanceof Date
       ? value.toISOString()
-      : new Date(value).toISOString();
+      : this.requireUtcIsoString(value);
+  }
+
+  private requireUtcIsoString(value: string): string {
+    if (!UTC_ISO_TIMESTAMP_PATTERN.test(value)) {
+      throw new Error('Invalid UTC timestamp returned by social query');
+    }
+    return value;
   }
 }
