@@ -29,8 +29,12 @@ export class AddDailyLearningTasks1780000000001 implements MigrationInterface {
   }
 
   public async down(queryRunner: QueryRunner): Promise<void> {
-    await queryRunner.query(`DROP INDEX IF EXISTS "IDX_edu_daily_learning_tasks_date"`);
-    await queryRunner.query(`DROP INDEX IF EXISTS "IDX_edu_daily_learning_tasks_user"`);
+    await queryRunner.query(
+      `DROP INDEX IF EXISTS "IDX_edu_daily_learning_tasks_date"`,
+    );
+    await queryRunner.query(
+      `DROP INDEX IF EXISTS "IDX_edu_daily_learning_tasks_user"`,
+    );
     await queryRunner.query(`DROP TABLE IF EXISTS "edu_daily_learning_tasks"`);
   }
 }

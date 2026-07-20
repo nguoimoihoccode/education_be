@@ -10,7 +10,9 @@ describe('DocumentImportController preview endpoints', () => {
     previewDocument: jest
       .fn()
       .mockResolvedValue({ fileId: 'preview-1', suggestedFlashcards: [] }),
-    confirmImport: jest.fn().mockResolvedValue({ imported: 1, deckId: 'deck-1' }),
+    confirmImport: jest
+      .fn()
+      .mockResolvedValue({ imported: 1, deckId: 'deck-1' }),
   };
 
   let controller: DocumentImportController;
@@ -67,7 +69,9 @@ describe('DocumentImportController preview endpoints', () => {
 
     expect(previewService.confirmImport).toHaveBeenCalledWith(42, {
       fileName: 'hsk1.txt',
-      flashcards: [{ id: 'card-1', front: '你好', back: 'hello', difficulty: 1 }],
+      flashcards: [
+        { id: 'card-1', front: '你好', back: 'hello', difficulty: 1 },
+      ],
     });
     expect(result).toEqual({ imported: 1, deckId: 'deck-1' });
   });

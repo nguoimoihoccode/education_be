@@ -3,7 +3,10 @@ import { Reflector } from '@nestjs/core';
 import { RolesGuard } from './roles.guard';
 import { UserRole } from '../enums/roles.enum';
 
-const createContext = (user?: { sub?: number; roles?: UserRole[] }): ExecutionContext =>
+const createContext = (user?: {
+  sub?: number;
+  roles?: UserRole[];
+}): ExecutionContext =>
   ({
     getHandler: jest.fn(),
     getClass: jest.fn(),
@@ -20,7 +23,10 @@ describe('RolesGuard', () => {
   beforeEach(() => {
     reflector = { getAllAndOverride: jest.fn() };
     usersService = { findById: jest.fn() };
-    guard = new RolesGuard(reflector as unknown as Reflector, usersService as any);
+    guard = new RolesGuard(
+      reflector as unknown as Reflector,
+      usersService as any,
+    );
   });
 
   it('allows requests when no route roles are required', async () => {
@@ -34,12 +40,12 @@ describe('RolesGuard', () => {
       UserRole.TEACHER,
       UserRole.ADMIN,
     ]);
-    usersService.findById.mockResolvedValue({ roles: [UserRole.STUDENT, UserRole.ADMIN] });
+    usersService.findById.mockResolvedValue({
+      roles: [UserRole.STUDENT, UserRole.ADMIN],
+    });
 
     await expect(
-      guard.canActivate(
-        createContext({ sub: 1, roles: [UserRole.STUDENT] }),
-      ),
+      guard.canActivate(createContext({ sub: 1, roles: [UserRole.STUDENT] })),
     ).resolves.toBe(true);
   });
 
@@ -57,10 +63,14 @@ describe('RolesGuard', () => {
 
     await expect(
       guard.canActivate(createContext({ roles: [UserRole.STUDENT] })),
-    ).rejects.toThrow(new ForbiddenException('User has no roles assigned') as any);
+    ).rejects.toThrow(
+      new ForbiddenException('User has no roles assigned') as any,
+    );
 
     await expect(
       guard.canActivate(createContext({ sub: 1, roles: [UserRole.STUDENT] })),
-    ).rejects.toThrow(new ForbiddenException('Insufficient permissions') as any);
+    ).rejects.toThrow(
+      new ForbiddenException('Insufficient permissions') as any,
+    );
   });
 });
