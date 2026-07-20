@@ -29,10 +29,12 @@ import { Quiz, QuizQuestion, QuizSession } from './entities';
 
 import { RolesGuard } from '../../common/guards/roles.guard';
 import { UsersModule } from '../users/users.module';
+import { AiModule } from '../ai/ai.module';
 
 @Module({
   imports: [
     UsersModule,
+    AiModule,
     TypeOrmModule.forFeature([
       Language,
       Course,

@@ -23,6 +23,7 @@ import {
   calculateFinalQuizScore,
   gradeQuizAnswer,
 } from './domain/quiz-grading.policy';
+import { AiService } from '../ai/ai.service';
 
 @Injectable()
 export class QuizService {
@@ -37,6 +38,7 @@ export class QuizService {
     private readonly flashcardRepository: Repository<Flashcard>,
     @InjectRepository(FlashcardDeck)
     private readonly flashcardDeckRepository: Repository<FlashcardDeck>,
+    private readonly aiService: AiService,
   ) {}
 
   // ==================== Quiz Management ====================
@@ -345,18 +347,65 @@ export class QuizService {
   private async generateMultipleChoiceQuestion(
     flashcard: Flashcard,
   ): Promise<Partial<CreateQuizQuestionDto>> {
-    const wrongAnswers = await this.getRandomWrongAnswers(flashcard.back, 3);
+    const aiResult = await this.tryAiMcqDistractors(flashcard);
+    const wrongAnswers =
+      aiResult?.distractors ??
+      (await this.getRandomWrongAnswers(flashcard.back, 3));
     const options = this.shuffleArray([flashcard.back, ...wrongAnswers]);
+    const explanation =
+      aiResult?.explanation ||
+      flashcard.example ||
+      `The correct answer is "${flashcard.back}"`;
 
     return {
       question: `What is the meaning of "${flashcard.front}"?`,
       type: 'MULTIPLE_CHOICE',
       options,
       correctAnswer: flashcard.back,
-      explanation:
-        flashcard.example || `The correct answer is "${flashcard.back}"`,
+      explanation,
       points: 1,
     };
+  }
+
+  private async tryAiMcqDistractors(
+    flashcard: Flashcard,
+  ): Promise<{ distractors: string[]; explanation: string } | null> {
+    try {
+      const data = await this.aiService.completeJson<{
+        distractors: string[];
+        explanation: string;
+      }>({
+        system:
+          'You write multiple-choice language quiz items. Return JSON {"distractors":[string,string,string],"explanation":string}. Distractors must be plausible wrong answers of similar type/length, not the correct answer.',
+        user: JSON.stringify({
+          term: flashcard.front,
+          correctMeaning: flashcard.back,
+          example: flashcard.example,
+        }),
+      });
+
+      const correct = (flashcard.back || '').trim().toLowerCase();
+      const distractors = (Array.isArray(data?.distractors)
+        ? data.distractors
+        : []
+      )
+        .map((d) => (typeof d === 'string' ? d.trim() : ''))
+        .filter((d) => d.length > 0 && d.toLowerCase() !== correct);
+
+      if (distractors.length !== 3) {
+        return null;
+      }
+
+      const explanation =
+        typeof data?.explanation === 'string' ? data.explanation.trim() : '';
+
+      return {
+        distractors,
+        explanation,
+      };
+    } catch {
+      return null;
+    }
   }
 
   private async generateTrueFalseQuestion(
@@ -911,10 +960,47 @@ export class QuizService {
       }
     }
 
+    await this.fillMissingWrongAnswerExplanations(wrongAnswers);
+
     return {
       wrongAnswers,
       total: wrongAnswers.length,
     };
+  }
+
+  private async fillMissingWrongAnswerExplanations(
+    wrongAnswers: Array<{
+      question: string;
+      userAnswer: string;
+      correctAnswer: string;
+      explanation?: string | null;
+    }>,
+  ): Promise<void> {
+    const needsExplanation = wrongAnswers
+      .filter((item) => !item.explanation?.trim())
+      .slice(0, 5);
+
+    await Promise.all(
+      needsExplanation.map(async (item) => {
+        try {
+          const text = await this.aiService.completeText({
+            system:
+              'Write a short, clear quiz explanation (1-2 sentences) for a wrong answer. No markdown.',
+            user: JSON.stringify({
+              question: item.question,
+              userAnswer: item.userAnswer,
+              correctAnswer: item.correctAnswer,
+            }),
+          });
+          const explanation = (text || '').trim();
+          if (explanation) {
+            item.explanation = explanation;
+          }
+        } catch {
+          // fail soft — leave explanation empty
+        }
+      }),
+    );
   }
 
   async getLeaderboard(quizId: string, page: number = 1, limit: number = 10) {

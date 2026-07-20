@@ -17,6 +17,13 @@ const createRepository = (overrides: Record<string, unknown> = {}) => ({
   increment: jest.fn(),
   remove: jest.fn(),
   save: jest.fn((value) => Promise.resolve(value)),
+  createQueryBuilder: jest.fn(),
+  ...overrides,
+});
+
+const createAiServiceMock = (overrides: Record<string, unknown> = {}) => ({
+  completeJson: jest.fn().mockRejectedValue(new Error('AI unavailable')),
+  completeText: jest.fn().mockRejectedValue(new Error('AI unavailable')),
   ...overrides,
 });
 
@@ -128,6 +135,7 @@ describe('QuizService retry limits', () => {
       quizSessionRepository as any,
       createRepository() as any,
       createRepository() as any,
+      createAiServiceMock() as any,
     );
   };
 
@@ -173,6 +181,7 @@ describe('QuizService ownership checks', () => {
         createRepository() as any,
         createRepository() as any,
         createRepository() as any,
+        createAiServiceMock() as any,
       ),
       quizRepository,
       quizQuestionRepository,
@@ -234,5 +243,107 @@ describe('QuizService ownership checks', () => {
       }),
     ).rejects.toThrow('Quiz not found');
     expect(quizQuestionRepository.save).not.toHaveBeenCalled();
+  });
+});
+
+describe('QuizService AI MCQ generation', () => {
+  const flashcard = {
+    id: 'fc-1',
+    front: '你好',
+    back: 'hello',
+    example: '你好，世界',
+  };
+
+  const createServiceForMcq = (aiService: ReturnType<typeof createAiServiceMock>) => {
+    const qb = {
+      select: jest.fn().mockReturnThis(),
+      where: jest.fn().mockReturnThis(),
+      orderBy: jest.fn().mockReturnThis(),
+      limit: jest.fn().mockReturnThis(),
+      getRawMany: jest
+        .fn()
+        .mockResolvedValue([
+          { answer: 'goodbye' },
+          { answer: 'thanks' },
+          { answer: 'please' },
+        ]),
+    };
+    const flashcardRepository = createRepository({
+      createQueryBuilder: jest.fn().mockReturnValue(qb),
+    });
+
+    const service = new QuizService(
+      createRepository() as any,
+      createRepository() as any,
+      createRepository() as any,
+      flashcardRepository as any,
+      createRepository() as any,
+      aiService as any,
+    );
+
+    return { service, aiService, flashcardRepository };
+  };
+
+  it('uses AI distractors and explanation when AI returns valid data', async () => {
+    const aiService = createAiServiceMock({
+      completeJson: jest.fn().mockResolvedValue({
+        distractors: ['goodbye', 'thanks', 'please'],
+        explanation: '你好 means hello as a greeting.',
+      }),
+    });
+    const { service } = createServiceForMcq(aiService);
+
+    const result = await (service as any).generateMultipleChoiceQuestion(
+      flashcard,
+    );
+
+    expect(aiService.completeJson).toHaveBeenCalled();
+    expect(result.correctAnswer).toBe('hello');
+    expect(result.explanation).toBe('你好 means hello as a greeting.');
+    expect(result.options).toHaveLength(4);
+    expect(result.options).toEqual(
+      expect.arrayContaining(['hello', 'goodbye', 'thanks', 'please']),
+    );
+    expect(result.options.filter((o: string) => o === 'hello')).toHaveLength(1);
+  });
+
+  it('falls back to heuristic wrong answers when AI fails', async () => {
+    const aiService = createAiServiceMock({
+      completeJson: jest.fn().mockRejectedValue(new Error('timeout')),
+    });
+    const { service, flashcardRepository } = createServiceForMcq(aiService);
+
+    const result = await (service as any).generateMultipleChoiceQuestion(
+      flashcard,
+    );
+
+    expect(aiService.completeJson).toHaveBeenCalled();
+    expect(flashcardRepository.createQueryBuilder).toHaveBeenCalled();
+    expect(result.correctAnswer).toBe('hello');
+    expect(result.explanation).toBe('你好，世界');
+    expect(result.options).toHaveLength(4);
+    expect(result.options).toEqual(
+      expect.arrayContaining(['hello', 'goodbye', 'thanks', 'please']),
+    );
+  });
+
+  it('falls back when AI returns invalid distractor count', async () => {
+    const aiService = createAiServiceMock({
+      completeJson: jest.fn().mockResolvedValue({
+        distractors: ['only-one'],
+        explanation: 'unused',
+      }),
+    });
+    const { service, flashcardRepository } = createServiceForMcq(aiService);
+
+    const result = await (service as any).generateMultipleChoiceQuestion(
+      flashcard,
+    );
+
+    expect(flashcardRepository.createQueryBuilder).toHaveBeenCalled();
+    expect(result.explanation).toBe('你好，世界');
+    expect(result.options).toEqual(
+      expect.arrayContaining(['hello', 'goodbye', 'thanks', 'please']),
+    );
   });
 });
