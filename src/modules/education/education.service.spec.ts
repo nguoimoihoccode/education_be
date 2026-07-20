@@ -13,6 +13,11 @@ const createRepository = (overrides: Record<string, unknown> = {}) => ({
   ...overrides,
 });
 
+const createAiService = (overrides: Record<string, unknown> = {}) => ({
+  completeJson: jest.fn().mockRejectedValue(new Error('AI unavailable')),
+  ...overrides,
+});
+
 describe('EducationService learning plan', () => {
   it('builds today plan from enrolled course, next lesson, due vocabulary, and streak', async () => {
     const course = {
@@ -94,6 +99,7 @@ describe('EducationService learning plan', () => {
       userStreakRepository as any,
       quizSessionRepository as any,
       dailyLearningTaskRepository as any,
+      createAiService() as any,
     );
 
     await expect(service.getLearningPlan('user-1')).resolves.toMatchObject({
@@ -236,6 +242,7 @@ describe('EducationService learning plan', () => {
       userStreakRepository as any,
       quizSessionRepository as any,
       dailyLearningTaskRepository as any,
+      createAiService() as any,
     );
 
     await expect(service.getTodayLearningHub('user-1')).resolves.toMatchObject({
@@ -321,6 +328,7 @@ describe('EducationService learning plan', () => {
       }) as any,
       createRepository({ find: jest.fn().mockResolvedValue([]) }) as any,
       dailyLearningTaskRepository as any,
+      createAiService() as any,
     );
 
     await expect(service.getTodayLearningHub('user-1')).resolves.toMatchObject({
@@ -362,6 +370,7 @@ describe('EducationService learning plan', () => {
       }) as any,
       quizSessionRepository as any,
       createRepository() as any,
+      createAiService() as any,
     );
 
     await expect(service.getLearningPlan('user-1')).resolves.toMatchObject({
@@ -407,6 +416,7 @@ describe('EducationService learning plan', () => {
       }) as any,
       createRepository({ find: jest.fn().mockResolvedValue([]) }) as any,
       createRepository({ find: jest.fn().mockResolvedValue([]) }) as any,
+      createAiService() as any,
     );
 
     await expect(service.getTodayPlan('user-1')).resolves.toMatchObject({
@@ -453,6 +463,7 @@ describe('EducationService learning plan', () => {
       createRepository({ findOne: jest.fn().mockResolvedValue(null) }) as any,
       createRepository({ find: jest.fn().mockResolvedValue([]) }) as any,
       dailyLearningTaskRepository as any,
+      createAiService() as any,
     );
 
     await service.markTodayPlanTaskComplete('user-1', 'quick-quiz');
@@ -485,6 +496,7 @@ describe('EducationService learning plan', () => {
       createRepository({ findOne: jest.fn().mockResolvedValue(null) }) as any,
       createRepository({ find: jest.fn().mockResolvedValue([]) }) as any,
       dailyLearningTaskRepository as any,
+      createAiService() as any,
     );
 
     const hub = await service.getTodayLearningHub('user-1');
@@ -526,6 +538,7 @@ describe('EducationService learning plan', () => {
       createRepository({ findOne: jest.fn().mockResolvedValue(null) }) as any,
       createRepository({ find: jest.fn().mockResolvedValue([]) }) as any,
       dailyLearningTaskRepository as any,
+      createAiService() as any,
     );
 
     await service.markTodayPlanTasksCompleteByType('user-1', [
@@ -585,6 +598,7 @@ describe('EducationService learning plan', () => {
       }) as any,
       createRepository() as any,
       createRepository() as any,
+      createAiService() as any,
     );
 
     await service.completeLesson('user-1', 'lesson-1', { timeSpent: 120 });
@@ -618,6 +632,7 @@ describe('EducationService learning plan', () => {
       createRepository({ findOne: jest.fn().mockResolvedValue(null) }) as any,
       createRepository({ find: jest.fn().mockResolvedValue([]) }) as any,
       dailyLearningTaskRepository as any,
+      createAiService() as any,
     );
 
     await expect(service.getLearningPlan('user-1')).resolves.toMatchObject({
@@ -626,5 +641,79 @@ describe('EducationService learning plan', () => {
         completedReviews: 20,
       },
     });
+  });
+});
+
+describe('EducationService learning coach narrative', () => {
+  const createCoachService = (aiService: ReturnType<typeof createAiService>) => {
+    const userCourseRepository = createRepository({
+      find: jest.fn().mockResolvedValue([]),
+      count: jest.fn().mockResolvedValue(0),
+    });
+    const userLessonRepository = createRepository({
+      find: jest.fn().mockResolvedValue([]),
+      count: jest.fn().mockResolvedValue(0),
+    });
+    const userVocabularyRepository = createRepository({
+      count: jest.fn().mockResolvedValue(0),
+    });
+    const userStreakRepository = createRepository({
+      findOne: jest.fn().mockResolvedValue({
+        currentStreak: 2,
+        longestStreak: 5,
+        totalXp: 50,
+        level: 1,
+      }),
+    });
+    const quizSessionRepository = createRepository({
+      find: jest.fn().mockResolvedValue([]),
+    });
+    const dailyLearningTaskRepository = createRepository({
+      find: jest.fn().mockResolvedValue([]),
+    });
+
+    return new EducationService(
+      createRepository() as any,
+      createRepository() as any,
+      createRepository() as any,
+      createRepository() as any,
+      createRepository() as any,
+      userCourseRepository as any,
+      userLessonRepository as any,
+      userVocabularyRepository as any,
+      userStreakRepository as any,
+      quizSessionRepository as any,
+      dailyLearningTaskRepository as any,
+      aiService as any,
+    );
+  };
+
+  it('uses AI headline and focusArea when completeJson succeeds', async () => {
+    const aiService = createAiService({
+      completeJson: jest.fn().mockResolvedValue({
+        headline: 'Hôm nay hãy củng cố từ vựng nhé',
+        focusArea: 'Ôn flashcards đến hạn',
+      }),
+    });
+    const service = createCoachService(aiService);
+
+    await expect(service.getLearningCoachSummary('user-1')).resolves.toMatchObject({
+      headline: 'Hôm nay hãy củng cố từ vựng nhé',
+      focusArea: 'Ôn flashcards đến hạn',
+    });
+    expect(aiService.completeJson).toHaveBeenCalled();
+  });
+
+  it('falls back to template headline when AI fails', async () => {
+    const aiService = createAiService({
+      completeJson: jest.fn().mockRejectedValue(new Error('timeout')),
+    });
+    const service = createCoachService(aiService);
+
+    await expect(service.getLearningCoachSummary('user-1')).resolves.toMatchObject({
+      headline: 'Coach đã xếp lộ trình học hôm nay',
+      focusArea: 'Duy trì nhịp học',
+    });
+    expect(aiService.completeJson).toHaveBeenCalled();
   });
 });

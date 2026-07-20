@@ -35,6 +35,7 @@ import {
   ExerciseResultDto,
 } from './dto';
 import { calculateSrsReview, nextReviewDate } from './domain/srs.policy';
+import { AiService } from '../ai/ai.service';
 
 export type TodayPlanTaskType =
   | 'continue_lesson'
@@ -132,6 +133,7 @@ export class EducationService {
     private quizSessionRepository: Repository<QuizSession>,
     @InjectRepository(DailyLearningTask)
     private dailyLearningTaskRepository: Repository<DailyLearningTask>,
+    private readonly aiService: AiService,
   ) {}
 
   // ==================== LANGUAGES ====================
@@ -912,13 +914,47 @@ export class EducationService {
     const minuteCompletion = Math.round(
       (learningPlan.dailyGoal.completedMinutes / goalMinutes) * 100,
     );
-    const focusArea = learningPlan.weakQuizzes[0]?.topic || 'Duy trì nhịp học';
+    let headline =
+      todayPlan.completedTasks > 0
+        ? 'Bạn đang giữ nhịp học tốt hôm nay'
+        : 'Coach đã xếp lộ trình học hôm nay';
+    let focusArea =
+      learningPlan.weakQuizzes[0]?.topic || 'Duy trì nhịp học';
+
+    try {
+      const narrative = await this.aiService.completeJson<{
+        headline?: string;
+        focusArea?: string;
+      }>({
+        system:
+          'You are a concise learning coach. Return JSON {"headline","focusArea"} in Vietnamese. Max 120 chars each. No markdown. Be encouraging and specific.',
+        user: JSON.stringify({
+          completedTasks: todayPlan.completedTasks,
+          totalTasks: todayPlan.totalTasks,
+          planCompletion,
+          minuteCompletion,
+          streak: learningPlan.streak,
+          weakQuizzes: learningPlan.weakQuizzes.slice(0, 3),
+          dueReviews: learningPlan.dueReviews.count,
+          nextLesson: learningPlan.nextLesson?.title,
+        }),
+      });
+
+      if (typeof narrative?.headline === 'string' && narrative.headline.trim()) {
+        headline = narrative.headline.trim().slice(0, 160);
+      }
+      if (
+        typeof narrative?.focusArea === 'string' &&
+        narrative.focusArea.trim()
+      ) {
+        focusArea = narrative.focusArea.trim().slice(0, 120);
+      }
+    } catch {
+      // Keep rule-based defaults when AI is unavailable
+    }
 
     return {
-      headline:
-        todayPlan.completedTasks > 0
-          ? 'Bạn đang giữ nhịp học tốt hôm nay'
-          : 'Coach đã xếp lộ trình học hôm nay',
+      headline,
       focusArea,
       dailyGoal: learningPlan.dailyGoal,
       progress: {
