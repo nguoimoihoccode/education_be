@@ -515,6 +515,35 @@ export class AiService {
     return { ok: true, latencyMs: Date.now() - started };
   }
 
+  async completeText(input: {
+    system: string;
+    user: string;
+  }): Promise<string> {
+    return this.completeChat([
+      { role: 'system', content: input.system },
+      { role: 'user', content: input.user },
+    ]);
+  }
+
+  async completeJson<T>(input: {
+    system: string;
+    user: string;
+  }): Promise<T> {
+    const raw = await this.completeText({
+      system: `${input.system}\nRespond with a single JSON object only. No markdown.`,
+      user: input.user,
+    });
+    const cleaned = raw
+      .replace(/^```(?:json)?\s*/i, '')
+      .replace(/\s*```$/i, '')
+      .trim();
+    try {
+      return JSON.parse(cleaned) as T;
+    } catch {
+      throw new ServiceUnavailableException('AI tutor returned invalid JSON');
+    }
+  }
+
   private async completeChat(
     messages: { role: string; content: string }[],
   ): Promise<string> {

@@ -491,4 +491,54 @@ describe('AiService', () => {
       }),
     );
   });
+
+  it('completeText returns provider reply without persisting conversations', async () => {
+    fetchMock = okFetch('hello from model');
+    service = new AiService(
+      config,
+      conversationsRepo as unknown as Repository<AiConversation>,
+      messagesRepo as unknown as Repository<AiMessage>,
+      settingsRepo as unknown as Repository<AiProviderSettings>,
+      fetchMock as any,
+    );
+
+    const reply = await service.completeText({
+      system: 'You are a helper.',
+      user: 'Say hello',
+    });
+
+    expect(reply).toBe('hello from model');
+    expect(conversationsRepo.save).not.toHaveBeenCalled();
+    expect(messagesRepo.save).not.toHaveBeenCalled();
+  });
+
+  it('completeJson parses JSON object from model output', async () => {
+    fetchMock = okFetch(
+      '```json\n{"items":[{"front":"a","back":"b"}]}\n```',
+    );
+    service = new AiService(
+      config,
+      conversationsRepo as unknown as Repository<AiConversation>,
+      messagesRepo as unknown as Repository<AiMessage>,
+      settingsRepo as unknown as Repository<AiProviderSettings>,
+      fetchMock as any,
+    );
+
+    const data = await service.completeJson<{
+      items: { front: string; back: string }[];
+    }>({
+      system: 'Return JSON only.',
+      user: 'Generate',
+    });
+
+    expect(data.items[0]).toEqual({ front: 'a', back: 'b' });
+  });
+
+  it('completeText throws ServiceUnavailableException when key missing', async () => {
+    configValues.GROQ_API_KEY = undefined;
+
+    await expect(
+      service.completeText({ system: 's', user: 'u' }),
+    ).rejects.toBeInstanceOf(ServiceUnavailableException);
+  });
 });
