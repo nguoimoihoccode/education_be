@@ -11,6 +11,14 @@ import {
   DocumentPreviewRequestDto,
 } from './dto/document-preview.dto';
 import { FlashcardService } from '../education/flashcard.service';
+import {
+  AiVocabEnricherService,
+  EnrichedCard,
+} from './ai-vocab-enricher.service';
+import {
+  ParsedDocumentData,
+  ParsedVocabularyItem,
+} from './dto/document-conversion.dto';
 
 @Injectable()
 export class DocumentPreviewService {
@@ -19,6 +27,7 @@ export class DocumentPreviewService {
     private readonly parserRegistry: ParserRegistry,
     private readonly documentPreviewMapper: DocumentPreviewMapper,
     private readonly flashcardService: FlashcardService,
+    private readonly aiVocabEnricherService: AiVocabEnricherService,
   ) {}
 
   async previewDocument(
@@ -40,13 +49,81 @@ export class DocumentPreviewService {
       topic: dto.topic,
     });
 
+    const enriched = await this.aiVocabEnricherService.enrichVocabulary({
+      rawText: text,
+      seedTerms: parsedData.vocabulary.map((item) => item.word).filter(Boolean),
+      language: dto.language || parsedData.metadata.language || 'en',
+      maxCards: dto.maxVocabulary || 40,
+    });
+
+    const dataForPreview = enriched
+      ? this.applyEnrichedVocabulary(parsedData, enriched)
+      : parsedData;
+
     return this.documentPreviewMapper.toImportPreview({
       fileId: randomUUID(),
       fileName: originalName,
       fileType,
-      parsedData,
+      parsedData: dataForPreview,
       textLength: text.length,
     });
+  }
+
+  private applyEnrichedVocabulary(
+    parsedData: ParsedDocumentData,
+    enriched: EnrichedCard[],
+  ): ParsedDocumentData {
+    const byFront = new Map(
+      enriched.map((card) => [card.front.trim().toLowerCase(), card]),
+    );
+
+    const mergedFromHeuristic: ParsedVocabularyItem[] =
+      parsedData.vocabulary.map((item) => {
+        const match = byFront.get(item.word.trim().toLowerCase());
+        if (!match) {
+          return item;
+        }
+        return {
+          ...item,
+          definition: match.back || item.definition,
+          pronunciation: match.pronunciation ?? item.pronunciation,
+          example: match.example ?? item.example,
+          exampleTranslation:
+            match.exampleTranslation ?? item.exampleTranslation,
+          difficulty: match.difficulty ?? item.difficulty,
+        };
+      });
+
+    const existingWords = new Set(
+      mergedFromHeuristic.map((item) => item.word.trim().toLowerCase()),
+    );
+    const extraFromAi: ParsedVocabularyItem[] = enriched
+      .filter((card) => !existingWords.has(card.front.trim().toLowerCase()))
+      .map((card) => ({
+        word: card.front,
+        definition: card.back,
+        pronunciation: card.pronunciation,
+        example: card.example,
+        exampleTranslation: card.exampleTranslation,
+        difficulty: card.difficulty,
+      }));
+
+    const vocabulary =
+      mergedFromHeuristic.length > 0
+        ? [...mergedFromHeuristic, ...extraFromAi]
+        : enriched.map((card) => ({
+            word: card.front,
+            definition: card.back,
+            pronunciation: card.pronunciation,
+            example: card.example,
+            exampleTranslation: card.exampleTranslation,
+            difficulty: card.difficulty,
+          }));
+
+    return {
+      ...parsedData,
+      vocabulary,
+    };
   }
 
   async confirmImport(userId: number, dto: ConfirmDocumentImportDto) {

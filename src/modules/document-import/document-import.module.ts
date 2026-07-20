@@ -1,5 +1,6 @@
 import { Module } from '@nestjs/common';
 import { EducationModule } from '../education/education.module';
+import { AiModule } from '../ai/ai.module';
 
 import { DocumentImportController } from './document-import.controller';
 import { DocumentImportService } from './document-import.service';
@@ -8,6 +9,7 @@ import { KeywordExtractionService } from './keyword-extraction.service';
 import { DocumentConversionService } from './document-conversion.service';
 import { DocumentPreviewMapper } from './document-preview.mapper';
 import { DocumentPreviewService } from './document-preview.service';
+import { AiVocabEnricherService } from './ai-vocab-enricher.service';
 import {
   DOCUMENT_PARSERS,
   ParserRegistry,
@@ -22,7 +24,7 @@ import { LessonGenerator } from './generators/lesson-generator.service';
 import { QuizGenerator } from './generators/quiz-generator.service';
 
 @Module({
-  imports: [EducationModule],
+  imports: [EducationModule, AiModule],
   controllers: [DocumentImportController],
   providers: [
     DocumentImportService,
@@ -31,6 +33,7 @@ import { QuizGenerator } from './generators/quiz-generator.service';
     DocumentConversionService,
     DocumentPreviewMapper,
     DocumentPreviewService,
+    AiVocabEnricherService,
     ParserRegistry,
     // Parsers
     FreetextParser,

@@ -35,18 +35,30 @@ describe('DocumentPreviewService', () => {
       .fn()
       .mockResolvedValue({ created: [{ id: 'card-db-1' }] }),
   };
+  const aiVocabEnricherService = {
+    enrichVocabulary: jest.fn().mockResolvedValue(null),
+  };
 
   beforeEach(() => {
     jest.clearAllMocks();
+    parser.parse.mockResolvedValue({
+      ...parsedData,
+      vocabulary: [{ word: '你好', definition: 'hello', difficulty: 1 }],
+    });
+    aiVocabEnricherService.enrichVocabulary.mockResolvedValue(null);
   });
 
-  it('previews document without creating decks or flashcards', async () => {
-    const service = new DocumentPreviewService(
+  const createService = () =>
+    new DocumentPreviewService(
       textExtractionService as any,
       parserRegistry as any,
       new DocumentPreviewMapper(),
       flashcardService as any,
+      aiVocabEnricherService as any,
     );
+
+  it('previews document without creating decks or flashcards', async () => {
+    const service = createService();
 
     const result = await service.previewDocument(
       Buffer.from('你好 means hello'),
@@ -61,13 +73,61 @@ describe('DocumentPreviewService', () => {
     expect(flashcardService.bulkCreateFlashcards).not.toHaveBeenCalled();
   });
 
-  it('confirms selected cards by creating one deck and bulk flashcards', async () => {
-    const service = new DocumentPreviewService(
-      textExtractionService as any,
-      parserRegistry as any,
-      new DocumentPreviewMapper(),
-      flashcardService as any,
+  it('keeps heuristic vocabulary when enricher returns null', async () => {
+    const emptyDefData: ParsedDocumentData = {
+      ...parsedData,
+      vocabulary: [{ word: '你好', difficulty: 1 }],
+    };
+    parser.parse.mockResolvedValue(emptyDefData);
+    aiVocabEnricherService.enrichVocabulary.mockResolvedValue(null);
+
+    const service = createService();
+    const result = await service.previewDocument(
+      Buffer.from('你好 means hello'),
+      'txt',
+      'hsk1.txt',
+      { language: 'zh', maxVocabulary: 20 },
     );
+
+    expect(result.suggestedFlashcards[0].front).toBe('你好');
+    expect(result.suggestedFlashcards[0].back).toBe('');
+    expect(aiVocabEnricherService.enrichVocabulary).toHaveBeenCalled();
+  });
+
+  it('fills backs when enricher returns cards', async () => {
+    parser.parse.mockResolvedValue({
+      ...parsedData,
+      vocabulary: [{ word: '你好', difficulty: 1 }],
+    });
+    aiVocabEnricherService.enrichVocabulary.mockResolvedValue([
+      {
+        front: '你好',
+        back: 'hello / hi',
+        pronunciation: 'nǐ hǎo',
+        example: '你好吗？',
+        exampleTranslation: 'How are you?',
+        difficulty: 1,
+        source: 'ai',
+      },
+    ]);
+
+    const service = createService();
+    const result = await service.previewDocument(
+      Buffer.from('你好 means hello'),
+      'txt',
+      'hsk1.txt',
+      { language: 'zh', maxVocabulary: 20 },
+    );
+
+    expect(result.suggestedFlashcards).toHaveLength(1);
+    expect(result.suggestedFlashcards[0].front).toBe('你好');
+    expect(result.suggestedFlashcards[0].back).toBe('hello / hi');
+    expect(result.suggestedFlashcards[0].pronunciation).toBe('nǐ hǎo');
+    expect(result.suggestedFlashcards[0].example).toBe('你好吗？');
+  });
+
+  it('confirms selected cards by creating one deck and bulk flashcards', async () => {
+    const service = createService();
 
     const result = await service.confirmImport(42, {
       fileName: 'hsk1.txt',
