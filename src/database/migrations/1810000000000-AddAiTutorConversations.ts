@@ -74,6 +74,8 @@ export class AddAiTutorConversations1810000000000 implements MigrationInterface 
     await queryRunner.query(`DROP TABLE IF EXISTS "ai_provider_settings"`);
     await queryRunner.query(`DROP TABLE IF EXISTS "ai_messages"`);
     await queryRunner.query(`DROP TABLE IF EXISTS "ai_conversations"`);
-    await queryRunner.query(`DROP TYPE IF EXISTS "public"."ai_message_role_enum"`);
+    await queryRunner.query(
+      `DROP TYPE IF EXISTS "public"."ai_message_role_enum"`,
+    );
   }
 }

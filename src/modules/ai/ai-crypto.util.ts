@@ -15,7 +15,10 @@ function keyFromConfig(raw: string): Buffer {
 }
 
 /** Format: base64(iv):base64(ciphertext):base64(tag) */
-export function encryptSecret(plaintext: string, encryptionKey: string): string {
+export function encryptSecret(
+  plaintext: string,
+  encryptionKey: string,
+): string {
   const key = keyFromConfig(encryptionKey);
   const iv = randomBytes(12);
   const cipher = createCipheriv('aes-256-gcm', key, iv);

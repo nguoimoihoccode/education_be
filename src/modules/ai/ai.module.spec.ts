@@ -31,9 +31,7 @@ describe('AiModule', () => {
 
     const typeOrmFeature = imports.find(
       (item: unknown) =>
-        typeof item === 'object' &&
-        item !== null &&
-        'module' in (item as object),
+        typeof item === 'object' && item !== null && 'module' in item,
     ) as DynamicModule;
     const providerTokens = (typeOrmFeature.providers ?? []).map(
       (provider: Provider) =>

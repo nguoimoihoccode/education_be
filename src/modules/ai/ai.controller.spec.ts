@@ -22,7 +22,9 @@ describe('AiController', () => {
   beforeEach(async () => {
     aiService = {
       listConversations: jest.fn().mockResolvedValue([{ id: 'c1' }]),
-      createConversation: jest.fn().mockResolvedValue({ id: 'c1', title: 'Tones' }),
+      createConversation: jest
+        .fn()
+        .mockResolvedValue({ id: 'c1', title: 'Tones' }),
       getConversation: jest.fn().mockResolvedValue({ id: 'c1', messages: [] }),
       deleteConversation: jest.fn().mockResolvedValue(undefined),
       sendMessage: jest.fn().mockResolvedValue({ reply: 'Hello' }),

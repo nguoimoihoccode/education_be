@@ -1,8 +1,5 @@
 import { ConfigService } from '@nestjs/config';
-import {
-  NotFoundException,
-  ServiceUnavailableException,
-} from '@nestjs/common';
+import { NotFoundException, ServiceUnavailableException } from '@nestjs/common';
 import { Repository } from 'typeorm';
 import { encryptSecret } from './ai-crypto.util';
 import { AiService } from './ai.service';
@@ -158,9 +155,11 @@ describe('AiService', () => {
     expect(body.temperature).toBe(0.4);
     expect(body.messages[0].role).toBe('system');
     expect(body.messages[0].content).toContain('language tutor');
-    expect(body.messages.some((m: { content: string }) => m.content === 'How do I use 你好?')).toBe(
-      true,
-    );
+    expect(
+      body.messages.some(
+        (m: { content: string }) => m.content === 'How do I use 你好?',
+      ),
+    ).toBe(true);
     expect(result.assistantMessage.content).toBe('Tutor reply');
     expect(result.userMessage.content).toBe('How do I use 你好?');
   });
@@ -169,13 +168,11 @@ describe('AiService', () => {
     configValues.GROQ_API_KEY = undefined;
     conversationsRepo.findOne.mockResolvedValue(makeConversation());
     messagesRepo.count.mockResolvedValue(0);
-    messagesRepo.find.mockResolvedValue([
-      makeMessage({ content: 'hello' }),
-    ]);
+    messagesRepo.find.mockResolvedValue([makeMessage({ content: 'hello' })]);
 
-    await expect(service.sendMessage(1, 'conv-1', 'hello')).rejects.toBeInstanceOf(
-      ServiceUnavailableException,
-    );
+    await expect(
+      service.sendMessage(1, 'conv-1', 'hello'),
+    ).rejects.toBeInstanceOf(ServiceUnavailableException);
   });
 
   it('throws ServiceUnavailableException when provider response has no reply', async () => {
@@ -194,9 +191,9 @@ describe('AiService', () => {
     messagesRepo.count.mockResolvedValue(0);
     messagesRepo.find.mockResolvedValue([makeMessage()]);
 
-    await expect(service.sendMessage(1, 'conv-1', 'hello')).rejects.toBeInstanceOf(
-      ServiceUnavailableException,
-    );
+    await expect(
+      service.sendMessage(1, 'conv-1', 'hello'),
+    ).rejects.toBeInstanceOf(ServiceUnavailableException);
   });
 
   it('DB overrides model and baseUrl when settings row is set', async () => {
@@ -283,7 +280,9 @@ describe('AiService', () => {
           ...data,
         }) as AiConversation,
     );
-    conversationsRepo.save.mockImplementation(async (entity) => entity as AiConversation);
+    conversationsRepo.save.mockImplementation(
+      async (entity) => entity as AiConversation,
+    );
     conversationsRepo.findOne.mockResolvedValue(
       makeConversation({ id: 'new-conv', lessonId: 'lesson-9' }),
     );
