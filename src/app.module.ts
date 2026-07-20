@@ -86,6 +86,9 @@ import { EducationSocialPostLike } from './modules/education-social/entities/soc
 import { EducationSocialPostBookmark } from './modules/education-social/entities/social-post-bookmark.entity';
 import { EducationActivityLog } from './modules/activity-log/entities/activity-log.entity';
 import { EducationDataExport } from './modules/data-export/entities/data-export.entity';
+import { AiConversation } from './modules/ai/entities/ai-conversation.entity';
+import { AiMessage } from './modules/ai/entities/ai-message.entity';
+import { AiProviderSettings } from './modules/ai/entities/ai-provider-settings.entity';
 
 @Module({
   imports: [
@@ -156,6 +159,9 @@ import { EducationDataExport } from './modules/data-export/entities/data-export.
           EducationSocialPostBookmark,
           EducationActivityLog,
           EducationDataExport,
+          AiConversation,
+          AiMessage,
+          AiProviderSettings,
         ],
         synchronize:
           configService.get<string>('NODE_ENV') === 'development' &&
