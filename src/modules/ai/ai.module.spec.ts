@@ -1,6 +1,8 @@
 import { MODULE_METADATA } from '@nestjs/common/constants';
 import type { DynamicModule, Provider } from '@nestjs/common';
 import { getRepositoryToken } from '@nestjs/typeorm';
+import { RolesGuard } from '../../common/guards/roles.guard';
+import { UsersModule } from '../users/users.module';
 import { AiModule } from './ai.module';
 import { AiController } from './ai.controller';
 import { AiService } from './ai.service';
@@ -25,7 +27,14 @@ describe('AiModule', () => {
       AiModule,
     ) as unknown[];
 
-    const typeOrmFeature = imports[0] as DynamicModule;
+    expect(imports).toContain(UsersModule);
+
+    const typeOrmFeature = imports.find(
+      (item: unknown) =>
+        typeof item === 'object' &&
+        item !== null &&
+        'module' in (item as object),
+    ) as DynamicModule;
     const providerTokens = (typeOrmFeature.providers ?? []).map(
       (provider: Provider) =>
         typeof provider === 'object' && 'provide' in provider
@@ -40,6 +49,7 @@ describe('AiModule', () => {
     expect(providers).toEqual(
       expect.arrayContaining([
         AiService,
+        RolesGuard,
         expect.objectContaining({ provide: expect.anything() }),
       ]),
     );
