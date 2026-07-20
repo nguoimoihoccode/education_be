@@ -198,7 +198,12 @@ describe('EducationService learning plan', () => {
     });
     const lessonRepository = createRepository({
       find: jest.fn().mockResolvedValue([
-        { id: 'lesson-1', courseId: 'course-1', title: 'Intro', orderIndex: 1 },
+        {
+          id: 'lesson-1',
+          courseId: 'course-1',
+          title: 'Intro',
+          orderIndex: 1,
+        },
         nextLesson,
       ]),
     });
@@ -291,9 +296,11 @@ describe('EducationService learning plan', () => {
       ]),
     });
     const dailyLearningTaskRepository = createRepository({
-      find: jest.fn().mockResolvedValue([
-        { taskId: 'continue-lesson-lesson-2', completed: true },
-      ]),
+      find: jest
+        .fn()
+        .mockResolvedValue([
+          { taskId: 'continue-lesson-lesson-2', completed: true },
+        ]),
     });
     const service = new EducationService(
       createRepository() as any,
@@ -304,7 +311,14 @@ describe('EducationService learning plan', () => {
       userCourseRepository as any,
       userLessonRepository as any,
       createRepository({ count: jest.fn().mockResolvedValue(0) }) as any,
-      createRepository({ findOne: jest.fn().mockResolvedValue({ currentStreak: 4, longestStreak: 7, totalXp: 180, level: 2 }) }) as any,
+      createRepository({
+        findOne: jest.fn().mockResolvedValue({
+          currentStreak: 4,
+          longestStreak: 7,
+          totalXp: 180,
+          level: 2,
+        }),
+      }) as any,
       createRepository({ find: jest.fn().mockResolvedValue([]) }) as any,
       dailyLearningTaskRepository as any,
     );
@@ -421,7 +435,10 @@ describe('EducationService learning plan', () => {
     };
     const dailyLearningTaskRepository = createRepository({
       find: jest.fn().mockResolvedValue([]),
-      findOne: jest.fn().mockResolvedValueOnce(null).mockResolvedValue(existingCompletion),
+      findOne: jest
+        .fn()
+        .mockResolvedValueOnce(null)
+        .mockResolvedValue(existingCompletion),
       upsert: jest.fn(async (value) => value),
     });
     const service = new EducationService(
@@ -534,8 +551,16 @@ describe('EducationService learning plan', () => {
     });
     const service = new EducationService(
       createRepository() as any,
-      createRepository({ findOne: jest.fn().mockResolvedValue({ id: 'course-1', totalLessons: 1 }) }) as any,
-      createRepository({ findOne: jest.fn().mockResolvedValue({ id: 'lesson-1', courseId: 'course-1' }) }) as any,
+      createRepository({
+        findOne: jest
+          .fn()
+          .mockResolvedValue({ id: 'course-1', totalLessons: 1 }),
+      }) as any,
+      createRepository({
+        findOne: jest
+          .fn()
+          .mockResolvedValue({ id: 'lesson-1', courseId: 'course-1' }),
+      }) as any,
       createRepository() as any,
       createRepository() as any,
       userCourseRepository as any,
@@ -574,7 +599,11 @@ describe('EducationService learning plan', () => {
   it('reports completed review target when review flashcards task is completed today', async () => {
     const dailyLearningTaskRepository = createRepository({
       find: jest.fn().mockResolvedValue([
-        { taskId: 'review-flashcards', taskType: 'review_flashcards', completed: true },
+        {
+          taskId: 'review-flashcards',
+          taskType: 'review_flashcards',
+          completed: true,
+        },
       ]),
     });
     const service = new EducationService(

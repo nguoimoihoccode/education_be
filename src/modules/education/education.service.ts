@@ -1096,7 +1096,9 @@ export class EducationService {
     });
 
     const date = getTodayDateKey();
-    const sortedTasks = tasks.sort((a, b) => a.priority - b.priority).slice(0, 4);
+    const sortedTasks = tasks
+      .sort((a, b) => a.priority - b.priority)
+      .slice(0, 4);
     const completionRows = await this.dailyLearningTaskRepository.find({
       where: { userId, date, completed: true },
     });
@@ -1111,7 +1113,9 @@ export class EducationService {
       ...task,
       completed: completedTaskIds.has(task.id),
     }));
-    const completedTasks = tasksWithCompletion.filter((task) => task.completed).length;
+    const completedTasks = tasksWithCompletion.filter(
+      (task) => task.completed,
+    ).length;
     const dailyGoalMinutes = 10;
 
     const minutesLearnedToday = Math.min(

@@ -34,13 +34,13 @@ const createService = (repositories: Record<string, any> = {}) => {
     repositories.userStreakRepository ?? createRepository();
 
   const service = new FlashcardService(
-    flashcardDeckRepository as any,
-    flashcardRepository as any,
-    userFlashcardRepository as any,
-    reviewSessionRepository as any,
-    vocabularyRepository as any,
-    lessonRepository as any,
-    userStreakRepository as any,
+    flashcardDeckRepository,
+    flashcardRepository,
+    userFlashcardRepository,
+    reviewSessionRepository,
+    vocabularyRepository,
+    lessonRepository,
+    userStreakRepository,
   );
 
   return {
@@ -144,14 +144,15 @@ describe('buildFlashcardStatsResult', () => {
 
 describe('FlashcardService review behavior', () => {
   it('blocks creating a flashcard in another user deck', async () => {
-    const { service, flashcardRepository, flashcardDeckRepository } = createService({
-      flashcardDeckRepository: createRepository({
-        findOne: jest.fn().mockResolvedValue(null),
-      }),
-      flashcardRepository: createRepository({
-        findOne: jest.fn().mockResolvedValue(null),
-      }),
-    });
+    const { service, flashcardRepository, flashcardDeckRepository } =
+      createService({
+        flashcardDeckRepository: createRepository({
+          findOne: jest.fn().mockResolvedValue(null),
+        }),
+        flashcardRepository: createRepository({
+          findOne: jest.fn().mockResolvedValue(null),
+        }),
+      });
 
     await expect(
       service.createFlashcard(1, {
@@ -165,14 +166,15 @@ describe('FlashcardService review behavior', () => {
   });
 
   it('blocks bulk creating flashcards in another user deck', async () => {
-    const { service, flashcardRepository, flashcardDeckRepository } = createService({
-      flashcardDeckRepository: createRepository({
-        findOne: jest.fn().mockResolvedValue(null),
-      }),
-      flashcardRepository: createRepository({
-        findOne: jest.fn().mockResolvedValue(null),
-      }),
-    });
+    const { service, flashcardRepository, flashcardDeckRepository } =
+      createService({
+        flashcardDeckRepository: createRepository({
+          findOne: jest.fn().mockResolvedValue(null),
+        }),
+        flashcardRepository: createRepository({
+          findOne: jest.fn().mockResolvedValue(null),
+        }),
+      });
 
     await expect(
       service.bulkCreateFlashcards(1, {

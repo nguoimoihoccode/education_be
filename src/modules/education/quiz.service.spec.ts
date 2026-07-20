@@ -168,8 +168,8 @@ describe('QuizService ownership checks', () => {
 
     return {
       service: new QuizService(
-        quizRepository as any,
-        quizQuestionRepository as any,
+        quizRepository,
+        quizQuestionRepository,
         createRepository() as any,
         createRepository() as any,
         createRepository() as any,
@@ -199,9 +199,9 @@ describe('QuizService ownership checks', () => {
       }),
     });
 
-    await expect(service.updateQuiz('quiz-1', 1, { title: 'Changed' })).rejects.toThrow(
-      'Quiz not found',
-    );
+    await expect(
+      service.updateQuiz('quiz-1', 1, { title: 'Changed' }),
+    ).rejects.toThrow('Quiz not found');
     expect(quizRepository.save).not.toHaveBeenCalled();
   });
 
@@ -212,7 +212,9 @@ describe('QuizService ownership checks', () => {
       }),
     });
 
-    await expect(service.deleteQuiz('quiz-1', 1)).rejects.toThrow('Quiz not found');
+    await expect(service.deleteQuiz('quiz-1', 1)).rejects.toThrow(
+      'Quiz not found',
+    );
     expect(quizRepository.remove).not.toHaveBeenCalled();
   });
 
