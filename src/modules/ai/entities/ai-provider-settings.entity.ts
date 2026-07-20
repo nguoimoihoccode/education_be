@@ -32,6 +32,10 @@ export class AiProviderSettings {
   @Column({ type: 'double precision', nullable: true })
   temperature?: number | null;
 
+  /** Admin-editable tutor rules / system prompt (null = use built-in default). */
+  @Column({ name: 'system_rules', type: 'text', nullable: true })
+  systemRules?: string | null;
+
   @Column({ name: 'updated_by_user_id', type: 'integer', nullable: true })
   updatedByUserId?: number | null;
 
