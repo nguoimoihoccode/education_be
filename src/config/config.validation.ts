@@ -116,4 +116,9 @@ export const configValidationSchema = Joi.object({
     .max(2)
     .default(0.4)
     .description('AI tutor response temperature'),
+  AI_SETTINGS_ENCRYPTION_KEY: Joi.string()
+    .optional()
+    .description(
+      '32-byte key (base64 or 64-char hex) to encrypt AI provider API keys at rest',
+    ),
 });

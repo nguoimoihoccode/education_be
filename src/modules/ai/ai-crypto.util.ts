@@ -1,0 +1,47 @@
+import { createCipheriv, createDecipheriv, randomBytes } from 'crypto';
+
+function keyFromConfig(raw: string): Buffer {
+  // Accept base64 (preferred) or 64-char hex
+  if (/^[0-9a-fA-F]{64}$/.test(raw)) {
+    return Buffer.from(raw, 'hex');
+  }
+  const buf = Buffer.from(raw, 'base64');
+  if (buf.length !== 32) {
+    throw new Error(
+      'AI_SETTINGS_ENCRYPTION_KEY must be 32 bytes (base64 or 64-char hex)',
+    );
+  }
+  return buf;
+}
+
+/** Format: base64(iv):base64(ciphertext):base64(tag) */
+export function encryptSecret(plaintext: string, encryptionKey: string): string {
+  const key = keyFromConfig(encryptionKey);
+  const iv = randomBytes(12);
+  const cipher = createCipheriv('aes-256-gcm', key, iv);
+  const encrypted = Buffer.concat([
+    cipher.update(plaintext, 'utf8'),
+    cipher.final(),
+  ]);
+  const tag = cipher.getAuthTag();
+  return `${iv.toString('base64')}:${encrypted.toString('base64')}:${tag.toString('base64')}`;
+}
+
+export function decryptSecret(sealed: string, encryptionKey: string): string {
+  const key = keyFromConfig(encryptionKey);
+  const [ivB64, dataB64, tagB64] = sealed.split(':');
+  if (!ivB64 || !dataB64 || !tagB64) {
+    throw new Error('Invalid sealed secret format');
+  }
+  const decipher = createDecipheriv(
+    'aes-256-gcm',
+    key,
+    Buffer.from(ivB64, 'base64'),
+  );
+  decipher.setAuthTag(Buffer.from(tagB64, 'base64'));
+  const decrypted = Buffer.concat([
+    decipher.update(Buffer.from(dataB64, 'base64')),
+    decipher.final(),
+  ]);
+  return decrypted.toString('utf8');
+}
