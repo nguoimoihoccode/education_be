@@ -40,6 +40,11 @@ export class UpdateAiSettingsDto {
   temperature?: number;
 
   @IsOptional()
+  @IsString()
+  @MaxLength(8000)
+  systemRules?: string;
+
+  @IsOptional()
   @IsBoolean()
   clearApiKey?: boolean;
 
@@ -58,4 +63,8 @@ export class UpdateAiSettingsDto {
   @IsOptional()
   @IsBoolean()
   clearTemperature?: boolean;
+
+  @IsOptional()
+  @IsBoolean()
+  clearSystemRules?: boolean;
 }

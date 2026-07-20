@@ -338,10 +338,74 @@ describe('AiService', () => {
         temperature: 0.4,
         apiKeyConfigured: true,
         apiKeyLast4: 't-key'.slice(-4),
+        systemRules: expect.stringContaining('language tutor'),
       }),
     );
+    expect(settings.source.systemRules).toBe('default');
     expect(settings).not.toHaveProperty('apiKey');
     expect(JSON.stringify(settings)).not.toContain('test-key');
+  });
+
+  it('uses custom system rules from DB in chat system prompt', async () => {
+    settingsRepo.find.mockResolvedValue([
+      {
+        id: 's1',
+        systemRules: 'Only answer with one short example sentence.',
+      } as AiProviderSettings,
+    ]);
+    conversationsRepo.findOne.mockResolvedValue(makeConversation());
+    messagesRepo.count.mockResolvedValue(0);
+    messagesRepo.find.mockResolvedValue([
+      makeMessage({ content: 'How do I greet?' }),
+    ]);
+    messagesRepo.save
+      .mockResolvedValueOnce(makeMessage({ id: 'u1', content: 'How do I greet?' }))
+      .mockResolvedValueOnce(
+        makeMessage({
+          id: 'a1',
+          role: AiMessageRole.ASSISTANT,
+          content: 'Tutor reply',
+        }),
+      );
+
+    await service.sendMessage(1, 'conv-1', 'How do I greet?');
+
+    const body = JSON.parse(fetchMock.mock.calls[0][1].body as string);
+    expect(body.messages[0].role).toBe('system');
+    expect(body.messages[0].content).toContain(
+      'Only answer with one short example sentence.',
+    );
+  });
+
+  it('updateSettings can set and clear system rules', async () => {
+    settingsRepo.find.mockResolvedValue([]);
+    settingsRepo.create.mockImplementation((entity) => entity as AiProviderSettings);
+    settingsRepo.save.mockImplementation(async (entity) => ({
+      id: 's1',
+      ...(entity as AiProviderSettings),
+    }));
+
+    await service.updateSettings(1, {
+      systemRules: 'Be brief. Stay on language learning only.',
+    });
+    expect(settingsRepo.save).toHaveBeenCalledWith(
+      expect.objectContaining({
+        systemRules: 'Be brief. Stay on language learning only.',
+        updatedByUserId: 1,
+      }),
+    );
+
+    settingsRepo.find.mockResolvedValue([
+      {
+        id: 's1',
+        systemRules: 'Be brief. Stay on language learning only.',
+      } as AiProviderSettings,
+    ]);
+
+    await service.updateSettings(1, { clearSystemRules: true });
+    expect(settingsRepo.save).toHaveBeenLastCalledWith(
+      expect.objectContaining({ systemRules: null }),
+    );
   });
 
   it('updateSettings without encryption key when setting apiKey throws 503', async () => {

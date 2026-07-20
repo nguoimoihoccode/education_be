@@ -121,4 +121,10 @@ export const configValidationSchema = Joi.object({
     .description(
       '32-byte key (base64 or 64-char hex) to encrypt AI provider API keys at rest',
     ),
+  AI_SYSTEM_RULES: Joi.string()
+    .optional()
+    .max(8000)
+    .description(
+      'Optional default AI tutor system rules/prompt (overridden by admin DB settings)',
+    ),
 });

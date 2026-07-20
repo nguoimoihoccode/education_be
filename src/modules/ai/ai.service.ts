@@ -45,8 +45,16 @@ interface ProviderConfig {
   };
 }
 
-const SYSTEM_PROMPT =
-  'You are a practical language tutor. Answer clearly, keep responses concise, include examples, and offer a short practice prompt when useful.';
+/** Built-in default when admin has not set custom system rules. */
+export const DEFAULT_AI_SYSTEM_RULES = [
+  'You are a practical language tutor for EduPro.',
+  'Answer clearly, keep responses concise, include examples, and offer a short practice prompt when useful.',
+  'Stay on language-learning topics (grammar, vocabulary, writing, speaking, study plans).',
+  'If the user asks about unrelated topics, briefly refuse and steer them back to learning.',
+  'Do not invent grammar rules or facts. If unsure, say so and suggest a safer alternative.',
+  'Do not complete graded quizzes or exams for the learner; guide them to reason instead.',
+  'Match the learner language when possible; keep tone supportive and professional.',
+].join(' ');
 
 @Injectable()
 export class AiService {
@@ -180,11 +188,28 @@ export class AiService {
     return `${collapsed.slice(0, 40)}...`;
   }
 
-  private buildSystemPrompt(lessonId?: string | null): string {
-    if (!lessonId) {
-      return SYSTEM_PROMPT;
+  private async resolveSystemRules(): Promise<{
+    rules: string;
+    source: ConfigSource;
+  }> {
+    const rows = await this.settingsRepo.find({ take: 1 });
+    const row = rows[0];
+    if (row && !this.isUnset(row.systemRules)) {
+      return { rules: String(row.systemRules).trim(), source: 'db' };
     }
-    return `${SYSTEM_PROMPT}\nThe learner is studying lesson id: ${lessonId}. Prefer explanations relevant to that lesson when possible.`;
+    const envRules = this.configService.get<string>('AI_SYSTEM_RULES');
+    if (!this.isUnset(envRules)) {
+      return { rules: String(envRules).trim(), source: 'env' };
+    }
+    return { rules: DEFAULT_AI_SYSTEM_RULES, source: 'default' };
+  }
+
+  private async buildSystemPrompt(lessonId?: string | null): Promise<string> {
+    const { rules } = await this.resolveSystemRules();
+    if (!lessonId) {
+      return rules;
+    }
+    return `${rules}\nThe learner is studying lesson id: ${lessonId}. Prefer explanations relevant to that lesson when possible.`;
   }
 
   private toMessageSummary(message: AiMessage) {
@@ -306,7 +331,7 @@ export class AiService {
     const chatMessages = [
       {
         role: 'system',
-        content: this.buildSystemPrompt(conversation.lessonId),
+        content: await this.buildSystemPrompt(conversation.lessonId),
       },
       ...history.map((m) => ({
         role: m.role as string,
@@ -381,6 +406,7 @@ export class AiService {
 
   async getSettings() {
     const effective = await this.resolveProviderConfig();
+    const systemRulesResolved = await this.resolveSystemRules();
     const rows = await this.settingsRepo.find({ take: 1 });
     const row = rows[0];
     const envKey = this.configService.get<string>('GROQ_API_KEY');
@@ -397,9 +423,13 @@ export class AiService {
       model: effective.model,
       maxTokens: effective.maxTokens,
       temperature: effective.temperature,
+      systemRules: systemRulesResolved.rules,
       apiKeyConfigured: Boolean(effective.apiKey),
       apiKeyLast4,
-      source: effective.source,
+      source: {
+        ...effective.source,
+        systemRules: systemRulesResolved.source,
+      },
       updatedAt: row?.updatedAt ?? null,
     };
   }
@@ -427,6 +457,9 @@ export class AiService {
     if (dto.clearTemperature) {
       row.temperature = null;
     }
+    if (dto.clearSystemRules) {
+      row.systemRules = null;
+    }
 
     if (dto.baseUrl !== undefined) {
       row.baseUrl = dto.baseUrl;
@@ -439,6 +472,10 @@ export class AiService {
     }
     if (dto.temperature !== undefined) {
       row.temperature = dto.temperature;
+    }
+    if (dto.systemRules !== undefined) {
+      const trimmed = dto.systemRules.trim();
+      row.systemRules = trimmed.length > 0 ? trimmed : null;
     }
 
     if (dto.apiKey !== undefined) {
