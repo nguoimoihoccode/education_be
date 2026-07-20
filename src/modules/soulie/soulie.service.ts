@@ -1197,9 +1197,7 @@ export class SoulieService {
     return `Soulie User ${user.id}`;
   }
 
-  private getPublicUsername(
-    user: Pick<User, 'username' | 'id'>,
-  ): string {
+  private getPublicUsername(user: Pick<User, 'username' | 'id'>): string {
     const username = user.username?.trim() || `soulie${user.id}`;
 
     return `@${username}`;
