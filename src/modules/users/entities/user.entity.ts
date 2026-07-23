@@ -27,8 +27,8 @@ export class User {
   @Column({ nullable: true })
   avatar?: string;
 
-  @Column({ nullable: true })
-  phone?: string | null;
+  @Column({ type: 'jsonb', nullable: true })
+  phone?: any | null;
 
   @Column({ name: 'provider', nullable: true })
   provider?: string;
