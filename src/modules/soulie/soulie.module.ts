@@ -9,6 +9,12 @@ import { SoulieFriendship } from './entities/friendship.entity';
 import { SoulieMessage } from './entities/message.entity';
 import { SoulieMoment } from './entities/moment.entity';
 import { User } from '../users/entities/user.entity';
+import { FriendService } from './services/friend.service';
+import { ProfileService } from './services/profile.service';
+import { ConversationService } from './services/conversation.service';
+import { MomentService } from './services/moment.service';
+import { SoulieChatService } from './services/soulie-chat.service';
+import { SoulieHomeService } from './services/soulie-home.service';
 
 @Module({
   imports: [
@@ -23,7 +29,15 @@ import { User } from '../users/entities/user.entity';
     ]),
   ],
   controllers: [SoulieController],
-  providers: [SoulieService],
+  providers: [
+    SoulieService,
+    FriendService,
+    ProfileService,
+    ConversationService,
+    MomentService,
+    SoulieChatService,
+    SoulieHomeService,
+  ],
   exports: [SoulieService],
 })
 export class SoulieModule {}
