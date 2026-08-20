@@ -77,6 +77,23 @@ export class DocumentImportController {
     return userId;
   }
 
+  private requireFile(file?: Express.Multer.File): Express.Multer.File {
+    if (!file) throw new BadRequestException('File is required');
+    return file;
+  }
+
+  private resolveFileType(file: Express.Multer.File): FileType {
+    const byExt = this.documentTextExtractionService.getFileTypeFromExtension(
+      file.originalname,
+    );
+    if (byExt) return byExt;
+    const byMime = this.documentTextExtractionService.getFileTypeFromMimeType(
+      file.mimetype,
+    );
+    if (byMime) return byMime;
+    throw new BadRequestException('Unsupported file type');
+  }
+
   @Post('upload')
   @UploadRateLimit()
   @ApiOperation({
@@ -129,34 +146,12 @@ export class DocumentImportController {
     status: 400,
     description: 'Invalid file or parameters',
   })
-  @UseInterceptors(
-    FileInterceptor('file', {
-      storage: memoryStorage(),
-      limits: {
-        fileSize: MAX_FILE_SIZE,
-      },
-      fileFilter: (_req, file, cb) => {
-        if (!ALLOWED_MIME_TYPES.has(file.mimetype)) {
-          return cb(
-            new BadRequestException(
-              `Unsupported file type: ${file.mimetype}. Allowed types: ${Array.from(
-                ALLOWED_MIME_TYPES,
-              ).join(', ')}`,
-            ),
-            false,
-          );
-        }
-        cb(null, true);
-      },
-    }),
-  )
+  @UseInterceptors(FileInterceptor('file', createUploadInterceptor()))
   async uploadDocument(
     @UploadedFile() file?: Express.Multer.File,
     @Body() uploadDto?: UploadDocumentDto,
   ): Promise<DocumentImportResponseDto> {
-    if (!file) {
-      throw new BadRequestException('File is required');
-    }
+    file = this.requireFile(file);
 
     if (!uploadDto || !uploadDto.fileType) {
       throw new BadRequestException('fileType is required');
@@ -217,34 +212,12 @@ export class DocumentImportController {
     status: 200,
     description: 'Document imported successfully with phrases',
   })
-  @UseInterceptors(
-    FileInterceptor('file', {
-      storage: memoryStorage(),
-      limits: {
-        fileSize: MAX_FILE_SIZE,
-      },
-      fileFilter: (_req, file, cb) => {
-        if (!ALLOWED_MIME_TYPES.has(file.mimetype)) {
-          return cb(
-            new BadRequestException(
-              `Unsupported file type: ${file.mimetype}. Allowed types: ${Array.from(
-                ALLOWED_MIME_TYPES,
-              ).join(', ')}`,
-            ),
-            false,
-          );
-        }
-        cb(null, true);
-      },
-    }),
-  )
+  @UseInterceptors(FileInterceptor('file', createUploadInterceptor()))
   async uploadDocumentWithPhrases(
     @UploadedFile() file?: Express.Multer.File,
     @Body() uploadDto?: UploadDocumentDto,
   ): Promise<DocumentImportResponseDto & { phrases: string[] }> {
-    if (!file) {
-      throw new BadRequestException('File is required');
-    }
+    file = this.requireFile(file);
 
     if (!uploadDto || !uploadDto.fileType) {
       throw new BadRequestException('fileType is required');
@@ -286,41 +259,15 @@ export class DocumentImportController {
       'Upload a document and return suggested flashcards without writing to the database',
   })
   @ApiConsumes('multipart/form-data')
-  @UseInterceptors(
-    FileInterceptor('file', {
-      storage: memoryStorage(),
-      limits: { fileSize: MAX_FILE_SIZE },
-      fileFilter: (_req, file, cb) => {
-        if (!ALLOWED_MIME_TYPES.has(file.mimetype)) {
-          return cb(
-            new BadRequestException(`Unsupported file type: ${file.mimetype}`),
-            false,
-          );
-        }
-        cb(null, true);
-      },
-    }),
-  )
+  @UseInterceptors(FileInterceptor('file', createUploadInterceptor()))
   @HttpCode(200)
   async previewDocument(
     @UploadedFile() file?: Express.Multer.File,
     @Body() dto?: DocumentPreviewRequestDto,
   ) {
-    if (!file) {
-      throw new BadRequestException('File is required');
-    }
+    file = this.requireFile(file);
 
-    let fileType = this.documentTextExtractionService.getFileTypeFromExtension(
-      file.originalname,
-    );
-    if (!fileType) {
-      fileType = this.documentTextExtractionService.getFileTypeFromMimeType(
-        file.mimetype,
-      );
-    }
-    if (!fileType) {
-      throw new BadRequestException('Unsupported file type');
-    }
+    const fileType = this.resolveFileType(file);
 
     return this.documentPreviewService.previewDocument(
       file.buffer,
@@ -424,48 +371,20 @@ export class DocumentImportController {
       required: ['file', 'contentTypes'],
     },
   })
-  @UseInterceptors(
-    FileInterceptor('file', {
-      storage: memoryStorage(),
-      limits: { fileSize: MAX_FILE_SIZE },
-      fileFilter: (req, file, cb) => {
-        if (!ALLOWED_MIME_TYPES.has(file.mimetype)) {
-          return cb(
-            new BadRequestException(
-              `Unsupported file type: ${file.mimetype}. Allowed types: ${Array.from(ALLOWED_MIME_TYPES).join(', ')}`,
-            ),
-            false,
-          );
-        }
-        cb(null, true);
-      },
-    }),
-  )
+  @UseInterceptors(FileInterceptor('file', createUploadInterceptor()))
   @HttpCode(200)
   async convertDocument(
     @Req() req: RequestWithUser,
     @UploadedFile() file?: Express.Multer.File,
     @Body() dto?: DocumentConversionRequestDto,
   ): Promise<DocumentConversionResponseDto> {
-    if (!file) {
-      throw new BadRequestException('File is required');
-    }
+    file = this.requireFile(file);
 
     if (!dto) {
       throw new BadRequestException('Request body is required');
     }
 
-    let fileType = this.documentTextExtractionService.getFileTypeFromExtension(
-      file.originalname,
-    );
-    if (!fileType) {
-      fileType = this.documentTextExtractionService.getFileTypeFromMimeType(
-        file.mimetype,
-      );
-      if (!fileType) {
-        throw new BadRequestException('Unsupported file type');
-      }
-    }
+    const fileType = this.resolveFileType(file);
 
     const userId = this.getUserId(req);
     return this.documentConversionService.convertDocument(
@@ -476,4 +395,24 @@ export class DocumentImportController {
       dto,
     );
   }
+}
+
+const ALLOWED_MIME_TYPES_LIST = () => Array.from(ALLOWED_MIME_TYPES);
+
+function createUploadInterceptor() {
+  return {
+    storage: memoryStorage(),
+    limits: { fileSize: MAX_FILE_SIZE },
+    fileFilter: (_req: any, file: Express.Multer.File, cb: any) => {
+      if (!ALLOWED_MIME_TYPES.has(file.mimetype)) {
+        return cb(
+          new BadRequestException(
+            `Unsupported file type: ${file.mimetype}. Allowed types: ${ALLOWED_MIME_TYPES_LIST().join(', ')}`,
+          ),
+          false,
+        );
+      }
+      cb(null, true);
+    },
+  };
 }
