@@ -397,8 +397,6 @@ export class DocumentImportController {
   }
 }
 
-const ALLOWED_MIME_TYPES_LIST = () => Array.from(ALLOWED_MIME_TYPES);
-
 function createUploadInterceptor() {
   return {
     storage: memoryStorage(),
@@ -407,7 +405,7 @@ function createUploadInterceptor() {
       if (!ALLOWED_MIME_TYPES.has(file.mimetype)) {
         return cb(
           new BadRequestException(
-            `Unsupported file type: ${file.mimetype}. Allowed types: ${ALLOWED_MIME_TYPES_LIST().join(', ')}`,
+            `Unsupported file type: ${file.mimetype}. Allowed types: ${Array.from(ALLOWED_MIME_TYPES).join(', ')}`,
           ),
           false,
         );
