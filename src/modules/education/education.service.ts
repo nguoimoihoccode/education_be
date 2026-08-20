@@ -116,7 +116,6 @@ export class EducationService {
       this.dailyLearningTaskRepository,
       this.aiService,
       this.userCourseService,
-      this.streakService,
     );
   }
 

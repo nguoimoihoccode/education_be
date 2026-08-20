@@ -13,7 +13,6 @@ import {
 } from '../entities';
 import { AiService } from '../../ai/ai.service';
 import { UserCourseService } from './user-course.service';
-import { StreakService } from './streak.service';
 
 export type TodayPlanTaskType =
   | 'continue_lesson'
@@ -105,7 +104,6 @@ export class LearningPlanService {
     private readonly dailyLearningTaskRepository: Repository<DailyLearningTask>,
     private readonly aiService: AiService,
     private readonly userCourseService: UserCourseService,
-    private readonly streakService: StreakService,
   ) {}
 
   async getLearningPlan(userId: string): Promise<{
