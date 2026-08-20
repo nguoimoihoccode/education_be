@@ -66,7 +66,6 @@ export class FlashcardService {
       userFlashcardRepository,
       reviewSessionRepository,
       userStreakRepository,
-      flashcardDeckRepository,
     );
     this.statisticsService = new FlashcardStatisticsService(
       flashcardRepository,

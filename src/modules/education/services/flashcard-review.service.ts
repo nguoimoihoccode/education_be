@@ -2,7 +2,6 @@ import { Injectable, NotFoundException } from '@nestjs/common';
 import { InjectRepository } from '@nestjs/typeorm';
 import { Repository, In, LessThanOrEqual } from 'typeorm';
 import {
-  FlashcardDeck,
   Flashcard,
   UserFlashcard,
   ReviewSession,
@@ -26,8 +25,6 @@ export class FlashcardReviewService {
     private readonly reviewSessionRepository: Repository<ReviewSession>,
     @InjectRepository(UserStreak)
     private readonly userStreakRepository: Repository<UserStreak>,
-    @InjectRepository(FlashcardDeck)
-    private readonly flashcardDeckRepository: Repository<FlashcardDeck>,
   ) {}
 
   // ==================== Review System ====================
