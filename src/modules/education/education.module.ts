@@ -7,6 +7,7 @@ import { FlashcardController } from './flashcard.controller';
 import { FlashcardService } from './flashcard.service';
 import { QuizController } from './quiz.controller';
 import { QuizService } from './quiz.service';
+import { QuizSessionCompletionService } from './services/quiz-session-completion.service';
 import {
   Language,
   Course,
@@ -61,6 +62,7 @@ import { AiModule } from '../ai/ai.module';
     EducationSeederService,
     FlashcardService,
     QuizService,
+    QuizSessionCompletionService,
     RolesGuard,
   ],
   exports: [EducationService, FlashcardService, QuizService],

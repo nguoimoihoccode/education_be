@@ -25,19 +25,14 @@ describe('QuizController route order', () => {
 });
 
 describe('QuizController today plan completion', () => {
-  it('awaits today plan task marking before returning completed quiz result', async () => {
-    const quizService = {
-      completeQuizSession: jest.fn().mockResolvedValue({ quizId: 'quiz-1' }),
-    };
-    const educationService = {
-      markTodayPlanTasksCompleteByTarget: jest
-        .fn()
-        .mockResolvedValue(undefined),
-      markTodayPlanTasksCompleteByType: jest.fn().mockResolvedValue(undefined),
+  it('delegates session completion to the orchestration service', async () => {
+    const quizService = {};
+    const completionService = {
+      completeAndUpdatePlan: jest.fn().mockResolvedValue({ quizId: 'quiz-1' }),
     };
     const controller = new QuizController(
       quizService as any,
-      educationService as any,
+      completionService as any,
     );
 
     const result = await controller.completeQuizSession(
@@ -46,22 +41,20 @@ describe('QuizController today plan completion', () => {
     );
 
     expect(result).toEqual({ quizId: 'quiz-1' });
-    expect(
-      educationService.markTodayPlanTasksCompleteByType,
-    ).toHaveBeenCalledWith('42', ['quick_quiz']);
-    expect(
-      educationService.markTodayPlanTasksCompleteByTarget,
-    ).toHaveBeenCalledWith('42', '/quiz/quiz-1');
+    expect(completionService.completeAndUpdatePlan).toHaveBeenCalledWith(
+      42,
+      'session-1',
+    );
   });
 
   it('rejects protected quiz actions without an authenticated user', async () => {
     const quizService = {
       getQuizStats: jest.fn(),
     };
-    const educationService = {};
+    const completionService = {};
     const controller = new QuizController(
       quizService as any,
-      educationService as any,
+      completionService as any,
     );
 
     await expect(controller.getQuizStats({} as any)).rejects.toBeInstanceOf(
