@@ -6,7 +6,6 @@ import {
 } from '@nestjs/common';
 import { InjectRepository } from '@nestjs/typeorm';
 import { Repository } from 'typeorm';
-import { UsersService } from '../../users/users.service';
 import { User } from '../../users/entities/user.entity';
 import {
   CreateSoulieFriendRequestDto,
@@ -32,7 +31,6 @@ import {
 @Injectable()
 export class FriendService {
   constructor(
-    private readonly usersService: UsersService,
     @InjectRepository(User)
     private readonly userRepository: Repository<User>,
     @InjectRepository(SoulieFriendship)

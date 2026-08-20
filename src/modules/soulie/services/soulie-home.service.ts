@@ -17,9 +17,6 @@ import {
 import { SoulieMessage } from '../entities/message.entity';
 import { SoulieMoment } from '../entities/moment.entity';
 import { FriendService } from './friend.service';
-import { MomentService } from './moment.service';
-import { ConversationService } from './conversation.service';
-import { ProfileService } from './profile.service';
 import {
   formatTimeAgo,
   getDisplayName,
@@ -30,9 +27,6 @@ import {
 export class SoulieHomeService {
   constructor(
     private readonly friendService: FriendService,
-    private readonly momentService: MomentService,
-    private readonly conversationService: ConversationService,
-    private readonly profileService: ProfileService,
     @InjectRepository(SoulieFriendship)
     private readonly friendshipRepository: Repository<SoulieFriendship>,
     @InjectRepository(SoulieMoment)
