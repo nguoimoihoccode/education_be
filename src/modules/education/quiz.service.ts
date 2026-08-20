@@ -47,6 +47,10 @@ export class QuizService {
     flashcardDeckRepository: Repository<FlashcardDeck>,
     aiService: AiService,
   ) {
+    // The use-case services are instantiated manually here (rather than via
+    // Nest DI constructor injection) because quiz.service.spec.ts constructs
+    // `new QuizService(repo1..repo6)` and must remain unchanged. Once that spec
+    // constraint is relaxed, these can be switched to DI-injected providers.
     this.quizManagementService = new QuizManagementService(quizRepository);
     this.quizQuestionService = new QuizQuestionService(
       quizRepository,
