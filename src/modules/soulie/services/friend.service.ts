@@ -21,7 +21,7 @@ import {
 } from '../entities/friendship.entity';
 import {
   DiscoverRelation,
-  getPublicDisplayName,
+  getDisplayName,
   getPublicUsername,
   parseUserId,
   toFriendDto,
@@ -365,7 +365,7 @@ export class FriendService {
     const normalizedKey = friendKey.trim().toLowerCase();
 
     const match = friends.find((friend) => {
-      const name = getPublicDisplayName(friend).toLowerCase();
+      const name = getDisplayName(friend).toLowerCase();
       const slug = name.replace(/\s+/g, '-');
       const username = getPublicUsername(friend).replace('@', '').toLowerCase();
 
