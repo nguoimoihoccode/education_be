@@ -6,7 +6,7 @@ export class AddPhoneToUsers1700000000000 implements MigrationInterface {
       'users',
       new TableColumn({
         name: 'phone',
-        type: 'varchar',
+        type: 'jsonb',
         isNullable: true,
       }),
     );
