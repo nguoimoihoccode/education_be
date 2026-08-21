@@ -51,6 +51,7 @@ import { SlidesModule } from './modules/slides/slides.module';
 import { User } from './modules/users/entities/user.entity';
 import { RefreshToken } from './modules/auth/entities/refresh-token.entity';
 import { TokenBlacklist } from './modules/auth/entities/token-blacklist.entity';
+import { AuthLoginAttempt } from './modules/auth/entities/auth-login-attempt.entity';
 
 // Education Entities
 import {
@@ -128,6 +129,7 @@ import { AiProviderSettings } from './modules/ai/entities/ai-provider-settings.e
           User,
           RefreshToken,
           TokenBlacklist,
+          AuthLoginAttempt,
           // Education entities
           Language,
           Course,

@@ -1,8 +1,12 @@
 import {
-  BadRequestException,
   Injectable,
   NotFoundException,
   UnauthorizedException,
+  ConflictException,
+  BadRequestException,
+  ForbiddenException,
+  HttpException,
+  HttpStatus,
 } from '@nestjs/common';
 import { InjectRepository } from '@nestjs/typeorm';
 import { DataSource, Repository, LessThan, MoreThan, Not } from 'typeorm';
@@ -24,6 +28,7 @@ import { ChangePasswordDto, UpdateAuthProfileDto } from './dto/profile.dto';
 import { UserResponseDto } from './dto/user-response.dto';
 import { ActivityLogService } from '../activity-log/activity-log.service';
 import { EducationActivityType } from '../activity-log/entities/activity-log.entity';
+import { AuthThrottleService } from './auth-throttle.service';
 
 type SessionUser = {
   email?: string | null;
@@ -43,6 +48,7 @@ export class AuthService {
     @InjectRepository(TokenBlacklist)
     private readonly tokenBlacklistRepository: Repository<TokenBlacklist>,
     private readonly activityLogService: ActivityLogService,
+    private readonly authThrottleService: AuthThrottleService,
   ) {}
 
   async register(createUserDto: CreateUserDto, deviceInfo?: DeviceInfo) {
@@ -61,10 +67,25 @@ export class AuthService {
     deviceInfo?: DeviceInfo,
   ): Promise<AuthResponseDto> {
     const identifier = (loginDto.identifier || loginDto.email || '').trim();
+    const ip = deviceInfo?.ipAddress;
+
+    const lockRemaining = await this.authThrottleService.getLockRemainingMs(
+      identifier,
+      ip,
+    );
+    if (lockRemaining > 0) {
+      const minutes = Math.ceil(lockRemaining / 60_000);
+      throw new HttpException(
+        `Too many failed login attempts. Try again in ${minutes} min.`,
+        HttpStatus.TOO_MANY_REQUESTS,
+      );
+    }
+
     const userEntity = identifier.includes('@')
       ? await this.usersService.findByEmail(identifier)
       : await this.usersService.findByUsername(identifier.toLowerCase());
     if (!userEntity) {
+      await this.authThrottleService.recordFailure(identifier, ip);
       throw new UnauthorizedException('Invalid credentials');
     }
 
@@ -73,9 +94,11 @@ export class AuthService {
       userEntity.passwordHash,
     );
     if (!passwordValid) {
+      await this.authThrottleService.recordFailure(identifier, ip);
       throw new UnauthorizedException('Invalid credentials');
     }
 
+    await this.authThrottleService.clearFailures(identifier, ip);
     await this.usersService.touchLastSeen(userEntity.id);
 
     // Get full user entity for auth response

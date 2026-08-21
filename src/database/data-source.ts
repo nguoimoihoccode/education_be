@@ -3,6 +3,7 @@ import { DataSource } from 'typeorm';
 import { User } from '../modules/users/entities/user.entity';
 import { RefreshToken } from '../modules/auth/entities/refresh-token.entity';
 import { TokenBlacklist } from '../modules/auth/entities/token-blacklist.entity';
+import { AuthLoginAttempt } from '../modules/auth/entities/auth-login-attempt.entity';
 import {
   Language,
   Course,
@@ -48,6 +49,7 @@ export default new DataSource({
     User,
     RefreshToken,
     TokenBlacklist,
+    AuthLoginAttempt,
     Language,
     Course,
     Lesson,

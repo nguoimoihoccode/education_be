@@ -1,5 +1,6 @@
 import {
   BadRequestException,
+  HttpStatus,
   NotFoundException,
   UnauthorizedException,
 } from '@nestjs/common';
@@ -16,6 +17,7 @@ import { UserRole } from '../../common/enums/roles.enum';
 import { User } from '../users/entities/user.entity';
 import { UsersService } from '../users/users.service';
 import { AuthService } from './auth.service';
+import { AuthThrottleService } from './auth-throttle.service';
 import { ChangePasswordDto, UpdateAuthProfileDto } from './dto/profile.dto';
 import { TokenBlacklist } from './entities/token-blacklist.entity';
 import { RefreshToken } from './entities/refresh-token.entity';
@@ -70,6 +72,11 @@ describe('AuthService', () => {
     save: jest.Mock;
     findOne: jest.Mock;
     delete: jest.Mock;
+  };
+  let authThrottleService: {
+    getLockRemainingMs: jest.Mock;
+    recordFailure: jest.Mock;
+    clearFailures: jest.Mock;
   };
   let dataSource: { transaction: jest.Mock };
   let queryBuilder: {
@@ -134,6 +141,11 @@ describe('AuthService', () => {
       findOne: jest.fn(),
       delete: jest.fn(),
     };
+    authThrottleService = {
+      getLockRemainingMs: jest.fn().mockResolvedValue(0),
+      recordFailure: jest.fn().mockResolvedValue(undefined),
+      clearFailures: jest.fn().mockResolvedValue(undefined),
+    };
     dataSource = {
       transaction: jest.fn(async (callback) =>
         callback({
@@ -174,6 +186,7 @@ describe('AuthService', () => {
           provide: getRepositoryToken(TokenBlacklist),
           useValue: tokenBlacklistRepository,
         },
+        { provide: AuthThrottleService, useValue: authThrottleService },
       ],
     }).compile();
 
@@ -253,6 +266,50 @@ describe('AuthService', () => {
     await expect(
       service.login({ email: user.email, password: 'wrong-password' }),
     ).rejects.toThrow(UnauthorizedException);
+  });
+
+  it('blocks login with 429 when the account+ip is locked', async () => {
+    authThrottleService.getLockRemainingMs.mockResolvedValue(15 * 60_000);
+
+    await expect(
+      service.login(
+        { email: user.email, password: 'secret123' },
+        { ipAddress: '127.0.0.9' },
+      ),
+    ).rejects.toMatchObject({ status: HttpStatus.TOO_MANY_REQUESTS });
+    expect(usersService.findByEmail).not.toHaveBeenCalled();
+  });
+
+  it('records a failure on invalid credentials', async () => {
+    usersService.findByEmail.mockResolvedValue(user);
+    jest.mocked(bcrypt.compare).mockResolvedValue(false as never);
+
+    await expect(
+      service.login(
+        { email: user.email, password: 'wrong-password' },
+        { ipAddress: '127.0.0.9' },
+      ),
+    ).rejects.toThrow(UnauthorizedException);
+
+    expect(authThrottleService.recordFailure).toHaveBeenCalledWith(
+      user.email,
+      '127.0.0.9',
+    );
+  });
+
+  it('clears failures after a successful login', async () => {
+    usersService.findByEmail.mockResolvedValue(user);
+    usersService.findEntityByIdForAuth.mockResolvedValue(user);
+
+    await service.login(
+      { email: user.email, password: 'secret123' },
+      { ipAddress: '127.0.0.9' },
+    );
+
+    expect(authThrottleService.clearFailures).toHaveBeenCalledWith(
+      user.email,
+      '127.0.0.9',
+    );
   });
 
   it('revokes existing active sessions when logging in', async () => {

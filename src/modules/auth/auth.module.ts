@@ -10,6 +10,8 @@ import { JwtRefreshStrategy } from './jwt-refresh.strategy';
 import { JwtAuthGuard } from './jwt-auth.guard';
 import { RefreshToken } from './entities/refresh-token.entity';
 import { TokenBlacklist } from './entities/token-blacklist.entity';
+import { AuthLoginAttempt } from './entities/auth-login-attempt.entity';
+import { AuthThrottleService } from './auth-throttle.service';
 import { GoogleStrategy } from './google.strategy';
 import { TokenCleanupTask } from './tasks/token-cleanup.task';
 import { JwtKeyService } from './jwt-key.service';
@@ -23,7 +25,7 @@ import { ProfileStorageModule } from '../profile-storage/profile-storage.module'
     ActivityLogModule,
     ProfileStorageModule,
     PassportModule,
-    TypeOrmModule.forFeature([RefreshToken, TokenBlacklist]),
+    TypeOrmModule.forFeature([RefreshToken, TokenBlacklist, AuthLoginAttempt]),
     JwtModule.register({}), // Empty config - we'll use RS256 keys directly in service
   ],
   providers: [
@@ -35,6 +37,7 @@ import { ProfileStorageModule } from '../profile-storage/profile-storage.module'
     RolesGuard,
     GoogleStrategy,
     TokenCleanupTask,
+    AuthThrottleService,
   ],
   controllers: [AuthController],
   exports: [AuthService, JwtAuthGuard, JwtKeyService],
