@@ -515,20 +515,14 @@ export class AiService {
     return { ok: true, latencyMs: Date.now() - started };
   }
 
-  async completeText(input: {
-    system: string;
-    user: string;
-  }): Promise<string> {
+  async completeText(input: { system: string; user: string }): Promise<string> {
     return this.completeChat([
       { role: 'system', content: input.system },
       { role: 'user', content: input.user },
     ]);
   }
 
-  async completeJson<T>(input: {
-    system: string;
-    user: string;
-  }): Promise<T> {
+  async completeJson<T>(input: { system: string; user: string }): Promise<T> {
     const raw = await this.completeText({
       system: `${input.system}\nRespond with a single JSON object only. No markdown.`,
       user: input.user,

@@ -359,7 +359,9 @@ describe('AiService', () => {
       makeMessage({ content: 'How do I greet?' }),
     ]);
     messagesRepo.save
-      .mockResolvedValueOnce(makeMessage({ id: 'u1', content: 'How do I greet?' }))
+      .mockResolvedValueOnce(
+        makeMessage({ id: 'u1', content: 'How do I greet?' }),
+      )
       .mockResolvedValueOnce(
         makeMessage({
           id: 'a1',
@@ -379,7 +381,9 @@ describe('AiService', () => {
 
   it('updateSettings can set and clear system rules', async () => {
     settingsRepo.find.mockResolvedValue([]);
-    settingsRepo.create.mockImplementation((entity) => entity as AiProviderSettings);
+    settingsRepo.create.mockImplementation(
+      (entity) => entity as AiProviderSettings,
+    );
     settingsRepo.save.mockImplementation(async (entity) => ({
       id: 's1',
       ...(entity as AiProviderSettings),
@@ -513,9 +517,7 @@ describe('AiService', () => {
   });
 
   it('completeJson parses JSON object from model output', async () => {
-    fetchMock = okFetch(
-      '```json\n{"items":[{"front":"a","back":"b"}]}\n```',
-    );
+    fetchMock = okFetch('```json\n{"items":[{"front":"a","back":"b"}]}\n```');
     service = new AiService(
       config,
       conversationsRepo as unknown as Repository<AiConversation>,

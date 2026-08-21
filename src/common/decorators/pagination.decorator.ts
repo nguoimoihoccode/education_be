@@ -2,7 +2,9 @@ import { createParamDecorator, ExecutionContext } from '@nestjs/common';
 import { PaginationDto } from '../dto/pagination.dto';
 
 const toPositiveInt = (value: unknown, fallback: number): number => {
-  const parsed = Number.parseInt(String(value ?? ''), 10);
+  const raw =
+    typeof value === 'string' || typeof value === 'number' ? String(value) : '';
+  const parsed = Number.parseInt(raw, 10);
   return Number.isFinite(parsed) && parsed > 0 ? parsed : fallback;
 };
 

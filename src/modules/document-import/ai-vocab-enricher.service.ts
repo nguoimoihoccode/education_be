@@ -40,7 +40,9 @@ export class AiVocabEnricherService {
   ): Promise<EnrichedCard[] | null> {
     const maxCards = Math.min(40, Math.max(1, input.maxCards ?? 20));
     const rawText = (input.rawText || '').slice(0, 6000);
-    const seedTerms = (input.seedTerms || []).filter(Boolean).slice(0, maxCards);
+    const seedTerms = (input.seedTerms || [])
+      .filter(Boolean)
+      .slice(0, maxCards);
     const language = input.language || 'en';
 
     const system = [

@@ -645,7 +645,9 @@ describe('EducationService learning plan', () => {
 });
 
 describe('EducationService learning coach narrative', () => {
-  const createCoachService = (aiService: ReturnType<typeof createAiService>) => {
+  const createCoachService = (
+    aiService: ReturnType<typeof createAiService>,
+  ) => {
     const userCourseRepository = createRepository({
       find: jest.fn().mockResolvedValue([]),
       count: jest.fn().mockResolvedValue(0),
@@ -697,7 +699,9 @@ describe('EducationService learning coach narrative', () => {
     });
     const service = createCoachService(aiService);
 
-    await expect(service.getLearningCoachSummary('user-1')).resolves.toMatchObject({
+    await expect(
+      service.getLearningCoachSummary('user-1'),
+    ).resolves.toMatchObject({
       headline: 'Hôm nay hãy củng cố từ vựng nhé',
       focusArea: 'Ôn flashcards đến hạn',
     });
@@ -710,7 +714,9 @@ describe('EducationService learning coach narrative', () => {
     });
     const service = createCoachService(aiService);
 
-    await expect(service.getLearningCoachSummary('user-1')).resolves.toMatchObject({
+    await expect(
+      service.getLearningCoachSummary('user-1'),
+    ).resolves.toMatchObject({
       headline: 'Coach đã xếp lộ trình học hôm nay',
       focusArea: 'Duy trì nhịp học',
     });

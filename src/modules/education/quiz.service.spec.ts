@@ -254,7 +254,9 @@ describe('QuizService AI MCQ generation', () => {
     example: '你好，世界',
   };
 
-  const createServiceForMcq = (aiService: ReturnType<typeof createAiServiceMock>) => {
+  const createServiceForMcq = (
+    aiService: ReturnType<typeof createAiServiceMock>,
+  ) => {
     const qb = {
       select: jest.fn().mockReturnThis(),
       where: jest.fn().mockReturnThis(),
