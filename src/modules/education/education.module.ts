@@ -31,12 +31,14 @@ import { Quiz, QuizQuestion, QuizSession } from './entities';
 import { RolesGuard } from '../../common/guards/roles.guard';
 import { UsersModule } from '../users/users.module';
 import { AiModule } from '../ai/ai.module';
+import { User } from '../users/entities/user.entity';
 
 @Module({
   imports: [
     UsersModule,
     AiModule,
     TypeOrmModule.forFeature([
+      User,
       Language,
       Course,
       Lesson,
