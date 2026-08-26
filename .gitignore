@@ -12,7 +12,11 @@ node_modules/
 
 # Environment variables
 .env
-.env*
+.env.prod
+.env.local
+.env.docker
+!.env.prod.example
+!.env.example
 .env.local
 .env.docker
 .env.development.local
