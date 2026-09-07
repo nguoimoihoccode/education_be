@@ -229,7 +229,7 @@ export class UsersService {
         .split('@')[0]
         ?.trim()
         .toLowerCase()
-        .replace(/[^a-z0-9_]/g, '') || 'soulieuser';
+        .replace(/[^a-z0-9_]/g, '') || 'user';
 
     let candidate = normalizedBase;
     let suffix = 0;

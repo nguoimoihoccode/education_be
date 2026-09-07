@@ -42,10 +42,8 @@ async function bootstrap() {
 
   // Swagger
   const config = new DocumentBuilder()
-    .setTitle('Soulie & Education API')
-    .setDescription(
-      'Backend API for Soulie social platform and Education language learning',
-    )
+    .setTitle('Education API')
+    .setDescription('Backend API for the Education language learning platform')
     .setVersion('1.0')
     .addBearerAuth()
     .build();

@@ -33,7 +33,7 @@ services:
     env_file:
       - .env.prod
     environment:
-      NODE_ENV: production
+      NODE_ENV: ${NODE_ENV:-production}
       TRUST_PROXY_HOPS: "1"
       DB_HOST: db
       DB_PORT: "5432"

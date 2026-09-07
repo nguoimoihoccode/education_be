@@ -28,24 +28,13 @@ import { UsersModule } from './modules/users/users.module';
 import { EducationModule } from './modules/education/education.module';
 import { ActivityLogModule } from './modules/activity-log/activity-log.module';
 import { EducationLeaderboardModule } from './modules/education-leaderboard/education-leaderboard.module';
-import { EducationSocialModule } from './modules/education-social/education-social.module';
-
-// Soulie social endpoints
-import { SoulieModule } from './modules/soulie/soulie.module';
-
-// Soulie media uploads
-import { MediaModule } from './modules/media/media.module';
 
 // Document import
 import { DocumentImportModule } from './modules/document-import/document-import.module';
 import { DataExportModule } from './modules/data-export/data-export.module';
 
-// Community endpoints
-import { CommunityModule } from './modules/community/community.module';
-
 // AI tutor endpoints
 import { AiModule } from './modules/ai/ai.module';
-import { SlidesModule } from './modules/slides/slides.module';
 
 // Entities
 import { User } from './modules/users/entities/user.entity';
@@ -74,17 +63,6 @@ import {
   DailyLearningTask,
 } from './modules/education/entities';
 
-// Soulie Entities
-import { SoulieFriendship } from './modules/soulie/entities/friendship.entity';
-import { SoulieConversation } from './modules/soulie/entities/conversation.entity';
-import { SoulieMessage } from './modules/soulie/entities/message.entity';
-import { SoulieMoment } from './modules/soulie/entities/moment.entity';
-import { NotificationToken } from './modules/soulie/entities/notification-token.entity';
-import { SlideDeck } from './modules/slides/entities/slide-deck.entity';
-import { EducationSocialPost } from './modules/education-social/entities/social-post.entity';
-import { EducationSocialComment } from './modules/education-social/entities/social-comment.entity';
-import { EducationSocialPostLike } from './modules/education-social/entities/social-post-like.entity';
-import { EducationSocialPostBookmark } from './modules/education-social/entities/social-post-bookmark.entity';
 import { EducationActivityLog } from './modules/activity-log/entities/activity-log.entity';
 import { EducationDataExport } from './modules/data-export/entities/data-export.entity';
 import { AiConversation } from './modules/ai/entities/ai-conversation.entity';
@@ -148,17 +126,6 @@ import { AiProviderSettings } from './modules/ai/entities/ai-provider-settings.e
           QuizQuestion,
           QuizSession,
           DailyLearningTask,
-          // Soulie entities
-          SoulieFriendship,
-          SoulieConversation,
-          SoulieMessage,
-          SoulieMoment,
-          NotificationToken,
-          SlideDeck,
-          EducationSocialPost,
-          EducationSocialComment,
-          EducationSocialPostLike,
-          EducationSocialPostBookmark,
           EducationActivityLog,
           EducationDataExport,
           AiConversation,
@@ -193,14 +160,9 @@ import { AiProviderSettings } from './modules/ai/entities/ai-provider-settings.e
     EducationModule,
     ActivityLogModule,
     EducationLeaderboardModule,
-    EducationSocialModule,
-    SoulieModule,
-    MediaModule,
     DocumentImportModule,
     DataExportModule,
-    CommunityModule,
     AiModule,
-    SlidesModule,
   ],
   controllers: [
     AppController,

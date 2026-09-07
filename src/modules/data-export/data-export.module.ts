@@ -8,8 +8,6 @@ import { FlashcardDeck } from '../education/entities/flashcard-deck.entity';
 import { Flashcard } from '../education/entities/flashcard.entity';
 import { ReviewSession } from '../education/entities/review-session.entity';
 import { QuizSession } from '../education/entities/quiz-session.entity';
-import { EducationSocialPost } from '../education-social/entities/social-post.entity';
-import { EducationSocialComment } from '../education-social/entities/social-comment.entity';
 import { User } from '../users/entities/user.entity';
 import { EducationDataExport } from './entities/data-export.entity';
 import { DataExportController } from './data-export.controller';
@@ -27,8 +25,6 @@ import { DataExportService } from './data-export.service';
       Flashcard,
       ReviewSession,
       QuizSession,
-      EducationSocialPost,
-      EducationSocialComment,
       EducationDataExport,
     ]),
   ],

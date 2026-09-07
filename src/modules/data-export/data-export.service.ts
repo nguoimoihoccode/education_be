@@ -17,8 +17,6 @@ import { QuizSession } from '../education/entities/quiz-session.entity';
 import { ReviewSession } from '../education/entities/review-session.entity';
 import { UserCourse } from '../education/entities/user-course.entity';
 import { UserLesson } from '../education/entities/user-lesson.entity';
-import { EducationSocialComment } from '../education-social/entities/social-comment.entity';
-import { EducationSocialPost } from '../education-social/entities/social-post.entity';
 import { User } from '../users/entities/user.entity';
 import {
   EducationExportFormat,
@@ -60,10 +58,6 @@ export class DataExportService {
     private readonly reviewSessionRepository: Repository<ReviewSession>,
     @InjectRepository(QuizSession)
     private readonly quizSessionRepository: Repository<QuizSession>,
-    @InjectRepository(EducationSocialPost)
-    private readonly socialPostRepository: Repository<EducationSocialPost>,
-    @InjectRepository(EducationSocialComment)
-    private readonly socialCommentRepository: Repository<EducationSocialComment>,
     @InjectRepository(EducationDataExport)
     private readonly dataExportRepository: Repository<EducationDataExport>,
     private readonly configService: ConfigService,
@@ -227,9 +221,6 @@ export class DataExportService {
     }
     if (dto.dataTypes.quizzes) {
       entries.quizzes = await this.buildQuizDataset(userId, cutoff);
-    }
-    if (dto.dataTypes.forum) {
-      entries.forum = await this.buildForumDataset(userId, cutoff);
     }
 
     return entries;
@@ -446,48 +437,6 @@ export class DataExportService {
       createdAt: session.createdAt.toISOString(),
       updatedAt: session.updatedAt.toISOString(),
     }));
-  }
-
-  private async buildForumDataset(
-    userId: number,
-    cutoff: Date | null,
-  ): Promise<Array<Record<string, unknown>>> {
-    const [posts, comments] = await Promise.all([
-      this.socialPostRepository.find({
-        where: cutoff
-          ? { authorId: userId, createdAt: this.moreThanOrEqual(cutoff) }
-          : { authorId: userId },
-        order: { createdAt: 'DESC' },
-      }),
-      this.socialCommentRepository.find({
-        where: cutoff
-          ? { authorId: userId, createdAt: this.moreThanOrEqual(cutoff) }
-          : { authorId: userId },
-        order: { createdAt: 'DESC' },
-      }),
-    ]);
-
-    return [
-      ...posts.map((post) => ({
-        recordType: 'post',
-        id: post.id,
-        type: post.type,
-        content: post.content,
-        imageUrl: post.imageUrl ?? null,
-        tags: post.tags ?? [],
-        sharesCount: post.sharesCount,
-        createdAt: post.createdAt.toISOString(),
-        updatedAt: post.updatedAt.toISOString(),
-      })),
-      ...comments.map((comment) => ({
-        recordType: 'comment',
-        id: comment.id,
-        postId: comment.postId,
-        content: comment.content,
-        likesCount: comment.likesCount,
-        createdAt: comment.createdAt.toISOString(),
-      })),
-    ];
   }
 
   private toHistoryItem(

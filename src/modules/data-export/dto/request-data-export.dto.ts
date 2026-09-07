@@ -20,7 +20,7 @@ class HasSelectedDataTypeConstraint implements ValidatorConstraintInterface {
   validate(value: EducationExportDataTypesDto) {
     return (
       !!value &&
-      ['profile', 'progress', 'flashcards', 'quizzes', 'forum'].some(
+      ['profile', 'progress', 'flashcards', 'quizzes'].some(
         (key) => value[key as keyof EducationExportDataTypesDto],
       )
     );
@@ -47,10 +47,6 @@ export class EducationExportDataTypesDto {
   @ApiProperty({ default: true })
   @IsBoolean()
   quizzes = true;
-
-  @ApiProperty({ default: false })
-  @IsBoolean()
-  forum = false;
 
   [key: string]: boolean | undefined;
 }

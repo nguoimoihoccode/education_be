@@ -11,8 +11,6 @@ import { QuizSession } from '../education/entities/quiz-session.entity';
 import { ReviewSession } from '../education/entities/review-session.entity';
 import { UserCourse } from '../education/entities/user-course.entity';
 import { UserLesson } from '../education/entities/user-lesson.entity';
-import { EducationSocialComment } from '../education-social/entities/social-comment.entity';
-import { EducationSocialPost } from '../education-social/entities/social-post.entity';
 import { User } from '../users/entities/user.entity';
 import {
   EducationExportFormat,
@@ -66,7 +64,6 @@ describe('DataExportService', () => {
       progress: false,
       flashcards: false,
       quizzes: false,
-      forum: false,
     },
     status: EducationExportStatus.COMPLETED,
     fileName: 'education-export-export-1.json',
@@ -85,8 +82,6 @@ describe('DataExportService', () => {
   let flashcardRepository: { find: jest.Mock };
   let reviewSessionRepository: { find: jest.Mock };
   let quizSessionRepository: { find: jest.Mock };
-  let socialPostRepository: { find: jest.Mock };
-  let socialCommentRepository: { find: jest.Mock };
   let dataExportRepository: {
     find: jest.Mock;
     findOne: jest.Mock;
@@ -110,8 +105,6 @@ describe('DataExportService', () => {
     flashcardRepository = { find: jest.fn().mockResolvedValue([]) };
     reviewSessionRepository = { find: jest.fn().mockResolvedValue([]) };
     quizSessionRepository = { find: jest.fn().mockResolvedValue([]) };
-    socialPostRepository = { find: jest.fn().mockResolvedValue([]) };
-    socialCommentRepository = { find: jest.fn().mockResolvedValue([]) };
     dataExportRepository = {
       find: jest.fn().mockResolvedValue([baseDataExport]),
       findOne: jest.fn().mockResolvedValue(baseDataExport),
@@ -152,14 +145,6 @@ describe('DataExportService', () => {
         {
           provide: getRepositoryToken(QuizSession),
           useValue: quizSessionRepository,
-        },
-        {
-          provide: getRepositoryToken(EducationSocialPost),
-          useValue: socialPostRepository,
-        },
-        {
-          provide: getRepositoryToken(EducationSocialComment),
-          useValue: socialCommentRepository,
         },
         {
           provide: getRepositoryToken(EducationDataExport),
@@ -204,7 +189,6 @@ describe('DataExportService', () => {
         progress: false,
         flashcards: false,
         quizzes: false,
-        forum: false,
       },
     });
 

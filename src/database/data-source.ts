@@ -24,15 +24,6 @@ import {
   QuizSession,
   DailyLearningTask,
 } from '../modules/education/entities';
-import { SoulieFriendship } from '../modules/soulie/entities/friendship.entity';
-import { SoulieConversation } from '../modules/soulie/entities/conversation.entity';
-import { SoulieMessage } from '../modules/soulie/entities/message.entity';
-import { SoulieMoment } from '../modules/soulie/entities/moment.entity';
-import { NotificationToken } from '../modules/soulie/entities/notification-token.entity';
-import { EducationSocialPost } from '../modules/education-social/entities/social-post.entity';
-import { EducationSocialComment } from '../modules/education-social/entities/social-comment.entity';
-import { EducationSocialPostLike } from '../modules/education-social/entities/social-post-like.entity';
-import { EducationSocialPostBookmark } from '../modules/education-social/entities/social-post-bookmark.entity';
 import { EducationActivityLog } from '../modules/activity-log/entities/activity-log.entity';
 import { EducationDataExport } from '../modules/data-export/entities/data-export.entity';
 
@@ -68,19 +59,13 @@ export default new DataSource({
     QuizQuestion,
     QuizSession,
     DailyLearningTask,
-    SoulieFriendship,
-    SoulieConversation,
-    SoulieMessage,
-    SoulieMoment,
-    NotificationToken,
-    EducationSocialPost,
-    EducationSocialComment,
-    EducationSocialPostLike,
-    EducationSocialPostBookmark,
     EducationActivityLog,
     EducationDataExport,
   ],
-  migrations: ['src/database/migrations/*.ts'],
+  migrations:
+    process.env.NODE_ENV === 'production'
+      ? ['dist/database/migrations/*.js']
+      : ['src/database/migrations/*.ts'],
   synchronize: false,
   ssl: isSupabaseHost(process.env.DB_HOST)
     ? { rejectUnauthorized: false }
