@@ -3,7 +3,7 @@ name: Deploy Backend
 on:
   push:
     branches:
-      - phuc_v2026
+      - main
   workflow_dispatch:
 
 concurrency:
@@ -101,6 +101,7 @@ jobs:
             export BACKEND_IMAGE IMAGE_TAG
             docker compose -f docker-compose.prod.yml --env-file .env.prod pull db backend
             docker compose -f docker-compose.prod.yml --env-file .env.prod up -d --remove-orphans db backend
+            docker compose -f docker-compose.prod.yml --env-file .env.prod restart frontend || true
 
             rollback() {
               if [ -z "$previous_tag" ]; then
@@ -113,11 +114,12 @@ jobs:
               export IMAGE_TAG="$previous_tag"
               docker compose -f docker-compose.prod.yml --env-file .env.prod pull backend
               docker compose -f docker-compose.prod.yml --env-file .env.prod up -d --remove-orphans backend
-              curl --fail --show-error --silent --retry 10 --retry-delay 5 http://127.0.0.1/api/health
+              docker compose -f docker-compose.prod.yml --env-file .env.prod restart frontend || true
+              curl --fail --show-error --silent --retry 10 --retry-delay 5 http://127.0.0.1:8080/api/health
               exit 1
             }
 
-            curl --fail --show-error --silent --retry 10 --retry-delay 5 http://127.0.0.1/api/health || rollback
+            curl --fail --show-error --silent --retry 10 --retry-delay 5 http://127.0.0.1:8080/api/health || rollback
 
             printf '%s' "$IMAGE_TAG" > .last-backend-tag
             docker image prune -f --filter "until=168h"
