@@ -5,9 +5,11 @@ on:
   pull_request:
     branches:
       - main
+      - phuc_v2026
   push:
     branches:
       - main
+      - phuc_v2026
 
 concurrency:
   group: ${{ github.workflow }}-${{ github.ref }}
