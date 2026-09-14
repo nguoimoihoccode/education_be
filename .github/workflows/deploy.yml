@@ -116,11 +116,11 @@ jobs:
               docker compose -f docker-compose.prod.yml --env-file .env.prod pull backend
               docker compose -f docker-compose.prod.yml --env-file .env.prod up -d --remove-orphans backend
               docker compose -f docker-compose.prod.yml --env-file .env.prod restart frontend || true
-              curl --fail --show-error --silent --retry 10 --retry-delay 5 http://127.0.0.1:8080/api/health
+              curl --fail --show-error --silent --retry 10 --retry-delay 5 --retry-all-errors http://127.0.0.1:8080/api/health
               exit 1
             }
 
-            curl --fail --show-error --silent --retry 10 --retry-delay 5 http://127.0.0.1:8080/api/health || rollback
+            curl --fail --show-error --silent --retry 10 --retry-delay 5 --retry-all-errors http://127.0.0.1:8080/api/health || rollback
 
             printf '%s' "$IMAGE_TAG" > .last-backend-tag
             docker image prune -f --filter "until=168h"
