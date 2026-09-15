@@ -104,6 +104,14 @@ jobs:
             docker compose -f docker-compose.prod.yml --env-file .env.prod up -d --remove-orphans db backend
             docker compose -f docker-compose.prod.yml --env-file .env.prod restart frontend || true
 
+            wait_healthy() {
+              for _ in $(seq 1 30); do
+                curl --fail --show-error --silent http://127.0.0.1:8080/api/health && return 0
+                sleep 5
+              done
+              return 1
+            }
+
             rollback() {
               if [ -z "$previous_tag" ]; then
                 echo "Health check failed and no previous tag exists for rollback." >&2
@@ -116,11 +124,11 @@ jobs:
               docker compose -f docker-compose.prod.yml --env-file .env.prod pull backend
               docker compose -f docker-compose.prod.yml --env-file .env.prod up -d --remove-orphans backend
               docker compose -f docker-compose.prod.yml --env-file .env.prod restart frontend || true
-              curl --fail --show-error --silent --retry 10 --retry-delay 5 --retry-all-errors http://127.0.0.1:8080/api/health
+              wait_healthy
               exit 1
             }
 
-            curl --fail --show-error --silent --retry 10 --retry-delay 5 --retry-all-errors http://127.0.0.1:8080/api/health || rollback
+            wait_healthy || rollback
 
             printf '%s' "$IMAGE_TAG" > .last-backend-tag
             docker image prune -f --filter "until=168h"
