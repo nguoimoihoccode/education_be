@@ -101,6 +101,13 @@ jobs:
             echo "$GHCR_TOKEN" | docker login ghcr.io -u "$GHCR_USERNAME" --password-stdin
             export BACKEND_IMAGE IMAGE_TAG
             docker compose -f docker-compose.prod.yml --env-file .env.prod pull db backend
+
+            # Apply pending migrations with the newly built image while the old
+            # backend is still serving. The app does not run migrations on boot
+            # (no migrationsRun), so without this the new code meets an old schema.
+            # Migrations are additive, so a rollback never reverts them.
+            docker compose -f docker-compose.prod.yml --env-file .env.prod run --rm -T --no-deps backend npm run migration:run:prod
+
             docker compose -f docker-compose.prod.yml --env-file .env.prod up -d --remove-orphans db backend
             docker compose -f docker-compose.prod.yml --env-file .env.prod restart frontend || true
 
