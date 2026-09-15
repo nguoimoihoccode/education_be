@@ -1,4 +1,5 @@
 import { Module } from '@nestjs/common';
+import { CacheModule } from '../../common/cache/cache.module';
 import { EducationLeaderboardController } from './education-leaderboard.controller';
 import {
   EDUCATION_LEADERBOARD_CLOCK,
@@ -6,6 +7,7 @@ import {
 } from './education-leaderboard.service';
 
 @Module({
+  imports: [CacheModule],
   controllers: [EducationLeaderboardController],
   providers: [
     EducationLeaderboardService,

@@ -1,17 +1,38 @@
 import { EducationService } from './education.service';
-import { EnrollmentStatus } from './entities';
+import { EnrollmentStatus, UserCourse, UserStreak } from './entities';
 
-const createRepository = (overrides: Record<string, unknown> = {}) => ({
-  find: jest.fn(),
-  findOne: jest.fn(),
-  findAndCount: jest.fn(),
-  count: jest.fn(),
-  create: jest.fn((value) => value),
-  save: jest.fn((value) => Promise.resolve(value)),
-  update: jest.fn(),
-  createQueryBuilder: jest.fn(),
-  ...overrides,
-});
+const createRepository = (
+  overrides: Record<string, unknown> = {},
+): Record<string, any> => {
+  const repository: Record<string, any> = {
+    find: jest.fn(),
+    findOne: jest.fn(),
+    findAndCount: jest.fn(),
+    count: jest.fn(),
+    create: jest.fn((value) => value),
+    save: jest.fn((value) => Promise.resolve(value)),
+    update: jest.fn(),
+  };
+  // Streak creation runs an insert-or-ignore query builder chain; give the
+  // default a chainable stub (tests may override createQueryBuilder entirely).
+  repository.createQueryBuilder = jest.fn(() => {
+    const builder: any = {};
+    for (const method of ['insert', 'into', 'values', 'orIgnore']) {
+      builder[method] = jest.fn().mockReturnValue(builder);
+    }
+    builder.execute = jest.fn().mockResolvedValue(undefined);
+    return builder;
+  });
+  // Streak writes run through repo.manager.transaction; route the callback
+  // back to this same repository mock so assertions keep working.
+  repository.manager = {
+    transaction: jest.fn(async (work: (manager: unknown) => unknown) =>
+      work({ getRepository: () => repository }),
+    ),
+  };
+  Object.assign(repository, overrides);
+  return repository;
+};
 
 const createAiService = (overrides: Record<string, unknown> = {}) => ({
   completeJson: jest.fn().mockRejectedValue(new Error('AI unavailable')),
@@ -562,6 +583,38 @@ describe('EducationService learning plan', () => {
       increment: jest.fn().mockResolvedValue({ affected: 1 }),
       update: jest.fn(),
     });
+    const userStreakRepository = createRepository({
+      create: jest.fn((value) => value),
+      findOne: jest.fn().mockResolvedValue({
+        currentStreak: 0,
+        longestStreak: 0,
+        totalDays: 0,
+        totalXp: 0,
+        level: 1,
+        lastActivityDate: null,
+      }),
+      save: jest.fn((value) => Promise.resolve(value)),
+    });
+    const userLessonRepository = createRepository({
+      count: jest.fn().mockResolvedValue(1),
+      create: jest.fn((value) => value),
+      findOne: jest.fn().mockResolvedValue(null),
+      save: jest.fn((value) => Promise.resolve(value)),
+    });
+    // completeLesson runs a single transaction across the lesson, course,
+    // and streak repositories; route each entity to its mock.
+    userLessonRepository.manager = {
+      transaction: jest.fn(async (work: (manager: unknown) => unknown) =>
+        work({
+          getRepository: (entity: unknown) =>
+            entity === UserCourse
+              ? userCourseRepository
+              : entity === UserStreak
+                ? userStreakRepository
+                : userLessonRepository,
+        }),
+      ),
+    };
     const service = new EducationService(
       createRepository() as any,
       createRepository({
@@ -577,25 +630,9 @@ describe('EducationService learning plan', () => {
       createRepository() as any,
       createRepository() as any,
       userCourseRepository as any,
-      createRepository({
-        count: jest.fn().mockResolvedValue(1),
-        create: jest.fn((value) => value),
-        findOne: jest.fn().mockResolvedValue(null),
-        save: jest.fn((value) => Promise.resolve(value)),
-      }) as any,
+      userLessonRepository as any,
       createRepository() as any,
-      createRepository({
-        create: jest.fn((value) => value),
-        findOne: jest.fn().mockResolvedValue({
-          currentStreak: 0,
-          longestStreak: 0,
-          totalDays: 0,
-          totalXp: 0,
-          level: 1,
-          lastActivityDate: null,
-        }),
-        save: jest.fn(),
-      }) as any,
+      userStreakRepository as any,
       createRepository() as any,
       createRepository() as any,
       createAiService() as any,
@@ -608,6 +645,7 @@ describe('EducationService learning plan', () => {
       'totalTimeSpent',
       120,
     );
+    expect(userLessonRepository.manager.transaction).toHaveBeenCalled();
   });
 
   it('reports completed review target when review flashcards task is completed today', async () => {

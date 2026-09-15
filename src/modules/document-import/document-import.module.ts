@@ -4,6 +4,7 @@ import { AiModule } from '../ai/ai.module';
 
 import { DocumentImportController } from './document-import.controller';
 import { DocumentImportService } from './document-import.service';
+import { DocumentParseQueueService } from './document-parse-queue.service';
 import { DocumentTextExtractionService } from './document-text-extraction.service';
 import { KeywordExtractionService } from './keyword-extraction.service';
 import { DocumentConversionService } from './document-conversion.service';
@@ -28,6 +29,7 @@ import { QuizGenerator } from './generators/quiz-generator.service';
   controllers: [DocumentImportController],
   providers: [
     DocumentImportService,
+    DocumentParseQueueService,
     DocumentTextExtractionService,
     KeywordExtractionService,
     DocumentConversionService,
@@ -58,6 +60,7 @@ import { QuizGenerator } from './generators/quiz-generator.service';
   ],
   exports: [
     DocumentImportService,
+    DocumentParseQueueService,
     DocumentTextExtractionService,
     KeywordExtractionService,
     DocumentConversionService,

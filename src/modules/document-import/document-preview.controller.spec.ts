@@ -2,6 +2,7 @@ import { Test } from '@nestjs/testing';
 import { DocumentImportController } from './document-import.controller';
 import { DocumentPreviewService } from './document-preview.service';
 import { DocumentImportService } from './document-import.service';
+import { DocumentParseQueueService } from './document-parse-queue.service';
 import { DocumentConversionService } from './document-conversion.service';
 import { DocumentTextExtractionService } from './document-text-extraction.service';
 
@@ -23,6 +24,7 @@ describe('DocumentImportController preview endpoints', () => {
       controllers: [DocumentImportController],
       providers: [
         { provide: DocumentImportService, useValue: {} },
+        { provide: DocumentParseQueueService, useValue: {} },
         { provide: DocumentConversionService, useValue: {} },
         {
           provide: DocumentTextExtractionService,

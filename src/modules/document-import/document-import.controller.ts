@@ -3,6 +3,8 @@ import {
   BadRequestException,
   Get,
   HttpCode,
+  NotFoundException,
+  Param,
   Post,
   UseInterceptors,
   UploadedFile,
@@ -21,6 +23,7 @@ import {
 import { FileInterceptor } from '@nestjs/platform-express';
 import { memoryStorage } from 'multer';
 import { DocumentImportService } from './document-import.service';
+import { DocumentParseQueueService } from './document-parse-queue.service';
 import { DocumentImportResponseDto } from './dto/document-import-response.dto';
 import { UploadDocumentDto } from './dto/upload-document.dto';
 import { FileType } from './dto/upload-document.dto';
@@ -64,6 +67,7 @@ const ALLOWED_MIME_TYPES = new Set([
 export class DocumentImportController {
   constructor(
     private readonly documentImportService: DocumentImportService,
+    private readonly documentParseQueueService: DocumentParseQueueService,
     private readonly documentConversionService: DocumentConversionService,
     private readonly documentTextExtractionService: DocumentTextExtractionService,
     private readonly documentPreviewService: DocumentPreviewService,
@@ -229,6 +233,95 @@ export class DocumentImportController {
       minKeywordLength: uploadDto.minKeywordLength,
       maxKeywords: uploadDto.maxKeywords,
     });
+  }
+
+  /**
+   * Async variant of `upload`: returns 202 with a jobId immediately and
+   * parses the document on the shared BullMQ queue (in-process when Redis
+   * is not configured). Poll `queue/:jobId` for the result.
+   */
+  @Post('queue')
+  @UploadRateLimit()
+  @HttpCode(202)
+  @ApiOperation({
+    summary: 'Queue a document for async import',
+    description:
+      'Upload a document and enqueue parsing; poll GET document-import/queue/:jobId for the result',
+  })
+  @ApiConsumes('multipart/form-data')
+  @ApiBody({
+    schema: {
+      type: 'object',
+      properties: {
+        file: {
+          type: 'string',
+          format: 'binary',
+          description: 'Document file to import',
+        },
+        fileType: {
+          type: 'string',
+          enum: Object.values(FileType),
+        },
+        language: { type: 'string' },
+        minKeywordLength: { type: 'number', minimum: 1, maximum: 10 },
+        maxKeywords: { type: 'number', minimum: 1, maximum: 500 },
+        withPhrases: { type: 'boolean' },
+      },
+      required: ['file', 'fileType'],
+    },
+  })
+  @ApiResponse({
+    status: 202,
+    description: 'Job accepted',
+    schema: {
+      type: 'object',
+      properties: { jobId: { type: 'string' } },
+    },
+  })
+  @UseInterceptors(FileInterceptor('file', createUploadInterceptor()))
+  async queueDocument(
+    @Req() req: RequestWithUser,
+    @UploadedFile() file?: Express.Multer.File,
+    @Body() uploadDto?: UploadDocumentDto & { withPhrases?: boolean },
+  ): Promise<{ jobId: string }> {
+    const userId = this.getUserId(req);
+    file = this.requireFile(file);
+
+    if (!uploadDto || !uploadDto.fileType) {
+      throw new BadRequestException('fileType is required');
+    }
+
+    return this.documentParseQueueService.enqueue(
+      file,
+      {
+        fileType: uploadDto.fileType,
+        language: uploadDto.language,
+        minKeywordLength: uploadDto.minKeywordLength,
+        maxKeywords: uploadDto.maxKeywords,
+        withPhrases: uploadDto.withPhrases,
+      },
+      userId,
+    );
+  }
+
+  @Get('queue/:jobId')
+  @ApiOperation({
+    summary: 'Get the status of a queued document import',
+    description:
+      'Returns queued/active/completed/failed. On completion the full import result is included',
+  })
+  @ApiResponse({ status: 200, description: 'Job state' })
+  @ApiResponse({ status: 404, description: 'Job not found' })
+  async getQueuedDocumentStatus(
+    @Req() req: RequestWithUser,
+    @Param('jobId') jobId: string,
+  ) {
+    const userId = this.getUserId(req);
+    const state = await this.documentParseQueueService.getStatus(jobId, userId);
+    if (!state) {
+      throw new NotFoundException('Document import job not found');
+    }
+    return state;
   }
 
   @Get('supported-types')

@@ -3,6 +3,7 @@ import {
   IsNotEmpty,
   IsOptional,
   IsNumber,
+  IsUUID,
   Min,
   Max,
   IsEnum,
@@ -39,6 +40,18 @@ export class CompleteQuizSessionDto {
   @IsString()
   @IsNotEmpty()
   sessionId: string;
+}
+
+/**
+ * Body của POST /quizzes/sessions/:sessionId/complete — TẤT CẢ đều optional
+ * để client cũ gửi không body vẫn hợp lệ (ValidationPipe biến undefined → {}).
+ * `homeworkId` (school platform, Phase 4): hint rằng session này là một BTVN;
+ * bridge phía school tự tra nếu thiếu, chỉ dùng khi có nhiều bài giao trùng quiz.
+ */
+export class CompleteQuizSessionBodyDto {
+  @IsOptional()
+  @IsUUID()
+  homeworkId?: string;
 }
 
 export class GenerateQuizFromFlashcardsDto {

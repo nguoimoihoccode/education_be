@@ -29,14 +29,21 @@ import {
 import { Quiz, QuizQuestion, QuizSession } from './entities';
 
 import { RolesGuard } from '../../common/guards/roles.guard';
+import { CacheModule } from '../../common/cache/cache.module';
 import { UsersModule } from '../users/users.module';
 import { AiModule } from '../ai/ai.module';
+import { SchoolModule } from '../school/school.module';
 import { User } from '../users/entities/user.entity';
 
 @Module({
   imports: [
     UsersModule,
     AiModule,
+    CacheModule,
+    // Phase 4 cầu nối quiz→điểm: HomeworkService (best-effort, xem
+    // QuizSessionCompletionService). SchoolModule KHÔNG import lại
+    // EducationModule → không có cycle.
+    SchoolModule,
     TypeOrmModule.forFeature([
       User,
       Language,

@@ -4,6 +4,9 @@ import { ConfigModule, ConfigService } from '@nestjs/config';
 import { TypeOrmModule } from '@nestjs/typeorm';
 import { ScheduleModule } from '@nestjs/schedule';
 import { ThrottlerModule, ThrottlerGuard } from '@nestjs/throttler';
+import type Redis from 'ioredis';
+import { CacheModule, CACHE_REDIS_CLIENT } from './common/cache/cache.module';
+import { RedisThrottlerStorage } from './common/cache/throttler-redis.storage';
 
 // Config
 import { configValidationSchema } from './config/config.validation';
@@ -35,6 +38,9 @@ import { DataExportModule } from './modules/data-export/data-export.module';
 
 // AI tutor endpoints
 import { AiModule } from './modules/ai/ai.module';
+
+// School platform (docs/SCHOOL_PLATFORM_PLAN.md)
+import { SchoolModule } from './modules/school/school.module';
 
 // Entities
 import { User } from './modules/users/entities/user.entity';
@@ -69,6 +75,16 @@ import { AiConversation } from './modules/ai/entities/ai-conversation.entity';
 import { AiMessage } from './modules/ai/entities/ai-message.entity';
 import { AiProviderSettings } from './modules/ai/entities/ai-provider-settings.entity';
 
+// School Entities
+import {
+  School,
+  AcademicYear,
+  Subject,
+  SchoolClass,
+  TeachingAssignment,
+  ClassMembership,
+} from './modules/school/entities';
+
 @Module({
   imports: [
     // Configuration with validation
@@ -81,16 +97,21 @@ import { AiProviderSettings } from './modules/ai/entities/ai-provider-settings.e
       },
     }),
 
-    // Rate Limiting
+    // Rate Limiting — with REDIS_URL configured, counters live in Redis so
+    // the limits are shared across every backend instance; without it each
+    // instance keeps its own in-memory counters.
     ThrottlerModule.forRootAsync({
-      imports: [ConfigModule],
-      useFactory: (configService: ConfigService) => [
+      imports: [ConfigModule, CacheModule],
+      useFactory: (configService: ConfigService, redisClient: Redis | null) => [
         {
           ttl: configService.get<number>('THROTTLE_TTL', 60) * 1000, // Convert to ms
           limit: configService.get<number>('THROTTLE_LIMIT', 100),
+          ...(redisClient
+            ? { storage: new RedisThrottlerStorage(redisClient) }
+            : {}),
         },
       ],
-      inject: [ConfigService],
+      inject: [ConfigService, CACHE_REDIS_CLIENT],
     }),
 
     // Database
@@ -131,6 +152,13 @@ import { AiProviderSettings } from './modules/ai/entities/ai-provider-settings.e
           AiConversation,
           AiMessage,
           AiProviderSettings,
+          // School entities
+          School,
+          AcademicYear,
+          Subject,
+          SchoolClass,
+          TeachingAssignment,
+          ClassMembership,
         ],
         synchronize:
           configService.get<string>('NODE_ENV') === 'development' &&
@@ -163,6 +191,7 @@ import { AiProviderSettings } from './modules/ai/entities/ai-provider-settings.e
     DocumentImportModule,
     DataExportModule,
     AiModule,
+    SchoolModule,
   ],
   controllers: [
     AppController,

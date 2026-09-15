@@ -77,18 +77,21 @@ export class FlashcardItemService {
       deckId: dto.deckId,
     });
 
-    const savedFlashcard = await this.flashcardRepository.save(flashcard);
+    // Saving the card and bumping the deck counter are one unit — a failure
+    // in between would leave cardCount out of sync with the deck contents.
+    return this.flashcardRepository.manager.transaction(async (manager) => {
+      const savedFlashcard = await manager
+        .getRepository(Flashcard)
+        .save(flashcard);
 
-    // Update deck card count
-    if (dto.deckId) {
-      await this.flashcardDeckRepository.increment(
-        { id: dto.deckId },
-        'cardCount',
-        1,
-      );
-    }
+      if (dto.deckId) {
+        await manager
+          .getRepository(FlashcardDeck)
+          .increment({ id: dto.deckId }, 'cardCount', 1);
+      }
 
-    return savedFlashcard;
+      return savedFlashcard;
+    });
   }
 
   async bulkCreateFlashcards(userId: number, dto: BulkCreateFlashcardDto) {
@@ -96,42 +99,54 @@ export class FlashcardItemService {
       await this.getOwnedDeckById(dto.deckId, userId);
     }
 
-    const created = [];
+    const created: Flashcard[] = [];
     const skipped = [];
+    // Batch-local duplicate tracking: same-batch fronts would otherwise slip
+    // past checkDuplicateFlashcard (which reads outside the transaction).
+    const seenFronts = new Set<string>();
 
     for (const cardDto of dto.flashcards) {
-      const duplicate = await this.checkDuplicateFlashcard(
-        cardDto.front,
-        userId,
-      );
+      const duplicate =
+        seenFronts.has(cardDto.front) ||
+        (await this.checkDuplicateFlashcard(cardDto.front, userId));
       if (duplicate) {
         skipped.push(cardDto.front);
         continue;
       }
+      seenFronts.add(cardDto.front);
 
-      const flashcard = this.flashcardRepository.create({
-        ...cardDto,
-        userId,
-        deckId: dto.deckId || cardDto.deckId,
-      });
-
-      const saved = await this.flashcardRepository.save(flashcard);
-      created.push(saved);
-    }
-
-    // Update deck card count
-    if (dto.deckId) {
-      await this.flashcardDeckRepository.increment(
-        { id: dto.deckId },
-        'cardCount',
-        created.length,
+      created.push(
+        this.flashcardRepository.create({
+          ...cardDto,
+          userId,
+          deckId: dto.deckId || cardDto.deckId,
+        }),
       );
     }
 
+    // All cards plus the single deck-count bump commit together.
+    const savedFlashcards = await this.flashcardRepository.manager.transaction(
+      async (manager) => {
+        const flashcardRepository = manager.getRepository(Flashcard);
+        const saved = [];
+        for (const flashcard of created) {
+          saved.push(await flashcardRepository.save(flashcard));
+        }
+
+        if (dto.deckId && saved.length > 0) {
+          await manager
+            .getRepository(FlashcardDeck)
+            .increment({ id: dto.deckId }, 'cardCount', saved.length);
+        }
+
+        return saved;
+      },
+    );
+
     return {
-      created,
+      created: savedFlashcards,
       skipped,
-      total: created.length,
+      total: savedFlashcards.length,
     };
   }
 
@@ -193,16 +208,16 @@ export class FlashcardItemService {
     const flashcard = await this.getOwnedFlashcardById(flashcardId, userId);
     const deckId = flashcard.deckId;
 
-    await this.flashcardRepository.remove(flashcard);
+    // Removing the card and decrementing the deck counter are one unit.
+    await this.flashcardRepository.manager.transaction(async (manager) => {
+      await manager.getRepository(Flashcard).remove(flashcard);
 
-    // Update deck card count
-    if (deckId) {
-      await this.flashcardDeckRepository.decrement(
-        { id: deckId },
-        'cardCount',
-        1,
-      );
-    }
+      if (deckId) {
+        await manager
+          .getRepository(FlashcardDeck)
+          .decrement({ id: deckId }, 'cardCount', 1);
+      }
+    });
 
     return { message: 'Flashcard deleted successfully' };
   }
@@ -252,48 +267,61 @@ export class FlashcardItemService {
       where: { lessonId: dto.lessonId },
     });
 
-    let deckId = dto.deckId;
+    // The deck (when freshly created), its cards, and the card counter all
+    // commit together — a mid-import failure must not leave an empty deck.
+    return this.flashcardRepository.manager.transaction(async (manager) => {
+      const flashcardDeckRepository = manager.getRepository(FlashcardDeck);
+      let deckId = dto.deckId;
 
-    // Create new deck if not provided
-    if (!deckId || dto.createDeck) {
-      // Auto-assign topic based on course level
-      const topic = this.mapCourseLevelToTopic(lesson.course?.level);
+      // Create new deck if not provided
+      if (!deckId || dto.createDeck) {
+        // Auto-assign topic based on course level
+        const topic = this.mapCourseLevelToTopic(lesson.course?.level);
 
-      const deck = this.flashcardDeckRepository.create({
-        name: `${lesson.title} - Flashcards`,
-        description: `Auto-generated from lesson: ${lesson.title}`,
-        type: 'SYSTEM',
-        userId,
-        isPublic: false,
-        topic,
-      });
-      const savedDeck = await this.flashcardDeckRepository.save(deck);
-      deckId = savedDeck.id;
-    }
-
-    let imported = 0;
-    let skipped = 0;
-
-    for (const vocab of vocabularies) {
-      // Check for duplicates
-      const duplicate = await this.checkDuplicateFlashcard(vocab.word, userId);
-      if (duplicate) {
-        skipped++;
-        continue;
+        const deck = this.flashcardDeckRepository.create({
+          name: `${lesson.title} - Flashcards`,
+          description: `Auto-generated from lesson: ${lesson.title}`,
+          type: 'SYSTEM',
+          userId,
+          isPublic: false,
+          topic,
+        });
+        const savedDeck = await flashcardDeckRepository.save(deck);
+        deckId = savedDeck.id;
       }
 
-      await this.createFlashcardFromVocabulary(vocab, deckId, userId);
-      imported++;
-    }
+      let skipped = 0;
+      // Batch-local duplicate tracking: same-batch words would otherwise
+      // slip past checkDuplicateFlashcard (which reads outside the txn).
+      const seenFronts = new Set<string>();
+      const flashcardRepository = manager.getRepository(Flashcard);
+      const saved = [];
 
-    // Update deck card count
-    await this.flashcardDeckRepository.increment(
-      { id: deckId },
-      'cardCount',
-      imported,
-    );
+      for (const vocab of vocabularies) {
+        const duplicate =
+          seenFronts.has(vocab.word) ||
+          (await this.checkDuplicateFlashcard(vocab.word, userId));
+        if (duplicate) {
+          skipped++;
+          continue;
+        }
+        seenFronts.add(vocab.word);
 
-    return { imported, skipped, deckId };
+        saved.push(
+          await flashcardRepository.save(
+            this.createFlashcardFromVocabulary(vocab, deckId, userId),
+          ),
+        );
+      }
+
+      await flashcardDeckRepository.increment(
+        { id: deckId },
+        'cardCount',
+        saved.length,
+      );
+
+      return { imported: saved.length, skipped, deckId };
+    });
   }
 
   async importFromVocabularyBulk(
@@ -332,12 +360,13 @@ export class FlashcardItemService {
     };
   }
 
-  private async createFlashcardFromVocabulary(
+  private createFlashcardFromVocabulary(
     vocab: Vocabulary,
     deckId: string,
     userId: number,
   ) {
-    const flashcard = this.flashcardRepository.create({
+    // Builds the entity only — the caller persists it inside its transaction.
+    return this.flashcardRepository.create({
       front: vocab.word,
       back: vocab.meaning,
       pronunciation: vocab.pronunciation,
@@ -352,8 +381,6 @@ export class FlashcardItemService {
       status: 'NEW',
       difficulty: 1,
     });
-
-    return this.flashcardRepository.save(flashcard);
   }
 
   private async checkDuplicateFlashcard(

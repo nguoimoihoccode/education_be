@@ -15,6 +15,7 @@ export enum EducationActivityType {
   PRACTICE = 'practice',
   SOCIAL = 'social',
   ACHIEVEMENT = 'achievement',
+  SCHOOL = 'school',
 }
 
 @Entity('edu_activity_logs')

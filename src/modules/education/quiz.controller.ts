@@ -30,6 +30,7 @@ import {
   StartQuizSessionDto,
   SubmitQuizAnswerDto,
   CompleteQuizSessionDto,
+  CompleteQuizSessionBodyDto,
   GenerateQuizFromFlashcardsDto,
 } from './dto';
 import { JwtAuthGuard } from '../auth/jwt-auth.guard';
@@ -210,11 +211,13 @@ export class QuizController {
   async completeQuizSession(
     @Req() req: RequestWithUser,
     @Param('sessionId') sessionId: string,
+    @Body() body: CompleteQuizSessionBodyDto = {},
   ) {
     const userId = this.getUserId(req);
     return this.quizSessionCompletionService.completeAndUpdatePlan(
       userId,
       sessionId,
+      body?.homeworkId,
     );
   }
 

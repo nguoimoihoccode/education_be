@@ -1,6 +1,7 @@
 import { plainToInstance } from 'class-transformer';
 import { validate } from 'class-validator';
 import { DataSource } from 'typeorm';
+import { CacheService } from '../../common/cache/cache.service';
 import {
   LeaderboardCategory,
   LeaderboardPeriod,
@@ -485,5 +486,28 @@ describe('EducationLeaderboardService', () => {
     await expect(service.me(404)).rejects.toMatchObject({
       status: 404,
     });
+  });
+
+  it('serves repeated identical queries from the cache without re-running SQL', async () => {
+    query.mockResolvedValue([{ data: [], total: 0, currentUser: null }]);
+    const cachedService = new EducationLeaderboardService(
+      { query } as unknown as DataSource,
+      () => now,
+      new CacheService(null),
+    );
+
+    const first = await cachedService.list(7, { page: 1, limit: 20 });
+    const second = await cachedService.list(7, { page: 1, limit: 20 });
+    expect(second).toEqual(first);
+    expect(query).toHaveBeenCalledTimes(1);
+
+    // A different user hits the same page through their own cache entry.
+    await cachedService.list(8, { page: 1, limit: 20 });
+    expect(query).toHaveBeenCalledTimes(2);
+
+    // stats() has its own cache entry.
+    await cachedService.stats();
+    await cachedService.stats();
+    expect(query).toHaveBeenCalledTimes(3);
   });
 });

@@ -1,6 +1,6 @@
 import { Injectable, NotFoundException } from '@nestjs/common';
 import { InjectRepository } from '@nestjs/typeorm';
-import { Repository, In, LessThanOrEqual } from 'typeorm';
+import { EntityManager, Repository, In, LessThanOrEqual } from 'typeorm';
 import {
   Flashcard,
   UserFlashcard,
@@ -13,9 +13,12 @@ import {
   CompleteReviewSessionDto,
 } from '../dto';
 import { calculateSrsReview, nextReviewDate } from '../domain/srs.policy';
+import { StreakService } from './streak.service';
 
 @Injectable()
 export class FlashcardReviewService {
+  private readonly streakService: StreakService;
+
   constructor(
     @InjectRepository(Flashcard)
     private readonly flashcardRepository: Repository<Flashcard>,
@@ -24,8 +27,12 @@ export class FlashcardReviewService {
     @InjectRepository(ReviewSession)
     private readonly reviewSessionRepository: Repository<ReviewSession>,
     @InjectRepository(UserStreak)
-    private readonly userStreakRepository: Repository<UserStreak>,
-  ) {}
+    userStreakRepository: Repository<UserStreak>,
+  ) {
+    // Manual construction (matching this module's facade pattern) so the
+    // review flow shares the concurrency-safe streak implementation.
+    this.streakService = new StreakService(userStreakRepository);
+  }
 
   // ==================== Review System ====================
 
@@ -48,73 +55,79 @@ export class FlashcardReviewService {
   }
 
   async reviewFlashcard(userId: number, dto: ReviewFlashcardDto) {
-    const userFlashcard = await this.userFlashcardRepository.findOne({
-      where: { userId, flashcardId: dto.flashcardId },
-    });
+    // One transaction covers the SRS row, the card status, and the streak:
+    // a failure in any step rolls the whole review back.
+    const { nextReview } =
+      await this.userFlashcardRepository.manager.transaction(
+        async (manager) => {
+          const flashcard = await manager
+            .getRepository(Flashcard)
+            .findOne({ where: { id: dto.flashcardId } });
 
-    let reviewedFlashcard = userFlashcard;
+          if (!flashcard) {
+            throw new NotFoundException('Flashcard not found');
+          }
 
-    if (!reviewedFlashcard) {
-      // First time reviewing this card
-      const flashcard = await this.flashcardRepository.findOne({
-        where: { id: dto.flashcardId },
-      });
+          const userFlashcardRepository = manager.getRepository(UserFlashcard);
 
-      if (!flashcard) {
-        throw new NotFoundException('Flashcard not found');
-      }
+          // First time reviewing this card: insert-or-ignore the skeleton row
+          // so two concurrent first reviews can't both "create" it and lose
+          // one write (the (userId, flashcardId) unique constraint absorbs
+          // the loser), then take the row lock for the SRS read-modify-write.
+          await userFlashcardRepository
+            .createQueryBuilder()
+            .insert()
+            .into(UserFlashcard)
+            .values({
+              userId,
+              flashcardId: dto.flashcardId,
+              deckId: flashcard.deckId,
+              firstReviewed: new Date(),
+            })
+            .orIgnore()
+            .execute();
 
-      const newUserFlashcard = this.userFlashcardRepository.create({
-        userId,
-        flashcardId: dto.flashcardId,
-        deckId: flashcard.deckId,
-        firstReviewed: new Date(),
-      });
+          const reviewedFlashcard = await userFlashcardRepository.findOne({
+            where: { userId, flashcardId: dto.flashcardId },
+            lock: { mode: 'pessimistic_write' },
+          });
 
-      await this.userFlashcardRepository.save(newUserFlashcard);
+          if (!reviewedFlashcard) {
+            throw new Error(
+              `User flashcard row missing for user ${userId} card ${dto.flashcardId}`,
+            );
+          }
 
-      // Update SRS
-      this.calculateSRS(newUserFlashcard, dto.quality);
+          // Update SRS
+          this.calculateSRS(reviewedFlashcard, dto.quality);
 
-      // Update counts
-      if (dto.quality >= 3) {
-        newUserFlashcard.correctCount++;
-        newUserFlashcard.streak++;
-      } else {
-        newUserFlashcard.wrongCount++;
-        newUserFlashcard.streak = 0;
-      }
-      newUserFlashcard.totalReviews++;
-      newUserFlashcard.lastReviewed = new Date();
+          // Update counts
+          if (dto.quality >= 3) {
+            reviewedFlashcard.correctCount++;
+            reviewedFlashcard.streak++;
+          } else {
+            reviewedFlashcard.wrongCount++;
+            reviewedFlashcard.streak = 0;
+          }
+          reviewedFlashcard.totalReviews++;
+          reviewedFlashcard.lastReviewed = new Date();
 
-      reviewedFlashcard =
-        await this.userFlashcardRepository.save(newUserFlashcard);
-    } else {
-      // Update SRS
-      this.calculateSRS(reviewedFlashcard, dto.quality);
+          await userFlashcardRepository.save(reviewedFlashcard);
 
-      // Update counts
-      if (dto.quality >= 3) {
-        reviewedFlashcard.correctCount++;
-        reviewedFlashcard.streak++;
-      } else {
-        reviewedFlashcard.wrongCount++;
-        reviewedFlashcard.streak = 0;
-      }
-      reviewedFlashcard.totalReviews++;
-      reviewedFlashcard.lastReviewed = new Date();
+          // Update flashcard status
+          await this.updateFlashcardStatus(manager, dto.flashcardId);
 
-      reviewedFlashcard =
-        await this.userFlashcardRepository.save(reviewedFlashcard);
-    }
+          // Update streak (no XP here — review sessions award it on completion)
+          await this.streakService.recordActivity(String(userId), {
+            trackTotalDays: false,
+            runner: manager,
+          });
 
-    // Update flashcard status
-    await this.updateFlashcardStatus(dto.flashcardId);
+          return { nextReview: reviewedFlashcard.nextReview };
+        },
+      );
 
-    // Update streak and XP
-    await this.updateStreak(userId);
-
-    return { success: true, nextReview: reviewedFlashcard.nextReview };
+    return { success: true, nextReview };
   }
 
   async completeReviewSession(userId: number, dto: CompleteReviewSessionDto) {
@@ -221,10 +234,13 @@ export class FlashcardReviewService {
     userFlashcard.nextReview = nextReviewDate(new Date(), result.interval);
   }
 
-  private async updateFlashcardStatus(flashcardId: string) {
-    const userFlashcard = await this.userFlashcardRepository.findOne({
-      where: { flashcardId },
-    });
+  private async updateFlashcardStatus(
+    manager: EntityManager,
+    flashcardId: string,
+  ) {
+    const userFlashcard = await manager
+      .getRepository(UserFlashcard)
+      .findOne({ where: { flashcardId } });
 
     if (!userFlashcard) {
       return;
@@ -242,51 +258,9 @@ export class FlashcardReviewService {
       status = 'MASTERED';
     }
 
-    await this.flashcardRepository.update({ id: flashcardId }, { status });
-  }
-
-  private async updateStreak(userId: number) {
-    const today = new Date();
-    today.setHours(0, 0, 0, 0);
-
-    let streak = await this.userStreakRepository.findOne({
-      where: { userId: String(userId) },
-    });
-
-    if (!streak) {
-      streak = this.userStreakRepository.create({
-        userId: String(userId),
-        currentStreak: 1,
-        longestStreak: 1,
-        lastActivityDate: today,
-      });
-    } else {
-      const lastStudy = new Date(streak.lastActivityDate);
-      lastStudy.setHours(0, 0, 0, 0);
-
-      const diffDays = Math.floor(
-        (today.getTime() - lastStudy.getTime()) / (1000 * 60 * 60 * 24),
-      );
-
-      if (diffDays === 0) {
-        // Same day, no change
-        return;
-      } else if (diffDays === 1) {
-        // Consecutive day
-        streak.currentStreak++;
-        streak.longestStreak = Math.max(
-          streak.longestStreak,
-          streak.currentStreak,
-        );
-      } else {
-        // Streak broken
-        streak.currentStreak = 1;
-      }
-
-      streak.lastActivityDate = today;
-    }
-
-    await this.userStreakRepository.save(streak);
+    await manager
+      .getRepository(Flashcard)
+      .update({ id: flashcardId }, { status });
   }
 
   async getDueFlashcardsCount(userId: number, deckId?: string) {

@@ -3,6 +3,7 @@ import { METHOD_METADATA, PATH_METADATA } from '@nestjs/common/constants';
 import { MODULE_METADATA } from '@nestjs/common/constants';
 import { Test } from '@nestjs/testing';
 import { IS_PUBLIC_KEY } from '../../common/decorators/public.decorator';
+import { CacheModule } from '../../common/cache/cache.module';
 import type { RequestWithUser } from '../../common/types/auth.types';
 import {
   LeaderboardCategory,
@@ -140,7 +141,7 @@ describe('EducationLeaderboardModule', () => {
       EducationLeaderboardModule,
     ) as unknown[];
 
-    expect(imports).toEqual([]);
+    expect(imports).toEqual([CacheModule]);
     expect(controllers).toEqual([EducationLeaderboardController]);
     expect(providers).toEqual(
       expect.arrayContaining([

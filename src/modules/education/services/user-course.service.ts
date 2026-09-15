@@ -12,6 +12,18 @@ import {
 import { CourseCatalogService } from './course-catalog.service';
 import { StreakService } from './streak.service';
 
+/**
+ * True when the driver rejected the write with a unique-constraint violation
+ * (PostgreSQL 23505 / MySQL ER_DUP_ENTRY). TypeORM surfaces the driver code
+ * on the error itself or on `error.driverError` depending on version.
+ */
+export function isDuplicateKeyError(error: unknown): boolean {
+  const code =
+    (error as { code?: string })?.code ??
+    (error as { driverError?: { code?: string } })?.driverError?.code;
+  return code === '23505' || code === 'ER_DUP_ENTRY';
+}
+
 @Injectable()
 export class UserCourseService {
   constructor(
@@ -43,7 +55,17 @@ export class UserCourseService {
       status: EnrollmentStatus.ENROLLED,
     });
 
-    return this.userCourseRepository.save(userCourse);
+    try {
+      return await this.userCourseRepository.save(userCourse);
+    } catch (error) {
+      // Two concurrent enrollments both pass the findOne check above; the
+      // (userId, courseId) unique constraint absorbs the loser instead of
+      // surfacing a 500.
+      if (isDuplicateKeyError(error)) {
+        throw new ConflictException('Already enrolled in this course');
+      }
+      throw error;
+    }
   }
 
   async getUserCourses(userId: string): Promise<UserCourse[]> {

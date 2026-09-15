@@ -107,106 +107,141 @@ export class QuizSessionService {
     sessionId: string,
     dto: SubmitQuizAnswerDto,
   ) {
-    const session = await this.getQuizSession(sessionId, userId);
-
-    if (session.completed) {
-      throw new BadRequestException('Quiz session already completed');
-    }
-
-    const question = await this.quizQuestionRepository.findOne({
-      where: { id: dto.questionId },
-    });
-
-    if (!question) {
-      throw new NotFoundException('Question not found');
-    }
-
-    if (question.quizId !== session.quizId) {
-      throw new BadRequestException(
-        'Question does not belong to this quiz session',
+    // Lock the session row so two rapid submissions read-modify-write the
+    // answers array serially instead of one clobbering the other.
+    return this.quizSessionRepository.manager.transaction(async (manager) => {
+      const sessionRepository = manager.getRepository(QuizSession);
+      const session = await this.findLockedSession(
+        sessionRepository,
+        sessionId,
+        userId,
       );
-    }
 
-    if (!isQuestionInSessionOrder(session.questionOrder, dto.questionId)) {
-      throw new BadRequestException(
-        'Question is not part of this quiz session',
-      );
-    }
+      if (session.completed) {
+        throw new BadRequestException('Quiz session already completed');
+      }
 
-    if (hasAnsweredQuestion(session.answers, dto.questionId)) {
-      throw new BadRequestException(
-        'Question already answered in this session',
-      );
-    }
+      const question = await manager
+        .getRepository(QuizQuestion)
+        .findOne({ where: { id: dto.questionId } });
 
-    const gradedAnswer = gradeQuizAnswer({
-      correctAnswer: question.correctAnswer,
-      userAnswer: dto.answer,
-      points: question.points,
+      if (!question) {
+        throw new NotFoundException('Question not found');
+      }
+
+      if (question.quizId !== session.quizId) {
+        throw new BadRequestException(
+          'Question does not belong to this quiz session',
+        );
+      }
+
+      if (!isQuestionInSessionOrder(session.questionOrder, dto.questionId)) {
+        throw new BadRequestException(
+          'Question is not part of this quiz session',
+        );
+      }
+
+      if (hasAnsweredQuestion(session.answers, dto.questionId)) {
+        throw new BadRequestException(
+          'Question already answered in this session',
+        );
+      }
+
+      const gradedAnswer = gradeQuizAnswer({
+        correctAnswer: question.correctAnswer,
+        userAnswer: dto.answer,
+        points: question.points,
+      });
+      const { isCorrect, points } = gradedAnswer;
+
+      // Update session
+      const answers = session.answers || [];
+      answers.push({
+        questionId: dto.questionId,
+        userAnswer: dto.answer,
+        isCorrect,
+        timeSpent: dto.timeSpent || 0,
+        points,
+      });
+
+      session.answers = answers;
+      session.earnedPoints = answers.reduce((sum, a) => sum + a.points, 0);
+      session.correctAnswers = answers.filter((a) => a.isCorrect).length;
+      session.wrongAnswers = answers.filter((a) => !a.isCorrect).length;
+
+      await sessionRepository.save(session);
+
+      // Get quiz to check showCorrectAnswer setting
+      const quiz = await manager
+        .getRepository(Quiz)
+        .findOne({ where: { id: session.quizId } });
+
+      return {
+        isCorrect,
+        points,
+        correctAnswer: quiz?.showCorrectAnswer
+          ? question.correctAnswer
+          : undefined,
+        explanation: quiz?.showCorrectAnswer ? question.explanation : undefined,
+      };
     });
-    const { isCorrect, points } = gradedAnswer;
-
-    // Update session
-    const answers = session.answers || [];
-    answers.push({
-      questionId: dto.questionId,
-      userAnswer: dto.answer,
-      isCorrect,
-      timeSpent: dto.timeSpent || 0,
-      points,
-    });
-
-    session.answers = answers;
-    session.earnedPoints = answers.reduce((sum, a) => sum + a.points, 0);
-    session.correctAnswers = answers.filter((a) => a.isCorrect).length;
-    session.wrongAnswers = answers.filter((a) => !a.isCorrect).length;
-
-    await this.quizSessionRepository.save(session);
-
-    // Get quiz to check showCorrectAnswer setting
-    const quiz = await this.quizRepository.findOne({
-      where: { id: session.quizId },
-    });
-
-    return {
-      isCorrect,
-      points,
-      correctAnswer: quiz?.showCorrectAnswer
-        ? question.correctAnswer
-        : undefined,
-      explanation: quiz?.showCorrectAnswer ? question.explanation : undefined,
-    };
   }
 
   async completeQuizSession(userId: number, dto: CompleteQuizSessionDto) {
-    const session = await this.getQuizSession(dto.sessionId, userId);
+    // Locking the row makes a double-complete race throw instead of
+    // marking the session completed twice with two score computations.
+    return this.quizSessionRepository.manager.transaction(async (manager) => {
+      const sessionRepository = manager.getRepository(QuizSession);
+      const session = await this.findLockedSession(
+        sessionRepository,
+        dto.sessionId,
+        userId,
+      );
 
-    if (session.completed) {
-      throw new BadRequestException('Quiz session already completed');
+      if (session.completed) {
+        throw new BadRequestException('Quiz session already completed');
+      }
+
+      session.completed = true;
+      session.completedAt = new Date();
+
+      session.score = calculateFinalQuizScore({
+        earnedPoints: session.earnedPoints,
+        totalPoints: session.totalPoints,
+      });
+
+      // Calculate time spent
+      const startedAt = new Date(session.startedAt);
+      const completedAt = new Date();
+      session.timeSpent = Math.floor(
+        (completedAt.getTime() - startedAt.getTime()) / 1000,
+      );
+
+      // Check if passed
+      const quiz = await manager
+        .getRepository(Quiz)
+        .findOne({ where: { id: session.quizId } });
+      session.passed = session.score >= (quiz?.passingScore || 0);
+
+      await sessionRepository.save(session);
+
+      return session;
+    });
+  }
+
+  private async findLockedSession(
+    sessionRepository: Repository<QuizSession>,
+    sessionId: string,
+    userId: number,
+  ): Promise<QuizSession> {
+    const session = await sessionRepository.findOne({
+      where: { id: sessionId, userId },
+      lock: { mode: 'pessimistic_write' },
+    });
+
+    if (!session) {
+      throw new NotFoundException('Quiz session not found');
     }
-
-    session.completed = true;
-    session.completedAt = new Date();
-
-    session.score = calculateFinalQuizScore({
-      earnedPoints: session.earnedPoints,
-      totalPoints: session.totalPoints,
-    });
-
-    // Calculate time spent
-    const startedAt = new Date(session.startedAt);
-    const completedAt = new Date();
-    session.timeSpent = Math.floor(
-      (completedAt.getTime() - startedAt.getTime()) / 1000,
-    );
-
-    // Check if passed
-    const quiz = await this.quizRepository.findOne({
-      where: { id: session.quizId },
-    });
-    session.passed = session.score >= (quiz?.passingScore || 0);
-
-    await this.quizSessionRepository.save(session);
 
     return session;
   }

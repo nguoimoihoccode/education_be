@@ -27,6 +27,7 @@ import {
   SubmitExercisesResultDto,
 } from './dto';
 import { AiService } from '../ai/ai.service';
+import { CacheService } from '../../common/cache/cache.service';
 import { CourseCatalogService } from './services/course-catalog.service';
 import { StreakService } from './services/streak.service';
 import { UserCourseService } from './services/user-course.service';
@@ -73,6 +74,7 @@ export class EducationService {
     @InjectRepository(DailyLearningTask)
     private dailyLearningTaskRepository: Repository<DailyLearningTask>,
     private readonly aiService: AiService,
+    cacheService: CacheService = new CacheService(null),
   ) {
     // The use-case services are instantiated manually here (rather than via
     // Nest DI constructor injection) because education.service.spec.ts
@@ -83,6 +85,7 @@ export class EducationService {
     this.courseCatalogService = new CourseCatalogService(
       this.languageRepository,
       this.courseRepository,
+      cacheService,
     );
     this.streakService = new StreakService(this.userStreakRepository);
     this.userCourseService = new UserCourseService(

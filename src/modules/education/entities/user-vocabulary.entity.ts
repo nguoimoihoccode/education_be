@@ -4,6 +4,7 @@ import {
   Column,
   CreateDateColumn,
   UpdateDateColumn,
+  Index,
   ManyToOne,
   JoinColumn,
   Unique,
@@ -19,6 +20,7 @@ export enum VocabularyStatus {
 }
 
 @Entity('edu_user_vocabularies')
+@Index('IDX_edu_user_vocabularies_user_next_review', ['userId', 'nextReview'])
 @Unique(['userId', 'vocabularyId'])
 export class UserVocabulary {
   @PrimaryGeneratedColumn('uuid')

@@ -26,6 +26,19 @@ import {
 } from '../modules/education/entities';
 import { EducationActivityLog } from '../modules/activity-log/entities/activity-log.entity';
 import { EducationDataExport } from '../modules/data-export/entities/data-export.entity';
+import {
+  School,
+  AcademicYear,
+  Subject,
+  SchoolClass,
+  TeachingAssignment,
+  ClassMembership,
+  ParentLink,
+  TimeSlot,
+  AttendanceRecord,
+  GradeEntry,
+  HomeworkAssignment,
+} from '../modules/school/entities';
 
 const isSupabaseHost = (host?: string) =>
   host?.includes('supabase') || host?.includes('pooler.supabase');
@@ -61,6 +74,18 @@ export default new DataSource({
     DailyLearningTask,
     EducationActivityLog,
     EducationDataExport,
+    // School platform entities
+    School,
+    AcademicYear,
+    Subject,
+    SchoolClass,
+    TeachingAssignment,
+    ClassMembership,
+    ParentLink,
+    TimeSlot,
+    AttendanceRecord,
+    GradeEntry,
+    HomeworkAssignment,
   ],
   migrations:
     process.env.NODE_ENV === 'production'

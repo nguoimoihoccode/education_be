@@ -1,5 +1,6 @@
 import { Inject, Injectable, NotFoundException } from '@nestjs/common';
 import { DataSource } from 'typeorm';
+import { CacheService } from '../../common/cache/cache.service';
 import {
   LeaderboardCategory,
   LeaderboardPeriod,
@@ -9,6 +10,10 @@ import {
 export const EDUCATION_LEADERBOARD_CLOCK = Symbol(
   'EDUCATION_LEADERBOARD_CLOCK',
 );
+
+/** Ranking CTEs scan every user; serve repeat polls from a short cache. */
+export const LEADERBOARD_CACHE_TTL_SECONDS = 60;
+const LEADERBOARD_CACHE_PREFIX = 'lb:';
 
 export type EducationLeaderboardClock = () => Date;
 
@@ -100,6 +105,7 @@ export class EducationLeaderboardService {
     private readonly dataSource: DataSource,
     @Inject(EDUCATION_LEADERBOARD_CLOCK)
     private readonly clock: EducationLeaderboardClock,
+    private readonly cache: CacheService = new CacheService(null),
   ) {}
 
   async list(
@@ -110,8 +116,35 @@ export class EducationLeaderboardService {
     const limit = Math.min(100, Math.max(1, query.limit ?? 20));
     const period = query.period ?? LeaderboardPeriod.WEEK;
     const category = query.category ?? LeaderboardCategory.XP;
-    const cutoff = getPeriodCutoff(period, this.clock());
     const search = query.search?.trim() || null;
+
+    const cacheKey = `${LEADERBOARD_CACHE_PREFIX}list:${category}:${period}:${page}:${limit}:${search ?? ''}:${currentUserId}`;
+    const cached = await this.cache.get<EducationLeaderboardResponse>(cacheKey);
+    if (cached) {
+      return cached;
+    }
+
+    const response = await this.queryList(
+      currentUserId,
+      page,
+      limit,
+      period,
+      category,
+      search,
+    );
+    await this.cache.set(cacheKey, response, LEADERBOARD_CACHE_TTL_SECONDS);
+    return response;
+  }
+
+  private async queryList(
+    currentUserId: number,
+    page: number,
+    limit: number,
+    period: LeaderboardPeriod,
+    category: LeaderboardCategory,
+    search: string | null,
+  ): Promise<EducationLeaderboardResponse> {
+    const cutoff = getPeriodCutoff(period, this.clock());
     const orderExpression = getLeaderboardOrderExpression(category);
     const sql = this.buildListSql(orderExpression);
     const rows = await this.dataSource.query<RawLeaderboardResult[]>(sql, [
@@ -147,6 +180,17 @@ export class EducationLeaderboardService {
     totalQuizzesPassed: number;
     totalHoursStudied: number;
   }> {
+    const cacheKey = `${LEADERBOARD_CACHE_PREFIX}stats`;
+    const cached = await this.cache.get<{
+      totalXp: number;
+      totalLessons: number;
+      totalQuizzesPassed: number;
+      totalHoursStudied: number;
+    }>(cacheKey);
+    if (cached) {
+      return cached;
+    }
+
     const rows = await this.dataSource.query<RawStatsResult[]>(`
       SELECT
         COALESCE(
@@ -178,16 +222,23 @@ export class EducationLeaderboardService {
         ) AS "totalHoursStudied"
     `);
     const raw = rows[0] ?? {};
-
-    return {
+    const stats = {
       totalXp: this.toNumber(raw.totalXp),
       totalLessons: this.toNumber(raw.totalLessons),
       totalQuizzesPassed: this.toNumber(raw.totalQuizzesPassed),
       totalHoursStudied: this.toNumber(raw.totalHoursStudied),
     };
+    await this.cache.set(cacheKey, stats, LEADERBOARD_CACHE_TTL_SECONDS);
+    return stats;
   }
 
   async me(userId: number): Promise<EducationLeaderboardRow> {
+    const cacheKey = `${LEADERBOARD_CACHE_PREFIX}me:${userId}`;
+    const cached = await this.cache.get<EducationLeaderboardRow>(cacheKey);
+    if (cached) {
+      return cached;
+    }
+
     const orderExpression = getLeaderboardOrderExpression(
       LeaderboardCategory.XP,
     );
@@ -212,7 +263,9 @@ export class EducationLeaderboardService {
       throw new NotFoundException('User not found');
     }
 
-    return this.mapRow(row);
+    const mapped = this.mapRow(row);
+    await this.cache.set(cacheKey, mapped, LEADERBOARD_CACHE_TTL_SECONDS);
+    return mapped;
   }
 
   private buildListSql(orderExpression: string): string {

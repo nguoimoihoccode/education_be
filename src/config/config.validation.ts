@@ -96,6 +96,13 @@ export const configValidationSchema = Joi.object({
     .default(100)
     .description('Rate limit max requests'),
 
+  // Cache (optional; in-memory cache is used when unset)
+  REDIS_URL: Joi.string()
+    .optional()
+    .description(
+      'Optional Redis connection URL for the shared cache layer (e.g. redis://redis:6379)',
+    ),
+
   // AI Tutor (Groq OpenAI-compatible API)
   GROQ_API_KEY: Joi.string().optional().description('Groq API key'),
   GROQ_BASE_URL: Joi.string()

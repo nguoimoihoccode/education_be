@@ -38,12 +38,33 @@ describe('QuizController today plan completion', () => {
     const result = await controller.completeQuizSession(
       { user: { sub: 42 } } as any,
       'session-1',
+      {},
     );
 
     expect(result).toEqual({ quizId: 'quiz-1' });
     expect(completionService.completeAndUpdatePlan).toHaveBeenCalledWith(
       42,
       'session-1',
+      undefined,
+    );
+  });
+
+  it('forwards an optional homeworkId to the completion service', async () => {
+    const completionService = {
+      completeAndUpdatePlan: jest.fn().mockResolvedValue({ quizId: 'q' }),
+    };
+    const controller = new QuizController({} as any, completionService as any);
+
+    await controller.completeQuizSession(
+      { user: { sub: 42 } } as any,
+      'session-1',
+      { homeworkId: 'hw-1' },
+    );
+
+    expect(completionService.completeAndUpdatePlan).toHaveBeenCalledWith(
+      42,
+      'session-1',
+      'hw-1',
     );
   });
 

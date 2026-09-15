@@ -27,7 +27,8 @@
     "test:watch": "jest --watch",
     "test:cov": "jest --coverage",
     "test:debug": "node --inspect-brk -r tsconfig-paths/register -r ts-node/register node_modules/.bin/jest --runInBand",
-    "test:e2e": "jest --config ./test/e2e/jest-e2e.json"
+    "test:e2e": "jest --config ./test/e2e/jest-e2e.json",
+    "bootstrap:school": "node -r ts-node/register -r tsconfig-paths/register src/database/seeders/bootstrap-school.cli.ts"
   },
   "dependencies": {
     "@nestjs/common": "^11.0.1",
@@ -41,11 +42,13 @@
     "@nestjs/throttler": "^6.5.0",
     "@nestjs/typeorm": "^11.0.0",
     "bcryptjs": "^3.0.3",
+    "bullmq": "^5.81.5",
     "class-transformer": "^0.5.1",
     "class-validator": "^0.14.3",
     "date-fns": "^4.1.0",
     "dotenv": "^16.6.1",
     "helmet": "^8.1.0",
+    "ioredis": "^5.11.1",
     "joi": "^18.0.2",
     "jszip": "^3.10.1",
     "mammoth": "^1.12.0",

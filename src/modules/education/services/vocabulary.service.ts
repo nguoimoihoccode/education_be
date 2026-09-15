@@ -84,37 +84,55 @@ export class VocabularyService {
     vocabularyId: string,
     dto: ReviewVocabularyDto,
   ): Promise<UserVocabulary> {
-    let userVocab = await this.userVocabularyRepository.findOne({
-      where: { userId, vocabularyId },
-    });
+    // Insert-or-ignore the skeleton row, then lock it: two concurrent first
+    // reviews would otherwise both "create" the row and one would violate
+    // the (userId, vocabularyId) unique constraint with a 500.
+    return this.userVocabularyRepository.manager.transaction(
+      async (manager) => {
+        const userVocabularyRepository = manager.getRepository(UserVocabulary);
 
-    if (!userVocab) {
-      userVocab = this.userVocabularyRepository.create({
-        userId,
-        vocabularyId,
-      });
-    }
+        await userVocabularyRepository
+          .createQueryBuilder()
+          .insert()
+          .into(UserVocabulary)
+          .values({ userId, vocabularyId })
+          .orIgnore()
+          .execute();
 
-    const { easeFactor, interval, repetitions, status } = calculateSrsReview({
-      quality: dto.quality,
-      easeFactor: Number(userVocab.easeFactor),
-      interval: userVocab.interval,
-      repetitions: userVocab.repetitions,
-    });
+        const userVocab = await userVocabularyRepository.findOne({
+          where: { userId, vocabularyId },
+          lock: { mode: 'pessimistic_write' },
+        });
 
-    userVocab.easeFactor = easeFactor;
-    userVocab.interval = interval;
-    userVocab.repetitions = repetitions;
-    userVocab.status = status as VocabularyStatus;
-    userVocab.lastReviewed = new Date();
-    userVocab.nextReview = nextReviewDate(new Date(), interval);
+        if (!userVocab) {
+          throw new Error(
+            `User vocabulary row missing for user ${userId} vocabulary ${vocabularyId}`,
+          );
+        }
 
-    if (dto.quality >= 3) {
-      userVocab.correctCount += 1;
-    } else {
-      userVocab.wrongCount += 1;
-    }
+        const { easeFactor, interval, repetitions, status } =
+          calculateSrsReview({
+            quality: dto.quality,
+            easeFactor: Number(userVocab.easeFactor),
+            interval: userVocab.interval,
+            repetitions: userVocab.repetitions,
+          });
 
-    return this.userVocabularyRepository.save(userVocab);
+        userVocab.easeFactor = easeFactor;
+        userVocab.interval = interval;
+        userVocab.repetitions = repetitions;
+        userVocab.status = status as VocabularyStatus;
+        userVocab.lastReviewed = new Date();
+        userVocab.nextReview = nextReviewDate(new Date(), interval);
+
+        if (dto.quality >= 3) {
+          userVocab.correctCount += 1;
+        } else {
+          userVocab.wrongCount += 1;
+        }
+
+        return userVocabularyRepository.save(userVocab);
+      },
+    );
   }
 }

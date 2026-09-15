@@ -1,6 +1,6 @@
 import { Injectable, NotFoundException } from '@nestjs/common';
 import { InjectRepository } from '@nestjs/typeorm';
-import { Repository } from 'typeorm';
+import { EntityManager, Repository } from 'typeorm';
 import {
   Lesson,
   Course,
@@ -90,12 +90,13 @@ export class LessonContentService {
       orderIndex: (maxOrder?.max || 0) + 1,
     });
 
-    const savedLesson = await this.lessonRepository.save(lesson);
-
-    // Update course total lessons
-    await this.updateCourseLessonCount(dto.courseId);
-
-    return savedLesson;
+    // Saving the lesson and refreshing course.totalLessons are one unit —
+    // a failure mid-way must not leave a stale lesson count behind.
+    return this.lessonRepository.manager.transaction(async (manager) => {
+      const savedLesson = await manager.getRepository(Lesson).save(lesson);
+      await this.updateCourseLessonCount(dto.courseId, manager);
+      return savedLesson;
+    });
   }
 
   async completeLesson(
@@ -105,59 +106,84 @@ export class LessonContentService {
   ): Promise<UserLesson> {
     const lesson = await this.getLessonById(lessonId);
 
-    let userLesson = await this.userLessonRepository.findOne({
-      where: { userId, lessonId },
-    });
-
-    if (userLesson) {
-      userLesson.completed = true;
-      userLesson.completedAt = new Date();
-      userLesson.timeSpent += dto.timeSpent || 0;
-      userLesson.attempts += 1;
-      if (dto.exerciseScore !== undefined) {
-        userLesson.exerciseScore = dto.exerciseScore;
-      }
-    } else {
-      userLesson = this.userLessonRepository.create({
-        userId,
-        lessonId,
-        completed: true,
-        completedAt: new Date(),
-        timeSpent: dto.timeSpent || 0,
-        exerciseScore: dto.exerciseScore,
-        attempts: 1,
+    // Lesson record, course time counter, course progress, and streak all
+    // move together: wrapping them in one transaction means a failure
+    // mid-way leaves no half-updated enrollment behind.
+    return this.userLessonRepository.manager.transaction(async (manager) => {
+      const userLessonRepository = manager.getRepository(UserLesson);
+      let userLesson = await userLessonRepository.findOne({
+        where: { userId, lessonId },
       });
-    }
 
-    const savedUserLesson = await this.userLessonRepository.save(userLesson);
+      if (userLesson) {
+        userLesson.completed = true;
+        userLesson.completedAt = new Date();
+        userLesson.timeSpent += dto.timeSpent || 0;
+        userLesson.attempts += 1;
+        if (dto.exerciseScore !== undefined) {
+          userLesson.exerciseScore = dto.exerciseScore;
+        }
+      } else {
+        userLesson = userLessonRepository.create({
+          userId,
+          lessonId,
+          completed: true,
+          completedAt: new Date(),
+          timeSpent: dto.timeSpent || 0,
+          exerciseScore: dto.exerciseScore,
+          attempts: 1,
+        });
+      }
 
-    if (dto.timeSpent && dto.timeSpent > 0) {
-      await this.userCourseRepository.increment(
-        { userId, courseId: lesson.courseId },
-        'totalTimeSpent',
-        dto.timeSpent,
-      );
-    }
+      const savedUserLesson = await userLessonRepository.save(userLesson);
 
-    // Update course progress
-    await this.updateCourseProgress(userId, lesson.courseId);
+      if (dto.timeSpent && dto.timeSpent > 0) {
+        await manager
+          .getRepository(UserCourse)
+          .increment(
+            { userId, courseId: lesson.courseId },
+            'totalTimeSpent',
+            dto.timeSpent,
+          );
+      }
 
-    // Update streak
-    await this.streakService.updateStreak(userId);
+      // Update course progress
+      await this.updateCourseProgress(userId, lesson.courseId, manager);
 
-    return savedUserLesson;
+      // Update streak (+10 XP, total days) in the same transaction
+      await this.streakService.updateStreak(userId, manager);
+
+      return savedUserLesson;
+    });
   }
 
-  async updateCourseLessonCount(courseId: string): Promise<void> {
-    const count = await this.lessonRepository.count({
+  async updateCourseLessonCount(
+    courseId: string,
+    runner?: EntityManager,
+  ): Promise<void> {
+    const lessonRepository =
+      runner?.getRepository(Lesson) ?? this.lessonRepository;
+    const courseRepository =
+      runner?.getRepository(Course) ?? this.courseRepository;
+
+    const count = await lessonRepository.count({
       where: { courseId, active: true },
     });
-    await this.courseRepository.update(courseId, { totalLessons: count });
+    await courseRepository.update(courseId, { totalLessons: count });
   }
 
-  async updateCourseProgress(userId: string, courseId: string): Promise<void> {
+  async updateCourseProgress(
+    userId: string,
+    courseId: string,
+    runner?: EntityManager,
+  ): Promise<void> {
     const course = await this.courseCatalogService.getCourseById(courseId);
-    const completedLessons = await this.userLessonRepository.count({
+    const userLessonRepository =
+      runner?.getRepository(UserLesson) ?? this.userLessonRepository;
+    const userCourseRepository =
+      runner?.getRepository(UserCourse) ?? this.userCourseRepository;
+
+    const completedLessons = await userLessonRepository.count({
       where: {
         userId,
         completed: true,
@@ -170,7 +196,7 @@ export class LessonContentService {
         ? (completedLessons / course.totalLessons) * 100
         : 0;
 
-    await this.userCourseRepository.update(
+    await userCourseRepository.update(
       { userId, courseId },
       {
         completedLessons,

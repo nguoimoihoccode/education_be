@@ -3,20 +3,42 @@ import {
   buildDeckStatsResult,
   buildFlashcardStatsResult,
 } from './flashcard.service';
+import { Flashcard, UserStreak } from './entities';
 
-const createRepository = (overrides: Record<string, unknown> = {}) => ({
-  count: jest.fn(),
-  create: jest.fn((value) => value),
-  createQueryBuilder: jest.fn(),
-  find: jest.fn(),
-  findAndCount: jest.fn(),
-  findOne: jest.fn(),
-  increment: jest.fn(),
-  remove: jest.fn(),
-  save: jest.fn((value) => Promise.resolve(value)),
-  update: jest.fn(),
-  ...overrides,
-});
+const createRepository = (
+  overrides: Record<string, unknown> = {},
+): Record<string, any> => {
+  const repository: Record<string, any> = {
+    count: jest.fn(),
+    create: jest.fn((value) => value),
+    find: jest.fn(),
+    findAndCount: jest.fn(),
+    findOne: jest.fn(),
+    increment: jest.fn(),
+    remove: jest.fn(),
+    save: jest.fn((value) => Promise.resolve(value)),
+    update: jest.fn(),
+  };
+  // Streak creation runs an insert-or-ignore query builder chain; give the
+  // default a chainable stub (tests may override createQueryBuilder entirely).
+  repository.createQueryBuilder = jest.fn(() => {
+    const builder: any = {};
+    for (const method of ['insert', 'into', 'values', 'orIgnore']) {
+      builder[method] = jest.fn().mockReturnValue(builder);
+    }
+    builder.execute = jest.fn().mockResolvedValue(undefined);
+    return builder;
+  });
+  // Streak writes run through repo.manager.transaction; route the callback
+  // back to this same repository mock so assertions keep working.
+  repository.manager = {
+    transaction: jest.fn(async (work: (manager: unknown) => unknown) =>
+      work({ getRepository: () => repository }),
+    ),
+  };
+  Object.assign(repository, overrides);
+  return repository;
+};
 
 const createService = (repositories: Record<string, any> = {}) => {
   const flashcardDeckRepository =
@@ -245,26 +267,57 @@ describe('FlashcardService review behavior', () => {
 
   it('returns the updated next review date after the first flashcard review', async () => {
     const savedUserFlashcards: any[] = [];
+    const flashcardRepository = createRepository({
+      findOne: jest.fn().mockResolvedValue({ id: 'card-1', deckId: 'deck-1' }),
+      update: jest.fn(),
+    });
+    const userStreakRepository = createRepository({
+      findOne: jest.fn().mockResolvedValue({
+        userId: '1',
+        currentStreak: 0,
+        longestStreak: 0,
+        totalDays: 0,
+        totalXp: 0,
+        level: 1,
+      }),
+      save: jest.fn((value) => Promise.resolve(value)),
+    });
     const userFlashcardRepository = createRepository({
-      findOne: jest.fn().mockResolvedValue(null),
+      findOne: jest.fn().mockResolvedValue({
+        userId: 1,
+        flashcardId: 'card-1',
+        deckId: 'deck-1',
+        easeFactor: 2.5,
+        interval: 0,
+        repetitions: 0,
+        correctCount: 0,
+        wrongCount: 0,
+        streak: 0,
+        totalReviews: 0,
+      }),
       save: jest.fn(async (value) => {
         savedUserFlashcards.push({ ...value });
         return value;
       }),
     });
+    // reviewFlashcard runs a single transaction across the user-flashcard,
+    // flashcard, and streak repositories; route each entity to its mock.
+    userFlashcardRepository.manager = {
+      transaction: jest.fn(async (work: (manager: unknown) => unknown) =>
+        work({
+          getRepository: (entity: unknown) =>
+            entity === Flashcard
+              ? flashcardRepository
+              : entity === UserStreak
+                ? userStreakRepository
+                : userFlashcardRepository,
+        }),
+      ),
+    };
     const { service } = createService({
-      flashcardRepository: createRepository({
-        findOne: jest
-          .fn()
-          .mockResolvedValue({ id: 'card-1', deckId: 'deck-1' }),
-        update: jest.fn(),
-      }),
+      flashcardRepository,
       userFlashcardRepository,
-      userStreakRepository: createRepository({
-        create: jest.fn((value) => value),
-        findOne: jest.fn().mockResolvedValue(null),
-        save: jest.fn(),
-      }),
+      userStreakRepository,
     });
 
     const result = await service.reviewFlashcard(1, {
@@ -275,6 +328,7 @@ describe('FlashcardService review behavior', () => {
     expect(result.success).toBe(true);
     expect(result.nextReview).toBeDefined();
     expect(savedUserFlashcards.at(-1).nextReview).toBe(result.nextReview);
+    expect(userFlashcardRepository.manager.transaction).toHaveBeenCalled();
   });
 
   it('persists review session result counts when completing a session', async () => {
