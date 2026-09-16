@@ -1,9 +1,12 @@
 name: Deploy Backend
 
+# Deployment happens from phuc_v2026 ONLY. Feature branches are built by ci.yml
+# but never deployed: merge into phuc_v2026 (through a PR) and that push is what
+# ships. Adding a branch here means that branch ships to production directly,
+# which is exactly what this list is meant to prevent -- do not add one.
 on:
   push:
     branches:
-      - main
       - phuc_v2026
   workflow_dispatch:
 
@@ -16,8 +19,24 @@ env:
   BACKEND_IMAGE: ghcr.io/${{ github.repository }}
 
 jobs:
+  # workflow_dispatch lets an operator pick any ref, so the branch filter above
+  # is not enough on its own. Fail loudly and early instead of shipping a
+  # feature branch to production.
+  guard:
+    name: Only phuc_v2026 may deploy
+    runs-on: ubuntu-latest
+    steps:
+      - name: Check the ref being deployed
+        run: |
+          if [ "${GITHUB_REF}" != "refs/heads/phuc_v2026" ]; then
+            echo "::error::This workflow deploys phuc_v2026 only (got ${GITHUB_REF}). Merge your work into phuc_v2026 first."
+            exit 1
+          fi
+          echo "Deploying ${GITHUB_REF}."
+
   quality-gate:
     name: Quality gate
+    needs: guard
     uses: ./.github/workflows/ci.yml
 
   build-and-push:
