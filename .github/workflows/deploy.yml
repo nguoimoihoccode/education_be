@@ -102,6 +102,70 @@ jobs:
             export BACKEND_IMAGE IMAGE_TAG
             docker compose -f docker-compose.prod.yml --env-file .env.prod pull db backend
 
+            db_psql() {
+              docker compose -f docker-compose.prod.yml --env-file .env.prod exec -T db \
+                sh -c 'psql -v ON_ERROR_STOP=1 -U "$POSTGRES_USER" -d "$POSTGRES_DB" -tA'
+            }
+
+            # This database predates TypeORM's migration history: its schema was
+            # built outside the migration runner, so `migrations` is empty and the
+            # runner replays from 1700000000000, dying on a column that already
+            # exists. Record the pre-school migrations as applied once -- they are
+            # already reflected in the schema -- so the runner applies only what is
+            # genuinely new. Guarded on an empty history AND a schema probe, so it
+            # cannot fire against a database that does not need it.
+            baseline_migrations() {
+              db_psql <<'SQL'
+            CREATE TABLE IF NOT EXISTS "migrations" (
+              "id" SERIAL NOT NULL,
+              "timestamp" bigint NOT NULL,
+              "name" character varying NOT NULL,
+              CONSTRAINT "PK_8c82d7f526340ab734260ea46be" PRIMARY KEY ("id")
+            );
+            SQL
+
+              local applied
+              applied="$(db_psql <<'SQL' | tr -d '[:space:]'
+            SELECT count(*) FROM "migrations";
+            SQL
+            )"
+              if [ "$applied" != "0" ]; then
+                echo "Migration history already present ($applied rows); skipping baseline."
+                return 0
+              fi
+
+              local probe
+              probe="$(db_psql <<'SQL' | tr -d '[:space:]'
+            SELECT to_regclass('public.auth_login_attempts') IS NOT NULL;
+            SQL
+            )"
+              if [ "$probe" != "t" ]; then
+                echo "Refusing to baseline: no auth_login_attempts table, so this schema is older than migration 1830000000000 and baselining would hide real work." >&2
+                return 1
+              fi
+
+              echo "Empty migration history on an existing schema; baselining migrations up to 1830000000000."
+              db_psql <<'SQL'
+            INSERT INTO "migrations" ("timestamp", "name") VALUES
+              (1700000000000, 'AddPhoneToUsers1700000000000'),
+              (1770000000000, 'AddFlashcardSchema1770000000000'),
+              (1770000000001, 'AddTopicToFlashcardDecks1770000000001'),
+              (1770000000002, 'AddQuizSchema1770000000002'),
+              (1770000000003, 'AddDescriptionToFlashcards1770000000003'),
+              (1780000000000, 'AddQuizSessionQuestionOrder1780000000000'),
+              (1780000000001, 'AddDailyLearningTasks1780000000001'),
+              (1790000000000, 'AddRefreshTokenSessionMetadata1790000000000'),
+              (1800000000000, 'AddEducationPlatformApis1800000000000'),
+              (1800000000001, 'AddLeaderboardAggregateIndexes1800000000001'),
+              (1810000000000, 'AddAiTutorConversations1810000000000'),
+              (1820000000000, 'AddAiSystemRules1820000000000'),
+              (1830000000000, 'AddAuthLoginAttempts1830000000000')
+            ON CONFLICT DO NOTHING;
+            SQL
+            }
+
+            baseline_migrations
+
             # Apply pending migrations with the newly built image while the old
             # backend is still serving. The app does not run migrations on boot
             # (no migrationsRun), so without this the new code meets an old schema.
