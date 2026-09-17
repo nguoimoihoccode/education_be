@@ -28,6 +28,15 @@ import {
 } from './dto/school-config.dto';
 import { CreateAssignmentDto } from './dto/class.dto';
 
+/**
+ * School-wide configuration and roll-ups. This controller deliberately keeps
+ * @Roles at the CLASS level while the teaching / attendance / timetable /
+ * grades / homework controllers gate per method. Nothing here has a per-object
+ * relationship for the service to check: `resolveSchoolIdForUser` only answers
+ * "which school", so without the role gate any member could list every class,
+ * every teacher and every assignment in the school, and read /school/stats.
+ * Do NOT relax this to match the read-open controllers.
+ */
 @ApiTags('school')
 @ApiBearerAuth()
 @UseGuards(RolesGuard)

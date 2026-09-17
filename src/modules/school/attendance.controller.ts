@@ -23,19 +23,22 @@ import { AttendanceService } from './attendance.service';
 import { TakeAttendanceDto } from './dto/timetable.dto';
 
 /**
- * Attendance (Phase 3). The guard only lists plausible roles; the service
- * checks per class (GVCN / assigned teacher / principal / ADMIN) and all
- * denials are 404 (rule D1). Parents read via /parent/children/:id/attendance.
+ * Attendance (Phase 3). Reads carry no @Roles on purpose: the service confines
+ * them per class via `assertManageAccess` (GVCN / assigned teacher / principal
+ * / ADMIN) and every denial is a 404 (rule D1), so the caller's *relationship*
+ * to the class is the gate, not their role. Writes stay role-gated because
+ * taking attendance is a staff action. Parents read via
+ * /parent/children/:id/attendance.
  */
 @ApiTags('school-attendance')
 @ApiBearerAuth()
 @UseGuards(RolesGuard)
-@Roles(UserRole.TEACHER, ...SCHOOL_ADMIN_ROLES)
 @Controller('attendance')
 export class AttendanceController {
   constructor(private readonly attendanceService: AttendanceService) {}
 
   @Post('take')
+  @Roles(UserRole.TEACHER, ...SCHOOL_ADMIN_ROLES)
   @ApiOperation({ summary: 'Bulk upsert one session = whole class' })
   take(@Req() req: RequestWithUser, @Body() dto: TakeAttendanceDto) {
     return this.attendanceService.takeAttendance(requireUserId(req), dto);

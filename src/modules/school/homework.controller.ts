@@ -26,18 +26,20 @@ import { CreateHomeworkDto } from './dto/homework.dto';
 
 /**
  * BTVN (Phase 4) — giáo viên giao quiz/deck có sẵn cho lớp kèm deadline.
- * Service check quyền theo lớp × môn, denial = 404 (rule D1).
+ * Reads carry no @Roles: `listForStaff` narrows to the classes the caller
+ * actually teaches (`teacherClassIds` = homeroom + assignments, so a student
+ * gets []) and every denial is a 404 (rule D1). Writes stay role-gated.
  * Học sinh đọc qua GET /me/homework; phụ huynh qua /parent.
  */
 @ApiTags('school-homework')
 @ApiBearerAuth()
 @UseGuards(RolesGuard)
-@Roles(UserRole.TEACHER, ...SCHOOL_ADMIN_ROLES)
 @Controller('homework')
 export class HomeworkController {
   constructor(private readonly homeworkService: HomeworkService) {}
 
   @Post()
+  @Roles(UserRole.TEACHER, ...SCHOOL_ADMIN_ROLES)
   @ApiOperation({ summary: 'Giao bài (quiz/deck) cho lớp kèm deadline' })
   create(@Req() req: RequestWithUser, @Body() dto: CreateHomeworkDto) {
     return this.homeworkService.create(requireUserId(req), dto);
@@ -62,6 +64,7 @@ export class HomeworkController {
   }
 
   @Delete(':id')
+  @Roles(UserRole.TEACHER, ...SCHOOL_ADMIN_ROLES)
   @ApiOperation({ summary: 'Xóa BTVN (đầu điểm tự sinh bị cascade theo)' })
   remove(@Req() req: RequestWithUser, @Param('id', ParseUUIDPipe) id: string) {
     return this.homeworkService.remove(requireUserId(req), id);

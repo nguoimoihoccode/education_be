@@ -32,14 +32,18 @@ import {
 import { CreateGradeDto, UpdateGradeDto } from './dto/grade.dto';
 
 /**
- * Sổ điểm (Phase 4). Guard liệt kê các role có thể vào; service check theo
- * lớp × môn (GVCN / GV được phân công môn đó / hiệu trưởng / ADMIN) và mọi
- * denial là 404 (rule D1). Parent đọc qua /parent/children/:id/grades.
+ * Sổ điểm (Phase 4). `GET /` and `GET /me` carry no @Roles: the service scopes
+ * them by relationship — a student is pinned to their own entries no matter
+ * what `studentId` they pass, a teacher falls through to the classes they
+ * actually teach ([] when none), and everyone else resolves through their own
+ * school — so the caller's relationship, not their role, confines the data.
+ * The gradebook-wide reads (`report`, `ranking`) and all writes stay
+ * role-gated: they expose a whole class rather than one person. Every denial
+ * is a 404 (rule D1). Parent đọc qua /parent/children/:id/grades.
  */
 @ApiTags('school-grades')
 @ApiBearerAuth()
 @UseGuards(RolesGuard)
-@Roles(UserRole.TEACHER, UserRole.STUDENT, ...SCHOOL_ADMIN_ROLES)
 @Controller('grades')
 export class GradesController {
   constructor(private readonly gradesService: GradesService) {}

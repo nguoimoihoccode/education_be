@@ -23,6 +23,15 @@ import {
   AddStudentsDto,
 } from './dto/class.dto';
 
+/**
+ * Classes and rosters. Keeps @Roles at the CLASS level on purpose, unlike the
+ * read-open controllers: `ClassService.getClass` resolves the caller's school
+ * and then looks the class up by `{ id, schoolId }` with no per-object
+ * relationship check, so relaxing this would let any member of the school read
+ * any class -- and `GET /school/classes/:id/students` returns the roster
+ * including every student's email (school-class.service.ts listStudents).
+ * Do NOT relax this to match the read-open controllers.
+ */
 @ApiTags('school-classes')
 @ApiBearerAuth()
 @UseGuards(RolesGuard)

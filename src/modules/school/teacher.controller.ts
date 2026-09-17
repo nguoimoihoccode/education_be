@@ -18,14 +18,17 @@ import { ParentLinkService } from './parent-link.service';
 import { InviteParentDto } from './dto/parent-link.dto';
 
 /**
- * Teaching space (Phase 2): the GVCN hub. Guard only lists who may call;
- * the service still checks per-class that the caller is THAT class's
- * homeroom teacher (or principal/ADMIN) — rule D1.
+ * Teaching space (Phase 2): the GVCN hub. Reads carry no @Roles on purpose:
+ * the service confines them to the caller's own classes — `listMyHomeroomClasses`
+ * returns [] for a non-GVCN and the roster/parents handlers go through
+ * `assertClassAccess`, which 404s for anyone who is not that class's homeroom
+ * teacher (or principal/ADMIN), per rule D1. Parent-invite writes stay
+ * role-gated: they mint credentials, so they need both the role and the
+ * per-class check.
  */
 @ApiTags('school-teaching')
 @ApiBearerAuth()
 @UseGuards(RolesGuard)
-@Roles(UserRole.TEACHER, ...SCHOOL_ADMIN_ROLES)
 @Controller('school/teaching')
 export class TeacherController {
   constructor(private readonly parentLinkService: ParentLinkService) {}
@@ -51,6 +54,7 @@ export class TeacherController {
   }
 
   @Post('classes/:id/parents/invite')
+  @Roles(UserRole.TEACHER, ...SCHOOL_ADMIN_ROLES)
   @ApiOperation({ summary: 'Generate an invite code for a student + parent' })
   invite(
     @Req() req: RequestWithUser,
@@ -61,6 +65,7 @@ export class TeacherController {
   }
 
   @Post('classes/:id/parents/:linkId/approve')
+  @Roles(UserRole.TEACHER, ...SCHOOL_ADMIN_ROLES)
   @ApiOperation({ summary: 'Approve a claimed invitation (D5 gate)' })
   approve(
     @Req() req: RequestWithUser,
@@ -71,6 +76,7 @@ export class TeacherController {
   }
 
   @Post('classes/:id/parents/:linkId/revoke')
+  @Roles(UserRole.TEACHER, ...SCHOOL_ADMIN_ROLES)
   @ApiOperation({ summary: 'Revoke a parent link' })
   revoke(
     @Req() req: RequestWithUser,
