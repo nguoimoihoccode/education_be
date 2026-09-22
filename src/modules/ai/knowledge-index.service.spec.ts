@@ -1,5 +1,6 @@
 import { ServiceUnavailableException } from '@nestjs/common';
 import { Repository } from 'typeorm';
+import { Course } from '../education/entities/course.entity';
 import { Lesson } from '../education/entities/lesson.entity';
 import { Vocabulary } from '../education/entities/vocabulary.entity';
 import { contentHash } from './domain/knowledge-chunking.policy';
@@ -176,6 +177,35 @@ describe('KnowledgeIndexService', () => {
       expect(chunksRepo.delete).toHaveBeenCalledWith({ lessonId: LESSON_ID });
     });
 
+    // updateCourse({ active: false }) does not cascade to its lessons, so the
+    // course flag is the only thing standing between an offline course and the
+    // tutor quoting its content.
+    it('removes its own chunks when the lesson sits in a deactivated course', async () => {
+      lessonsRepo.findOne.mockResolvedValue(
+        lesson({ course: { active: false } as Course }),
+      );
+
+      const result = await service.reindexLesson(LESSON_ID);
+
+      expect(chunksRepo.delete).toHaveBeenCalledWith({ lessonId: LESSON_ID });
+      expect(result.removed).toBe(0);
+      expect(embedding.embed).not.toHaveBeenCalled();
+      expect(lessonsRepo.findOne).toHaveBeenCalledWith(
+        expect.objectContaining({ relations: { course: true } }),
+      );
+    });
+
+    it('keeps indexing when the course is active', async () => {
+      lessonsRepo.findOne.mockResolvedValue(
+        lesson({ course: { active: true } as Course }),
+      );
+
+      const result = await service.reindexLesson(LESSON_ID);
+
+      expect(chunksRepo.delete).not.toHaveBeenCalled();
+      expect(result.chunks).toBe(1);
+    });
+
     // An id that cannot exist must not reach the query at all.
     it('does nothing for a lesson id that is not a uuid', async () => {
       const result = await service.reindexLesson('not-a-uuid');
@@ -304,6 +334,20 @@ describe('KnowledgeIndexService', () => {
         lessonId: 'orphan-lesson',
       });
       expect(summary.removed).toBe(3);
+    });
+
+    // The sweep is the safety net for updateCourse({ active: false }), which
+    // cascades to nothing — its lessons stay active, so reindexLesson would
+    // happily keep re-embedding their chunks forever.
+    it('sweeps chunks of lessons in deactivated courses too', async () => {
+      chunksRepo.query.mockResolvedValue([{ lesson_id: 'orphan-lesson' }]);
+
+      await service.reindexAll();
+
+      const sweepSql = chunksRepo.query.mock.calls[0][0] as string;
+      expect(sweepSql).toContain('LEFT JOIN edu_courses');
+      expect(sweepSql).toContain('co.active = true');
+      expect(sweepSql).toContain('co.id IS NULL');
     });
   });
 

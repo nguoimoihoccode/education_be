@@ -154,12 +154,20 @@ export class KnowledgeIndexService {
       return { lessonId, chunks: 0, embedded: 0, removed: 0 };
     }
 
-    const lesson = await this.lessonsRepo.findOne({ where: { id: lessonId } });
+    // The course is fetched with the lesson (one join, no second query): a
+    // deactivated course must stop being citable exactly like a deactivated
+    // lesson, because taking a course offline is supposed to take its lessons'
+    // content out of circulation too — and nothing cascades that flag down.
+    const lesson = await this.lessonsRepo.findOne({
+      where: { id: lessonId },
+      relations: { course: true },
+    });
 
     // A deactivated lesson is no longer taught, so it must stop being citable:
     // leaving its chunks in place would let the tutor quote a lesson the learner
-    // cannot open. A lesson deleted outright is caught by the orphan sweep.
-    if (!lesson || !lesson.active) {
+    // cannot open. A lesson deleted outright is caught by the orphan sweep, as
+    // is a lesson whose course was deactivated underneath it.
+    if (!lesson || !lesson.active || (lesson.course && !lesson.course.active)) {
       const cleared = await this.chunksRepo.delete({ lessonId });
       return {
         lessonId,
@@ -309,12 +317,15 @@ export class KnowledgeIndexService {
   }
 
   /**
-   * Chunks whose lesson is gone or has been deactivated.
+   * Chunks whose lesson is gone or deactivated, or whose lesson's course is
+   * gone or deactivated.
    *
-   * `reindexLesson` clears a deactivated lesson, but the sweep above only visits
-   * active lessons — so a lesson that was deactivated or deleted since the last
-   * run is never visited by it at all, and would keep its chunks forever. This is
-   * the only path that removes them.
+   * `reindexLesson` clears a deactivated lesson and a lesson sitting in a
+   * deactivated course, but the sweep above only visits active lessons — so a
+   * lesson that was deactivated or deleted since the last run is never visited
+   * by it at all, and would keep its chunks forever. This is the only path that
+   * removes those. The course side covers the same gap for `updateCourse
+   * ({ active: false })`, which does not cascade to its lessons.
    */
   private async sweepOrphans(): Promise<number> {
     // Annotated rather than asserted: `query` is untyped, so the row shape has to
@@ -323,7 +334,9 @@ export class KnowledgeIndexService {
       `SELECT DISTINCT c.lesson_id
          FROM ai_knowledge_chunks c
          LEFT JOIN edu_lessons l ON l.id = c.lesson_id AND l.active = true
-        WHERE l.id IS NULL`,
+         LEFT JOIN edu_courses co ON co.id = l.course_id AND co.active = true
+        WHERE l.id IS NULL
+           OR (l.course_id IS NOT NULL AND co.id IS NULL)`,
     );
 
     let removed = 0;

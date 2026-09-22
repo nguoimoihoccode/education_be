@@ -638,7 +638,11 @@ describe('AiService', () => {
     messagesRepo.count.mockResolvedValue(0);
     messagesRepo.find.mockResolvedValue([makeMessage()]);
 
-    const result = await service.sendMessage(1, 'conv-1', 'thì hiện tại đơn là gì');
+    const result = await service.sendMessage(
+      1,
+      'conv-1',
+      'thì hiện tại đơn là gì',
+    );
 
     expect(result.references).toEqual([
       {

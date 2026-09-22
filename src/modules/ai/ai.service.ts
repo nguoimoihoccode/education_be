@@ -409,8 +409,10 @@ export class AiService {
     });
     const history = recentDesc.reverse();
 
-    const { prompt: systemPrompt, references } =
-      await this.buildSystemPrompt(conversation.lessonId, message);
+    const { prompt: systemPrompt, references } = await this.buildSystemPrompt(
+      conversation.lessonId,
+      message,
+    );
     const chatMessages = [
       {
         role: 'system',
