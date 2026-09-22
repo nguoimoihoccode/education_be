@@ -19,14 +19,22 @@ import type { RequestWithUser } from '../../common/types/auth.types';
 import { AiService } from './ai.service';
 import { AiChatDto } from './dto/ai-chat.dto';
 import { CreateConversationDto } from './dto/create-conversation.dto';
+import { ReindexKnowledgeDto } from './dto/reindex-knowledge.dto';
 import { SendMessageDto } from './dto/send-message.dto';
 import { UpdateAiSettingsDto } from './dto/update-ai-settings.dto';
+import { KnowledgeIndexService } from './knowledge-index.service';
 
 @ApiTags('AI Tutor')
 @ApiBearerAuth('JWT-auth')
 @Controller('ai')
 export class AiController {
-  constructor(private readonly aiService: AiService) {}
+  constructor(
+    private readonly aiService: AiService,
+    // Injected here rather than behind AiService: the index is an admin
+    // operation that happens to live under /ai, and ai.service.ts is already a
+    // large file that chat concerns should stay in.
+    private readonly knowledgeIndex: KnowledgeIndexService,
+  ) {}
 
   private userId(req: RequestWithUser): number {
     return req.user!.sub;
@@ -108,5 +116,18 @@ export class AiController {
   @ApiOperation({ summary: 'Test AI provider connection (admin)' })
   testSettings() {
     return this.aiService.testSettings();
+  }
+
+  @Post('knowledge/reindex')
+  @UseGuards(RolesGuard)
+  @Roles(UserRole.ADMIN, UserRole.EDUCATION_ADMIN)
+  @ExpensiveActionRateLimit()
+  @ApiOperation({
+    summary: 'Rebuild the RAG knowledge index for one lesson or the corpus',
+  })
+  reindexKnowledge(@Body() dto: ReindexKnowledgeDto) {
+    return dto.lessonId
+      ? this.knowledgeIndex.reindexLesson(dto.lessonId, { force: dto.force })
+      : this.knowledgeIndex.reindexAll({ force: dto.force });
   }
 }

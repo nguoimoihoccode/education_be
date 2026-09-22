@@ -8,7 +8,10 @@ import {
   MaxLength,
   Min,
   MinLength,
+  ValidateNested,
 } from 'class-validator';
+import { Type } from 'class-transformer';
+import { UpdateEmbeddingSettingsDto } from './update-embedding-settings.dto';
 
 export class UpdateAiSettingsDto {
   @IsOptional()
@@ -67,4 +70,9 @@ export class UpdateAiSettingsDto {
   @IsOptional()
   @IsBoolean()
   clearSystemRules?: boolean;
+
+  @IsOptional()
+  @ValidateNested()
+  @Type(() => UpdateEmbeddingSettingsDto)
+  embedding?: UpdateEmbeddingSettingsDto;
 }

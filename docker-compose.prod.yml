@@ -1,6 +1,11 @@
 services:
   db:
-    image: postgres:16.4-alpine
+    # Not the official image: it has no pgvector, and `CREATE EXTENSION vector`
+    # (migration 189) fails without it. Built from docker/postgres/Dockerfile,
+    # which compiles pgvector against the image's own pg_config. Still alpine on
+    # purpose — same libc and same Postgres 16.4 as before, so the existing
+    # `pgdata` volume keeps working with no dump/restore.
+    image: ${DB_IMAGE}:${DB_IMAGE_TAG}
     container_name: stockvn-db
     restart: unless-stopped
     environment:

@@ -2,6 +2,7 @@ import { Test } from '@nestjs/testing';
 import { RolesGuard } from '../../common/guards/roles.guard';
 import { AiController } from './ai.controller';
 import { AiService } from './ai.service';
+import { KnowledgeIndexService } from './knowledge-index.service';
 
 describe('AiController', () => {
   const req = { user: { sub: 42 } } as any;
@@ -17,6 +18,10 @@ describe('AiController', () => {
     getSettings: jest.Mock;
     updateSettings: jest.Mock;
     testSettings: jest.Mock;
+  };
+  let knowledgeIndex: {
+    reindexLesson: jest.Mock;
+    reindexAll: jest.Mock;
   };
 
   beforeEach(async () => {
@@ -39,9 +44,17 @@ describe('AiController', () => {
       testSettings: jest.fn().mockResolvedValue({ ok: true }),
     };
 
+    knowledgeIndex = {
+      reindexLesson: jest.fn().mockResolvedValue({ lessonId: 'l1' }),
+      reindexAll: jest.fn().mockResolvedValue({ lessons: 3, chunks: 9 }),
+    };
+
     const moduleRef = await Test.createTestingModule({
       controllers: [AiController],
-      providers: [{ provide: AiService, useValue: aiService }],
+      providers: [
+        { provide: AiService, useValue: aiService },
+        { provide: KnowledgeIndexService, useValue: knowledgeIndex },
+      ],
     })
       .overrideGuard(RolesGuard)
       .useValue({ canActivate: () => true })
@@ -112,5 +125,29 @@ describe('AiController', () => {
     const result = await controller.testSettings();
     expect(aiService.testSettings).toHaveBeenCalled();
     expect(result).toEqual({ ok: true });
+  });
+
+  it('reindexes the whole corpus when no lesson is named', async () => {
+    await controller.reindexKnowledge({});
+
+    expect(knowledgeIndex.reindexAll).toHaveBeenCalledWith({
+      force: undefined,
+    });
+    expect(knowledgeIndex.reindexLesson).not.toHaveBeenCalled();
+  });
+
+  // The full sweep walks every lesson, so an admin who just edited one should be
+  // able to reindex only that one.
+  it('reindexes a single lesson when one is named', async () => {
+    const result = await controller.reindexKnowledge({
+      lessonId: 'lesson-1',
+      force: true,
+    });
+
+    expect(knowledgeIndex.reindexLesson).toHaveBeenCalledWith('lesson-1', {
+      force: true,
+    });
+    expect(knowledgeIndex.reindexAll).not.toHaveBeenCalled();
+    expect(result).toEqual({ lessonId: 'l1' });
   });
 });

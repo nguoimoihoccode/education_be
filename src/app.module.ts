@@ -74,6 +74,8 @@ import { EducationDataExport } from './modules/data-export/entities/data-export.
 import { AiConversation } from './modules/ai/entities/ai-conversation.entity';
 import { AiMessage } from './modules/ai/entities/ai-message.entity';
 import { AiProviderSettings } from './modules/ai/entities/ai-provider-settings.entity';
+import { AiEmbeddingSettings } from './modules/ai/entities/ai-embedding-settings.entity';
+import { AiKnowledgeChunk } from './modules/ai/entities/ai-knowledge-chunk.entity';
 
 // School Entities
 import {
@@ -152,6 +154,8 @@ import {
           AiConversation,
           AiMessage,
           AiProviderSettings,
+          AiEmbeddingSettings,
+          AiKnowledgeChunk,
           // School entities
           School,
           AcademicYear,

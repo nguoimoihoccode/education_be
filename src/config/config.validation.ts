@@ -134,4 +134,24 @@ export const configValidationSchema = Joi.object({
     .description(
       'Optional default AI tutor system rules/prompt (overridden by admin DB settings)',
     ),
+
+  // Embeddings for the RAG knowledge index. A separate provider from the chat
+  // one on purpose: Groq exposes no `/embeddings` endpoint, so the chat provider
+  // cannot serve these whatever it is set to.
+  EMBEDDING_API_KEY: Joi.string()
+    .optional()
+    .description('API key for the embedding provider'),
+  EMBEDDING_BASE_URL: Joi.string()
+    .uri()
+    .optional()
+    .description('OpenAI-compatible base URL for embeddings'),
+  EMBEDDING_MODEL: Joi.string().optional().description('Embedding model name'),
+  // Must match the width of the `embedding` column; changing it means
+  // re-embedding the whole corpus and altering that column.
+  EMBEDDING_DIMENSIONS: Joi.number()
+    .integer()
+    .min(1)
+    .max(8192)
+    .optional()
+    .description('Embedding vector width'),
 });

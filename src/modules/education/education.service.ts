@@ -1,4 +1,4 @@
-import { Injectable } from '@nestjs/common';
+import { Injectable, Logger } from '@nestjs/common';
 import { InjectRepository } from '@nestjs/typeorm';
 import { Repository } from 'typeorm';
 import {
@@ -27,6 +27,7 @@ import {
   SubmitExercisesResultDto,
 } from './dto';
 import { AiService } from '../ai/ai.service';
+import { KnowledgeIndexService } from '../ai/knowledge-index.service';
 import { CacheService } from '../../common/cache/cache.service';
 import { CourseCatalogService } from './services/course-catalog.service';
 import { StreakService } from './services/streak.service';
@@ -43,6 +44,7 @@ import type {
 
 @Injectable()
 export class EducationService {
+  private readonly logger = new Logger(EducationService.name);
   private readonly courseCatalogService: CourseCatalogService;
   private readonly streakService: StreakService;
   private readonly userCourseService: UserCourseService;
@@ -75,6 +77,10 @@ export class EducationService {
     private dailyLearningTaskRepository: Repository<DailyLearningTask>,
     private readonly aiService: AiService,
     cacheService: CacheService = new CacheService(null),
+    // Positioned last and tolerated as absent because education.service.spec.ts
+    // constructs this class directly with the repositories. Nest still resolves
+    // it (AiModule exports it), so production always has it.
+    private readonly knowledgeIndex?: KnowledgeIndexService,
   ) {
     // The use-case services are instantiated manually here (rather than via
     // Nest DI constructor injection) because education.service.spec.ts
@@ -187,7 +193,9 @@ export class EducationService {
   }
 
   async createLesson(dto: CreateLessonDto): Promise<Lesson> {
-    return this.lessonContentService.createLesson(dto);
+    const lesson = await this.lessonContentService.createLesson(dto);
+    await this.refreshKnowledgeIndex(lesson.id);
+    return lesson;
   }
 
   async completeLesson(
@@ -214,7 +222,34 @@ export class EducationService {
   }
 
   async createVocabulary(dto: CreateVocabularyDto): Promise<Vocabulary> {
-    return this.vocabularyService.createVocabulary(dto);
+    const vocabulary = await this.vocabularyService.createVocabulary(dto);
+    await this.refreshKnowledgeIndex(vocabulary.lessonId);
+    return vocabulary;
+  }
+
+  /**
+   * Best-effort refresh of the retrieval index, on the same principle as the
+   * school quiz→grade bridge: a tutor citing a lesson that is a few seconds out
+   * of date is harmless, while failing a lesson save because the embedding
+   * provider is unreachable is not. The nightly reindex is the safety net for
+   * anything this misses — a provider outage, or the dev seeder, which writes
+   * lessons straight through the repositories.
+   *
+   * Called after the write has committed, never inside its transaction: an index
+   * built from a row that then rolls back would cite content that does not exist.
+   */
+  private async refreshKnowledgeIndex(lessonId: string): Promise<void> {
+    if (!this.knowledgeIndex) return;
+    try {
+      if (!(await this.knowledgeIndex.isConfigured())) return;
+      await this.knowledgeIndex.reindexLesson(lessonId);
+    } catch (error) {
+      this.logger.warn(
+        `knowledge index refresh failed for lesson ${lessonId}: ${
+          error instanceof Error ? error.message : String(error)
+        }`,
+      );
+    }
   }
 
   async getVocabularyToReview(

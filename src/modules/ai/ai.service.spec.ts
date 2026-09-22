@@ -2,10 +2,13 @@ import { ConfigService } from '@nestjs/config';
 import { NotFoundException, ServiceUnavailableException } from '@nestjs/common';
 import { Repository } from 'typeorm';
 import { encryptSecret } from './ai-crypto.util';
-import { AiService } from './ai.service';
+import { AiService, GROUNDING_INSTRUCTION } from './ai.service';
 import { AiConversation } from './entities/ai-conversation.entity';
 import { AiMessage, AiMessageRole } from './entities/ai-message.entity';
 import { AiProviderSettings } from './entities/ai-provider-settings.entity';
+import { KnowledgeContextService } from './knowledge-context.service';
+import { KnowledgeRetrievalService } from './knowledge-retrieval.service';
+import { EmbeddingService } from './embedding.service';
 
 const ENC_KEY = Buffer.alloc(32, 7).toString('base64');
 
@@ -25,6 +28,13 @@ describe('AiService', () => {
   let configValues: Record<string, unknown>;
   let config: ConfigService;
   let fetchMock: jest.Mock;
+  let knowledgeContext: { buildLessonContext: jest.Mock };
+  let knowledgeRetrieval: { search: jest.Mock };
+  let embedding: {
+    getConfigView: jest.Mock;
+    applySettings: jest.Mock;
+    embed: jest.Mock;
+  };
   let service: AiService;
 
   const now = new Date('2026-01-15T12:00:00.000Z');
@@ -121,11 +131,43 @@ describe('AiService', () => {
 
     fetchMock = okFetch();
 
+    // Ungrounded by default, so the prompt assertions below stay about the
+    // provider call; the grounding path has its own tests.
+    knowledgeContext = {
+      buildLessonContext: jest.fn().mockResolvedValue(null),
+    };
+    // Retrieval is off by default for the same reason: the prompt assertions
+    // below should not depend on what the index happens to contain.
+    knowledgeRetrieval = {
+      search: jest.fn().mockResolvedValue([]),
+    };
+    embedding = {
+      getConfigView: jest.fn().mockResolvedValue({
+        baseUrl: 'https://api.openai.com/v1',
+        model: 'text-embedding-3-small',
+        dimensions: 1536,
+        apiKeyConfigured: false,
+        apiKeyLast4: null,
+        source: {
+          baseUrl: 'default',
+          apiKey: 'default',
+          model: 'default',
+          dimensions: 'default',
+        },
+        updatedAt: null,
+      }),
+      applySettings: jest.fn().mockResolvedValue(undefined),
+      embed: jest.fn().mockResolvedValue([[0.1, 0.2]]),
+    };
+
     service = new AiService(
       config,
       conversationsRepo as unknown as Repository<AiConversation>,
       messagesRepo as unknown as Repository<AiMessage>,
       settingsRepo as unknown as Repository<AiProviderSettings>,
+      knowledgeContext as unknown as KnowledgeContextService,
+      knowledgeRetrieval as unknown as KnowledgeRetrievalService,
+      embedding as unknown as EmbeddingService,
       fetchMock as any,
     );
   });
@@ -185,6 +227,9 @@ describe('AiService', () => {
       conversationsRepo as unknown as Repository<AiConversation>,
       messagesRepo as unknown as Repository<AiMessage>,
       settingsRepo as unknown as Repository<AiProviderSettings>,
+      knowledgeContext as unknown as KnowledgeContextService,
+      knowledgeRetrieval as unknown as KnowledgeRetrievalService,
+      embedding as unknown as EmbeddingService,
       fetchMock as any,
     );
     conversationsRepo.findOne.mockResolvedValue(makeConversation());
@@ -346,6 +391,47 @@ describe('AiService', () => {
     expect(JSON.stringify(settings)).not.toContain('test-key');
   });
 
+  // The two providers are separate configurations, so the settings view reports
+  // them separately instead of merging them into one misleading block.
+  it('getSettings reports the embedding provider alongside the chat one', async () => {
+    const settings = await service.getSettings();
+
+    expect(settings.embedding).toEqual(
+      expect.objectContaining({ model: 'text-embedding-3-small' }),
+    );
+    expect(embedding.getConfigView).toHaveBeenCalled();
+  });
+
+  it('updateSettings passes the embedding block through to the embedding service', async () => {
+    await service.updateSettings(4, {
+      embedding: { model: 'my-embed', dimensions: 768 },
+    });
+
+    expect(embedding.applySettings).toHaveBeenCalledWith(4, {
+      model: 'my-embed',
+      dimensions: 768,
+    });
+  });
+
+  // An embedding provider that is absent or broken must be visible in the test
+  // result, not thrown: it is configured separately, and it must not block an
+  // admin from testing the chat provider.
+  it('testSettings reports a failing embedding provider without throwing', async () => {
+    embedding.embed.mockRejectedValue(
+      new Error('Embedding provider is not configured'),
+    );
+
+    const result = await service.testSettings();
+
+    expect(result.ok).toBe(true);
+    expect(result.embedding).toEqual(
+      expect.objectContaining({
+        ok: false,
+        error: 'Embedding provider is not configured',
+      }),
+    );
+  });
+
   it('uses custom system rules from DB in chat system prompt', async () => {
     settingsRepo.find.mockResolvedValue([
       {
@@ -431,6 +517,9 @@ describe('AiService', () => {
       conversationsRepo as unknown as Repository<AiConversation>,
       messagesRepo as unknown as Repository<AiMessage>,
       settingsRepo as unknown as Repository<AiProviderSettings>,
+      knowledgeContext as unknown as KnowledgeContextService,
+      knowledgeRetrieval as unknown as KnowledgeRetrievalService,
+      embedding as unknown as EmbeddingService,
       fetchMock as any,
     );
     conversationsRepo.findOne.mockResolvedValue(makeConversation());
@@ -459,17 +548,106 @@ describe('AiService', () => {
     );
   });
 
-  it('appends lesson context to system prompt when lessonId is set', async () => {
-    conversationsRepo.findOne.mockResolvedValue(
-      makeConversation({ lessonId: 'L42' }),
+  it('grounds the system prompt in the lesson the conversation is attached to', async () => {
+    const lessonId = 'f2f4a1c8-0f5e-4a1f-9a11-2c3d4e5f6a7b';
+    knowledgeContext.buildLessonContext.mockResolvedValue(
+      '=== NGUON ===\nBài: Thì hiện tại đơn\nDiễn tả thói quen hằng ngày.\n=== HET ===',
     );
+    conversationsRepo.findOne.mockResolvedValue(makeConversation({ lessonId }));
+    messagesRepo.count.mockResolvedValue(0);
+    messagesRepo.find.mockResolvedValue([makeMessage()]);
+
+    await service.sendMessage(1, 'conv-1', 'help');
+
+    expect(knowledgeContext.buildLessonContext).toHaveBeenCalledWith(lessonId);
+
+    const body = JSON.parse(fetchMock.mock.calls[0][1].body as string);
+    expect(body.messages[0].content).toContain('Diễn tả thói quen hằng ngày.');
+    expect(body.messages[0].content).toContain(GROUNDING_INSTRUCTION);
+    // The old prompt interpolated the raw uuid, which told the model nothing.
+    expect(body.messages[0].content).not.toContain('lesson id:');
+  });
+
+  it('sends only the base rules when there is no lesson to ground on', async () => {
+    conversationsRepo.findOne.mockResolvedValue(makeConversation());
     messagesRepo.count.mockResolvedValue(0);
     messagesRepo.find.mockResolvedValue([makeMessage()]);
 
     await service.sendMessage(1, 'conv-1', 'help');
 
     const body = JSON.parse(fetchMock.mock.calls[0][1].body as string);
-    expect(body.messages[0].content).toContain('lesson id: L42');
+    expect(body.messages[0].content).not.toContain(GROUNDING_INSTRUCTION);
+  });
+
+  // The retrieval tier has nothing to search with if it is not handed the
+  // learner's message, so the question is what must reach it.
+  it('searches the corpus with the message the learner just sent', async () => {
+    conversationsRepo.findOne.mockResolvedValue(makeConversation());
+    messagesRepo.count.mockResolvedValue(0);
+    messagesRepo.find.mockResolvedValue([makeMessage()]);
+
+    await service.sendMessage(1, 'conv-1', 'phân biệt hai thì này');
+
+    expect(knowledgeRetrieval.search).toHaveBeenCalledWith(
+      'phân biệt hai thì này',
+      { excludeLessonId: null },
+    );
+  });
+
+  it('adds retrieved chunks to the system prompt as a source block', async () => {
+    knowledgeRetrieval.search.mockResolvedValue([
+      {
+        id: 'chunk-1',
+        sourceType: 'lesson',
+        lessonId: 'aaaaaaaa-1111-4111-8111-111111111111',
+        courseId: null,
+        title: 'Thì hiện tại đơn',
+        content: 'Diễn tả thói quen hằng ngày.',
+        distance: 0.2,
+      },
+    ]);
+    conversationsRepo.findOne.mockResolvedValue(makeConversation());
+    messagesRepo.count.mockResolvedValue(0);
+    messagesRepo.find.mockResolvedValue([makeMessage()]);
+
+    await service.sendMessage(1, 'conv-1', 'thì hiện tại đơn là gì');
+
+    const body = JSON.parse(fetchMock.mock.calls[0][1].body as string);
+    expect(body.messages[0].content).toContain('[Thì hiện tại đơn]');
+    expect(body.messages[0].content).toContain('Diễn tả thói quen hằng ngày.');
+    // Retrieved material is still grounding, so the same instruction governs it.
+    expect(body.messages[0].content).toContain(GROUNDING_INSTRUCTION);
+  });
+
+  // The lesson tier already puts that lesson in the prompt in full, so pieces of
+  // it retrieved again would spend the reference budget on what the model read.
+  it('excludes the study lesson from its own retrieval', async () => {
+    const lessonId = 'f2f4a1c8-0f5e-4a1f-9a11-2c3d4e5f6a7b';
+    conversationsRepo.findOne.mockResolvedValue(makeConversation({ lessonId }));
+    messagesRepo.count.mockResolvedValue(0);
+    messagesRepo.find.mockResolvedValue([makeMessage()]);
+
+    await service.sendMessage(1, 'conv-1', 'giải thích bài này');
+
+    expect(knowledgeRetrieval.search).toHaveBeenCalledWith(
+      'giải thích bài này',
+      { excludeLessonId: lessonId },
+    );
+  });
+
+  // Retrieval is an enhancement, so a provider that is down must cost the answer
+  // its references, not the whole reply.
+  it('still answers when retrieval finds nothing', async () => {
+    knowledgeRetrieval.search.mockResolvedValue([]);
+    conversationsRepo.findOne.mockResolvedValue(makeConversation());
+    messagesRepo.count.mockResolvedValue(0);
+    messagesRepo.find.mockResolvedValue([makeMessage()]);
+
+    const result = await service.sendMessage(1, 'conv-1', 'xin chào');
+
+    const body = JSON.parse(fetchMock.mock.calls[0][1].body as string);
+    expect(body.messages[0].content).not.toContain('TRÍCH ĐOẠN');
+    expect(result.assistantMessage.content).toBe('Tutor reply');
   });
 
   it('auto-titles conversation from first user message', async () => {
@@ -503,6 +681,9 @@ describe('AiService', () => {
       conversationsRepo as unknown as Repository<AiConversation>,
       messagesRepo as unknown as Repository<AiMessage>,
       settingsRepo as unknown as Repository<AiProviderSettings>,
+      knowledgeContext as unknown as KnowledgeContextService,
+      knowledgeRetrieval as unknown as KnowledgeRetrievalService,
+      embedding as unknown as EmbeddingService,
       fetchMock as any,
     );
 
@@ -523,6 +704,9 @@ describe('AiService', () => {
       conversationsRepo as unknown as Repository<AiConversation>,
       messagesRepo as unknown as Repository<AiMessage>,
       settingsRepo as unknown as Repository<AiProviderSettings>,
+      knowledgeContext as unknown as KnowledgeContextService,
+      knowledgeRetrieval as unknown as KnowledgeRetrievalService,
+      embedding as unknown as EmbeddingService,
       fetchMock as any,
     );
 

@@ -25,6 +25,11 @@ fi
 : "${SSH_KEY:=${HOME}/.ssh/stockvn_deploy}"
 : "${COMPOSE_FILE:=docker-compose.prod.yml}"
 : "${IMAGE_NAME:=stock-backend}"
+# The database runs a custom image (pgvector, for migration 189) built by the
+# Deploy Backend workflow. This script never builds or loads it -- the image has
+# to be on the VPS already, which means a one-time `docker login ghcr.io` there.
+: "${DB_IMAGE:=ghcr.io/nguoimoihoccode/education_be-postgres}"
+: "${DB_IMAGE_TAG:=16.4-pgvector0.8.6}"
 : "${IMAGE_TAG:=$(git -C "$SCRIPT_DIR" rev-parse --short HEAD 2>/dev/null || echo "latest")}"
 
 SSH_OPTS=(-i "$SSH_KEY" -o StrictHostKeyChecking=accept-new -o LogLevel=quiet -o ConnectTimeout=20)
@@ -66,7 +71,9 @@ healthcheck_backend() {
   return 1
 }
 
-compose() { vssh "cd ${APP_DIR} && docker compose -f ${COMPOSE_FILE} --env-file .env.prod $1"; }
+# DB_IMAGE/DB_IMAGE_TAG are passed inline because the compose file interpolates
+# them for the db service, and this script runs compose on the far side of ssh.
+compose() { vssh "cd ${APP_DIR} && DB_IMAGE=${DB_IMAGE} DB_IMAGE_TAG=${DB_IMAGE_TAG} docker compose -f ${COMPOSE_FILE} --env-file .env.prod $1"; }
 
 # ---------- Rollback mode ----------
 if [ "$DO_ROLLBACK" = true ]; then
@@ -115,8 +122,21 @@ healthcheck_backend || exit 1
 
 # ---------- Optional migrations ----------
 if [ "$DO_MIGRATE" = true ]; then
+  # A migration can need a server-side capability the running image lacks (189
+  # needs pgvector), and running migrations only replaces the client -- so the
+  # database container is recreated first. It is a no-op when the image is
+  # unchanged, and the pgdata volume is untouched either way.
+  log "Recreating database container (image ${DB_IMAGE}:${DB_IMAGE_TAG}) ..."
+  compose "up -d db"
+  for _ in $(seq 1 30); do
+    if compose "exec -T db sh -c 'pg_isready -q -U \$POSTGRES_USER -d \$POSTGRES_DB'" >/dev/null 2>&1; then
+      break
+    fi
+    sleep 2
+  done
+
   log "Running database migrations..."
-  vssh "cd ${APP_DIR} && docker compose -f ${COMPOSE_FILE} --env-file .env.prod exec -T backend node ./node_modules/typeorm/cli.js -d dist/database/data-source.js migration:run" || {
+  vssh "cd ${APP_DIR} && DB_IMAGE=${DB_IMAGE} DB_IMAGE_TAG=${DB_IMAGE_TAG} docker compose -f ${COMPOSE_FILE} --env-file .env.prod exec -T backend node ./node_modules/typeorm/cli.js -d dist/database/data-source.js migration:run" || {
     err "Migration failed (schema unchanged). Backend may need attention."
   }
   healthcheck_backend || exit 1

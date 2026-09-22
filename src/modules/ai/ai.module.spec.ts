@@ -6,6 +6,7 @@ import { UsersModule } from '../users/users.module';
 import { AiModule } from './ai.module';
 import { AiController } from './ai.controller';
 import { AiService } from './ai.service';
+import { KnowledgeIndexService } from './knowledge-index.service';
 import { AiConversation } from './entities/ai-conversation.entity';
 import { AiMessage } from './entities/ai-message.entity';
 import { AiProviderSettings } from './entities/ai-provider-settings.entity';
@@ -51,6 +52,8 @@ describe('AiModule', () => {
         expect.objectContaining({ provide: expect.anything() }),
       ]),
     );
-    expect(exports).toEqual([AiService]);
+    // KnowledgeIndexService is exported alongside AiService so EducationModule
+    // can refresh the index from its lesson/vocabulary write paths.
+    expect(exports).toEqual([AiService, KnowledgeIndexService]);
   });
 });

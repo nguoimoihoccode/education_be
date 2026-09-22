@@ -17,6 +17,11 @@ concurrency:
 env:
   REGISTRY: ghcr.io
   BACKEND_IMAGE: ghcr.io/${{ github.repository }}
+  DB_IMAGE: ghcr.io/${{ github.repository }}-postgres
+  # Bump this together with the pgvector version in docker/postgres/Dockerfile.
+  # A database image should change rarely and on purpose: it is the one artefact
+  # here that cannot be rolled back, because the data volume outlives it.
+  DB_IMAGE_TAG: 16.4-pgvector0.8.6
 
 jobs:
   # workflow_dispatch lets an operator pick any ref, so the branch filter above
@@ -73,9 +78,46 @@ jobs:
           cache-from: type=gha,scope=backend
           cache-to: type=gha,mode=max,scope=backend
 
+  # Its own job and its own cache scope: this image has nothing to do with the
+  # backend build, and mixing the two caches would make each invalidate the other.
+  build-and-push-db:
+    name: Build and push database image
+    needs: guard
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+      packages: write
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Set up Docker Buildx
+        uses: docker/setup-buildx-action@v3
+
+      - name: Login to GHCR
+        uses: docker/login-action@v3
+        with:
+          registry: ${{ env.REGISTRY }}
+          username: ${{ github.actor }}
+          password: ${{ secrets.GITHUB_TOKEN }}
+
+      # Rebuilt on every deploy rather than on Dockerfile changes only: the build
+      # is cached, and a conditional would leave the deploy pulling a tag that a
+      # package cleanup may have removed.
+      - name: Build and push database
+        uses: docker/build-push-action@v6
+        with:
+          context: docker/postgres
+          file: docker/postgres/Dockerfile
+          push: true
+          tags: ${{ env.DB_IMAGE }}:${{ env.DB_IMAGE_TAG }}
+          cache-from: type=gha,scope=postgres
+          cache-to: type=gha,mode=max,scope=postgres
+
   deploy:
     name: Deploy backend to VPS
-    needs: build-and-push
+    needs: [build-and-push, build-and-push-db]
     runs-on: ubuntu-latest
     permissions:
       contents: read
@@ -101,12 +143,14 @@ jobs:
           GHCR_USERNAME: ${{ github.actor }}
           GHCR_TOKEN: ${{ secrets.GITHUB_TOKEN }}
           BACKEND_IMAGE: ${{ env.BACKEND_IMAGE }}
+          DB_IMAGE: ${{ env.DB_IMAGE }}
+          DB_IMAGE_TAG: ${{ env.DB_IMAGE_TAG }}
           IMAGE_TAG: ${{ github.sha }}
         with:
           host: ${{ secrets.VPS_HOST }}
           username: ${{ secrets.VPS_USER }}
           key: ${{ secrets.VPS_SSH_KEY }}
-          envs: GHCR_USERNAME,GHCR_TOKEN,BACKEND_IMAGE,IMAGE_TAG
+          envs: GHCR_USERNAME,GHCR_TOKEN,BACKEND_IMAGE,DB_IMAGE,DB_IMAGE_TAG,IMAGE_TAG
           script: |
             set -euo pipefail
             cd "${{ secrets.VPS_APP_DIR }}"
@@ -118,8 +162,32 @@ jobs:
             fi
 
             echo "$GHCR_TOKEN" | docker login ghcr.io -u "$GHCR_USERNAME" --password-stdin
-            export BACKEND_IMAGE IMAGE_TAG
+            export BACKEND_IMAGE DB_IMAGE DB_IMAGE_TAG IMAGE_TAG
             docker compose -f docker-compose.prod.yml --env-file .env.prod pull db backend
+
+            # Recreate the database BEFORE migrating. A migration can need a
+            # server-side capability the running image does not have -- 189 needs
+            # pgvector -- and the migration step below only replaces the *client*,
+            # so it would otherwise run against the old server binary and fail.
+            # The volume is untouched: the container is replaced, not the data.
+            # When the image is unchanged this is a no-op.
+            docker compose -f docker-compose.prod.yml --env-file .env.prod up -d db
+
+            wait_for_db() {
+              for _ in $(seq 1 30); do
+                if docker compose -f docker-compose.prod.yml --env-file .env.prod \
+                  exec -T db sh -c 'pg_isready -q -U "$POSTGRES_USER" -d "$POSTGRES_DB"'; then
+                  return 0
+                fi
+                sleep 2
+              done
+              echo "Database did not become ready after recreating it." >&2
+              return 1
+            }
+
+            # `run --rm --no-deps` ignores depends_on, so the healthcheck that
+            # normally gates the backend does not gate migrations.
+            wait_for_db
 
             db_psql() {
               docker compose -f docker-compose.prod.yml --env-file .env.prod exec -T db \

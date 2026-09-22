@@ -26,6 +26,11 @@ import {
 } from '../modules/education/entities';
 import { EducationActivityLog } from '../modules/activity-log/entities/activity-log.entity';
 import { EducationDataExport } from '../modules/data-export/entities/data-export.entity';
+import { AiConversation } from '../modules/ai/entities/ai-conversation.entity';
+import { AiEmbeddingSettings } from '../modules/ai/entities/ai-embedding-settings.entity';
+import { AiKnowledgeChunk } from '../modules/ai/entities/ai-knowledge-chunk.entity';
+import { AiMessage } from '../modules/ai/entities/ai-message.entity';
+import { AiProviderSettings } from '../modules/ai/entities/ai-provider-settings.entity';
 import {
   School,
   AcademicYear,
@@ -74,6 +79,21 @@ export default new DataSource({
     DailyLearningTask,
     EducationActivityLog,
     EducationDataExport,
+    // AI tutor, registered for completeness. Nothing at runtime depends on this
+    // list — the app builds its own entity set in app.module — and there is no
+    // `migration:generate` script here: migrations are written by hand, which is
+    // why this file is documented as the current schema's source of truth.
+    //
+    // Measured, because the intuitive assumption is wrong: `migration:generate`
+    // ignores tables it has no entity for rather than proposing to drop them, so
+    // leaving these out was harmless. Registering them is what has a cost —
+    // `AiKnowledgeChunk` has a `vector` column and an HNSW index that TypeORM
+    // cannot express, so a generated diff for it will always show index churn.
+    AiConversation,
+    AiMessage,
+    AiProviderSettings,
+    AiEmbeddingSettings,
+    AiKnowledgeChunk,
     // School platform entities
     School,
     AcademicYear,

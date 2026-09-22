@@ -15,6 +15,10 @@ import { UpdateAiSettingsDto } from './dto/update-ai-settings.dto';
 import { AiConversation } from './entities/ai-conversation.entity';
 import { AiMessage, AiMessageRole } from './entities/ai-message.entity';
 import { AiProviderSettings } from './entities/ai-provider-settings.entity';
+import { EmbeddingService } from './embedding.service';
+import { renderReferenceBlock } from './domain/knowledge-prompt.policy';
+import { KnowledgeContextService } from './knowledge-context.service';
+import { KnowledgeRetrievalService } from './knowledge-retrieval.service';
 
 type FetchLike = typeof fetch;
 
@@ -56,6 +60,18 @@ export const DEFAULT_AI_SYSTEM_RULES = [
   'Match the learner language when possible; keep tone supportive and professional.',
 ].join(' ');
 
+/**
+ * The built-in rules already forbid inventing facts; this says what to do with
+ * the grounding block specifically, so a grounded answer and a guess cannot look
+ * alike to the learner.
+ */
+export const GROUNDING_INSTRUCTION = [
+  'Reference material may be included above as a source block.',
+  'When it covers the question, base your answer on it and prefer its wording and examples.',
+  'When it does not cover the question, say so plainly before answering from general knowledge.',
+  'Never state that the lesson contains something it does not.',
+].join(' ');
+
 @Injectable()
 export class AiService {
   private static readonly HISTORY_WINDOW = 20;
@@ -69,6 +85,9 @@ export class AiService {
     private readonly messagesRepo: Repository<AiMessage>,
     @InjectRepository(AiProviderSettings)
     private readonly settingsRepo: Repository<AiProviderSettings>,
+    private readonly knowledgeContext: KnowledgeContextService,
+    private readonly knowledgeRetrieval: KnowledgeRetrievalService,
+    private readonly embedding: EmbeddingService,
     @Optional()
     @Inject(AI_FETCH_CLIENT)
     private readonly fetchClient: FetchLike = fetch,
@@ -204,12 +223,43 @@ export class AiService {
     return { rules: DEFAULT_AI_SYSTEM_RULES, source: 'default' };
   }
 
-  private async buildSystemPrompt(lessonId?: string | null): Promise<string> {
+  /**
+   * The one place the two grounding tiers meet.
+   *
+   * `query` is the learner's message, which the retrieval tier needs and the
+   * lesson tier does not — the plan expected this signature to stay unchanged,
+   * but the semantic tier has nothing to search with otherwise.
+   *
+   * The prompts from both tiers carry the same `GROUNDING_INSTRUCTION`, which is
+   * added when either is present so a grounded answer and a guess never look
+   * alike to the learner.
+   */
+  private async buildSystemPrompt(
+    lessonId?: string | null,
+    query?: string | null,
+  ): Promise<string> {
     const { rules } = await this.resolveSystemRules();
-    if (!lessonId) {
+    const lessonContext =
+      await this.knowledgeContext.buildLessonContext(lessonId);
+
+    // Chunks from the lesson already in the prompt are excluded: the lesson tier
+    // supplies that lesson in full, so retrieving pieces of it again would spend
+    // the reference budget to repeat what the model has already read.
+    const hits = query
+      ? await this.knowledgeRetrieval.search(query, {
+          excludeLessonId: lessonId,
+        })
+      : [];
+    const references = renderReferenceBlock(hits);
+
+    const blocks = [lessonContext, references].filter(
+      (block): block is string => Boolean(block),
+    );
+    if (blocks.length === 0) {
       return rules;
     }
-    return `${rules}\nThe learner is studying lesson id: ${lessonId}. Prefer explanations relevant to that lesson when possible.`;
+
+    return [rules, ...blocks, GROUNDING_INSTRUCTION].join('\n\n');
   }
 
   private toMessageSummary(message: AiMessage) {
@@ -331,7 +381,7 @@ export class AiService {
     const chatMessages = [
       {
         role: 'system',
-        content: await this.buildSystemPrompt(conversation.lessonId),
+        content: await this.buildSystemPrompt(conversation.lessonId, message),
       },
       ...history.map((m) => ({
         role: m.role as string,
@@ -431,6 +481,9 @@ export class AiService {
         systemRules: systemRulesResolved.source,
       },
       updatedAt: row?.updatedAt ?? null,
+      // The two providers are configured independently, so the settings view
+      // reports them side by side rather than pretending they are one provider.
+      embedding: await this.embedding.getConfigView(),
     };
   }
 
@@ -493,10 +546,19 @@ export class AiService {
 
     row.updatedByUserId = userId;
     await this.settingsRepo.save(row);
+
+    if (dto.embedding) {
+      await this.embedding.applySettings(userId, dto.embedding);
+    }
+
     return this.getSettings();
   }
 
-  async testSettings(): Promise<{ ok: true; latencyMs: number }> {
+  async testSettings(): Promise<{
+    ok: true;
+    latencyMs: number;
+    embedding: { ok: boolean; latencyMs: number; error?: string };
+  }> {
     const config = await this.resolveProviderConfig();
     if (!config.apiKey) {
       throw new ServiceUnavailableException('AI tutor is not configured');
@@ -512,7 +574,36 @@ export class AiService {
       throw new ServiceUnavailableException('AI tutor service unavailable');
     }
 
-    return { ok: true, latencyMs: Date.now() - started };
+    return {
+      ok: true,
+      latencyMs: Date.now() - started,
+      embedding: await this.testEmbedding(),
+    };
+  }
+
+  /**
+   * The embedding provider is probed too, but its outcome is reported rather than
+   * thrown: it is configured separately from the chat provider, and an admin
+   * checking the chat side must not be blocked by an embedding one that is simply
+   * not set up yet.
+   */
+  private async testEmbedding(): Promise<{
+    ok: boolean;
+    latencyMs: number;
+    error?: string;
+  }> {
+    const started = Date.now();
+    try {
+      await this.embedding.embed(['ping']);
+      return { ok: true, latencyMs: Date.now() - started };
+    } catch (err) {
+      return {
+        ok: false,
+        latencyMs: Date.now() - started,
+        error:
+          err instanceof Error ? err.message : 'Embedding provider unavailable',
+      };
+    }
   }
 
   async completeText(input: { system: string; user: string }): Promise<string> {

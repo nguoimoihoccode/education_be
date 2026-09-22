@@ -1,4 +1,12 @@
-import { IsObject, IsOptional, IsString, MinLength } from 'class-validator';
+import { Type } from 'class-transformer';
+import {
+  IsObject,
+  IsOptional,
+  IsString,
+  MinLength,
+  ValidateNested,
+} from 'class-validator';
+import { ChatContextDto } from './chat-context.dto';
 
 export class AiChatDto {
   @IsString()
@@ -9,10 +17,13 @@ export class AiChatDto {
   @IsOptional()
   conversationId?: string;
 
+  /**
+   * Validated as a nested DTO rather than a bare `@IsObject()`: the lesson id
+   * inside it is used to query a uuid column, so it cannot be free-form.
+   */
   @IsObject()
   @IsOptional()
-  context?: {
-    lessonId?: string;
-    quizSessionId?: string;
-  };
+  @ValidateNested()
+  @Type(() => ChatContextDto)
+  context?: ChatContextDto;
 }
