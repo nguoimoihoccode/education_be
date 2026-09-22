@@ -306,4 +306,63 @@ describe('KnowledgeIndexService', () => {
       expect(summary.removed).toBe(3);
     });
   });
+
+  describe('status', () => {
+    it('aggregates chunk counts, pending rows and last embed time', async () => {
+      chunksRepo.query
+        .mockResolvedValueOnce([
+          { source_type: 'lesson', chunks: 4, embedded: 3 },
+          { source_type: 'vocabulary', chunks: 2, embedded: 2 },
+        ])
+        .mockResolvedValueOnce([
+          {
+            chunks: 6,
+            embedded: 5,
+            lessons: 2,
+            last_embedded_at: new Date('2026-01-02T03:04:05Z'),
+          },
+        ]);
+
+      const result = await service.status();
+
+      expect(result).toEqual({
+        embeddingConfigured: true,
+        lessons: 2,
+        chunks: 6,
+        embedded: 5,
+        pending: 1,
+        bySourceType: [
+          { sourceType: 'lesson', chunks: 4, embedded: 3, pending: 1 },
+          { sourceType: 'vocabulary', chunks: 2, embedded: 2, pending: 0 },
+        ],
+        lastEmbeddedAt: new Date('2026-01-02T03:04:05Z'),
+      });
+      // Counts must be cast to int in SQL, or node-postgres returns strings
+      // (bare COUNT is bigint) and the FE gets "6" instead of 6.
+      const groupedSql = chunksRepo.query.mock.calls[0][0] as string;
+      expect(groupedSql).toContain('GROUP BY source_type');
+      expect(groupedSql).toContain('::int');
+    });
+
+    it('reports an empty, unconfigured index as all zeros', async () => {
+      embedding.isConfigured.mockResolvedValue(false);
+      chunksRepo.query
+        .mockResolvedValueOnce([])
+        .mockResolvedValueOnce([
+          { chunks: 0, embedded: 0, lessons: 0, last_embedded_at: null },
+        ]);
+
+      const result = await service.status();
+
+      expect(result).toEqual({
+        embeddingConfigured: false,
+        lessons: 0,
+        chunks: 0,
+        embedded: 0,
+        pending: 0,
+        bySourceType: [],
+        lastEmbeddedAt: null,
+      });
+    });
+  });
 });

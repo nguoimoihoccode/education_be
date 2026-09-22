@@ -369,6 +369,7 @@ describe('AiService', () => {
       conversationId: 'new-conv',
       userMessageId: 'u1',
       assistantMessageId: 'a1',
+      references: [],
     });
   });
 
@@ -619,6 +620,36 @@ describe('AiService', () => {
     expect(body.messages[0].content).toContain(GROUNDING_INSTRUCTION);
   });
 
+  // The same hit is handed back as a structured reference so the FE can render a
+  // source chip under the reply without parsing the prompt's text block.
+  it('returns the retrieval hits as references on the sendMessage response', async () => {
+    knowledgeRetrieval.search.mockResolvedValue([
+      {
+        id: 'chunk-1',
+        sourceType: 'lesson',
+        lessonId: 'aaaaaaaa-1111-4111-8111-111111111111',
+        courseId: null,
+        title: 'Thì hiện tại đơn',
+        content: 'Diễn tả thói quen hằng ngày.',
+        distance: 0.2,
+      },
+    ]);
+    conversationsRepo.findOne.mockResolvedValue(makeConversation());
+    messagesRepo.count.mockResolvedValue(0);
+    messagesRepo.find.mockResolvedValue([makeMessage()]);
+
+    const result = await service.sendMessage(1, 'conv-1', 'thì hiện tại đơn là gì');
+
+    expect(result.references).toEqual([
+      {
+        lessonId: 'aaaaaaaa-1111-4111-8111-111111111111',
+        title: 'Thì hiện tại đơn',
+        sourceType: 'lesson',
+        distance: 0.2,
+      },
+    ]);
+  });
+
   // The lesson tier already puts that lesson in the prompt in full, so pieces of
   // it retrieved again would spend the reference budget on what the model read.
   it('excludes the study lesson from its own retrieval', async () => {
@@ -648,6 +679,7 @@ describe('AiService', () => {
     const body = JSON.parse(fetchMock.mock.calls[0][1].body as string);
     expect(body.messages[0].content).not.toContain('TRÍCH ĐOẠN');
     expect(result.assistantMessage.content).toBe('Tutor reply');
+    expect(result.references).toEqual([]);
   });
 
   it('auto-titles conversation from first user message', async () => {

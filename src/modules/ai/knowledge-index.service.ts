@@ -46,6 +46,24 @@ export interface ReindexOptions {
   force?: boolean;
 }
 
+export interface KnowledgeIndexStatus {
+  embeddingConfigured: boolean;
+  /** Distinct lessons that still hold at least one chunk. */
+  lessons: number;
+  chunks: number;
+  /** Chunks with a stored vector — the only ones retrieval can find. */
+  embedded: number;
+  /** `chunks - embedded`: rows a failed run left without their vector. */
+  pending: number;
+  bySourceType: Array<{
+    sourceType: KnowledgeSourceType;
+    chunks: number;
+    embedded: number;
+    pending: number;
+  }>;
+  lastEmbeddedAt: Date | null;
+}
+
 /** A lesson holds one chunk per source type and index, so that pair identifies it. */
 const chunkKey = (
   sourceType: KnowledgeSourceType,
@@ -73,6 +91,57 @@ export class KnowledgeIndexService {
    */
   async isConfigured(): Promise<boolean> {
     return this.embedding.isConfigured();
+  }
+
+  /**
+   * Read-only health view for the admin panel. Aggregated in SQL rather than
+   * fetched: a repository scan would pull every embedding blob out of the table
+   * just to count rows. The `::int` casts keep node-postgres from returning the
+   * counts as strings (a bare `COUNT` is bigint).
+   */
+  async status(): Promise<KnowledgeIndexStatus> {
+    const rows: Array<{
+      source_type: KnowledgeSourceType;
+      chunks: number;
+      embedded: number;
+    }> = await this.chunksRepo.query(
+      `SELECT source_type,
+              COUNT(*)::int           AS chunks,
+              COUNT(embedded_at)::int AS embedded
+         FROM ai_knowledge_chunks
+        GROUP BY source_type
+        ORDER BY source_type`,
+    );
+
+    const [totals]: Array<{
+      chunks: number;
+      embedded: number;
+      lessons: number;
+      last_embedded_at: Date | null;
+    }> = await this.chunksRepo.query(
+      `SELECT COUNT(*)::int                     AS chunks,
+              COUNT(embedded_at)::int           AS embedded,
+              COUNT(DISTINCT lesson_id)::int    AS lessons,
+              MAX(embedded_at)                  AS last_embedded_at
+         FROM ai_knowledge_chunks`,
+    );
+
+    const bySourceType = rows.map((row) => ({
+      sourceType: row.source_type,
+      chunks: row.chunks,
+      embedded: row.embedded,
+      pending: row.chunks - row.embedded,
+    }));
+
+    return {
+      embeddingConfigured: await this.embedding.isConfigured(),
+      lessons: totals?.lessons ?? 0,
+      chunks: totals?.chunks ?? 0,
+      embedded: totals?.embedded ?? 0,
+      pending: (totals?.chunks ?? 0) - (totals?.embedded ?? 0),
+      bySourceType,
+      lastEmbeddedAt: totals?.last_embedded_at ?? null,
+    };
   }
 
   async reindexLesson(

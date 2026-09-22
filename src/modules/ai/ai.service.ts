@@ -16,6 +16,7 @@ import { AiConversation } from './entities/ai-conversation.entity';
 import { AiMessage, AiMessageRole } from './entities/ai-message.entity';
 import { AiProviderSettings } from './entities/ai-provider-settings.entity';
 import { EmbeddingService } from './embedding.service';
+import { KnowledgeSourceType } from './domain/knowledge-chunking.policy';
 import { renderReferenceBlock } from './domain/knowledge-prompt.policy';
 import { KnowledgeContextService } from './knowledge-context.service';
 import { KnowledgeRetrievalService } from './knowledge-retrieval.service';
@@ -30,6 +31,24 @@ interface GroqChatResponse {
       content?: string;
     };
   }>;
+}
+
+/**
+ * A retrieval hit returned alongside the reply so the FE can cite its sources.
+ * Metadata only — it is never persisted with the message, so the reply's
+ * citations live in the API response and not in the database.
+ */
+export interface ChatReference {
+  lessonId: string | null;
+  title: string;
+  sourceType: KnowledgeSourceType;
+  /** Cosine distance from the query; lower is closer. */
+  distance: number;
+}
+
+interface BuiltSystemPrompt {
+  prompt: string;
+  references: ChatReference[];
 }
 
 type ConfigSource = 'db' | 'env' | 'default';
@@ -233,11 +252,14 @@ export class AiService {
    * The prompts from both tiers carry the same `GROUNDING_INSTRUCTION`, which is
    * added when either is present so a grounded answer and a guess never look
    * alike to the learner.
+   *
+   * The hits also come back as structured `references`, so the response can show
+   * the learner which sources the answer drew on.
    */
   private async buildSystemPrompt(
     lessonId?: string | null,
     query?: string | null,
-  ): Promise<string> {
+  ): Promise<BuiltSystemPrompt> {
     const { rules } = await this.resolveSystemRules();
     const lessonContext =
       await this.knowledgeContext.buildLessonContext(lessonId);
@@ -255,11 +277,20 @@ export class AiService {
     const blocks = [lessonContext, references].filter(
       (block): block is string => Boolean(block),
     );
-    if (blocks.length === 0) {
-      return rules;
-    }
+    const prompt =
+      blocks.length === 0
+        ? rules
+        : [rules, ...blocks, GROUNDING_INSTRUCTION].join('\n\n');
 
-    return [rules, ...blocks, GROUNDING_INSTRUCTION].join('\n\n');
+    return {
+      prompt,
+      references: hits.map((hit) => ({
+        lessonId: hit.lessonId,
+        title: hit.title,
+        sourceType: hit.sourceType,
+        distance: hit.distance,
+      })),
+    };
   }
 
   private toMessageSummary(message: AiMessage) {
@@ -378,10 +409,12 @@ export class AiService {
     });
     const history = recentDesc.reverse();
 
+    const { prompt: systemPrompt, references } =
+      await this.buildSystemPrompt(conversation.lessonId, message);
     const chatMessages = [
       {
         role: 'system',
-        content: await this.buildSystemPrompt(conversation.lessonId, message),
+        content: systemPrompt,
       },
       ...history.map((m) => ({
         role: m.role as string,
@@ -418,6 +451,7 @@ export class AiService {
         title: conversation.title,
         updatedAt: conversation.updatedAt,
       },
+      references,
     };
   }
 
@@ -429,6 +463,7 @@ export class AiService {
     conversationId: string;
     userMessageId: string;
     assistantMessageId: string;
+    references: ChatReference[];
   }> {
     let conversationId = dto.conversationId;
     if (conversationId) {
@@ -451,6 +486,7 @@ export class AiService {
       conversationId,
       userMessageId: result.userMessage.id,
       assistantMessageId: result.assistantMessage.id,
+      references: result.references,
     };
   }
 

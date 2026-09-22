@@ -118,6 +118,16 @@ export class AiController {
     return this.aiService.testSettings();
   }
 
+  @Get('knowledge/status')
+  @UseGuards(RolesGuard)
+  @Roles(UserRole.ADMIN, UserRole.EDUCATION_ADMIN)
+  @ApiOperation({
+    summary: 'Knowledge index health: chunk counts, pending embeddings',
+  })
+  knowledgeStatus() {
+    return this.knowledgeIndex.status();
+  }
+
   @Post('knowledge/reindex')
   @UseGuards(RolesGuard)
   @Roles(UserRole.ADMIN, UserRole.EDUCATION_ADMIN)

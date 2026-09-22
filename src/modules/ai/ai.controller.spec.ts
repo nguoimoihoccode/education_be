@@ -22,6 +22,7 @@ describe('AiController', () => {
   let knowledgeIndex: {
     reindexLesson: jest.Mock;
     reindexAll: jest.Mock;
+    status: jest.Mock;
   };
 
   beforeEach(async () => {
@@ -47,6 +48,7 @@ describe('AiController', () => {
     knowledgeIndex = {
       reindexLesson: jest.fn().mockResolvedValue({ lessonId: 'l1' }),
       reindexAll: jest.fn().mockResolvedValue({ lessons: 3, chunks: 9 }),
+      status: jest.fn().mockResolvedValue({ chunks: 9, pending: 0 }),
     };
 
     const moduleRef = await Test.createTestingModule({
@@ -125,6 +127,13 @@ describe('AiController', () => {
     const result = await controller.testSettings();
     expect(aiService.testSettings).toHaveBeenCalled();
     expect(result).toEqual({ ok: true });
+  });
+
+  it('reports the knowledge index status', async () => {
+    const result = await controller.knowledgeStatus();
+
+    expect(knowledgeIndex.status).toHaveBeenCalled();
+    expect(result).toEqual({ chunks: 9, pending: 0 });
   });
 
   it('reindexes the whole corpus when no lesson is named', async () => {
