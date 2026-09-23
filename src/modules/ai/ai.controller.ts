@@ -7,6 +7,7 @@ import {
   Param,
   Post,
   Put,
+  Query,
   Req,
   UseGuards,
 } from '@nestjs/common';
@@ -23,6 +24,7 @@ import { ReindexKnowledgeDto } from './dto/reindex-knowledge.dto';
 import { SendMessageDto } from './dto/send-message.dto';
 import { UpdateAiSettingsDto } from './dto/update-ai-settings.dto';
 import { KnowledgeIndexService } from './knowledge-index.service';
+import { KnowledgeRetrievalService } from './knowledge-retrieval.service';
 
 @ApiTags('AI Tutor')
 @ApiBearerAuth('JWT-auth')
@@ -34,6 +36,9 @@ export class AiController {
     // operation that happens to live under /ai, and ai.service.ts is already a
     // large file that chat concerns should stay in.
     private readonly knowledgeIndex: KnowledgeIndexService,
+    // Same reasoning as knowledgeIndex: retrieval stats are an admin read over
+    // the log the retrieval tier writes, not a chat concern.
+    private readonly knowledgeRetrieval: KnowledgeRetrievalService,
   ) {}
 
   private userId(req: RequestWithUser): number {
@@ -139,5 +144,20 @@ export class AiController {
     return dto.lessonId
       ? this.knowledgeIndex.reindexLesson(dto.lessonId, { force: dto.force })
       : this.knowledgeIndex.reindexAll({ force: dto.force });
+  }
+
+  @Get('knowledge/retrieval-stats')
+  @UseGuards(RolesGuard)
+  @Roles(UserRole.ADMIN, UserRole.EDUCATION_ADMIN)
+  @ApiOperation({
+    summary:
+      'Retrieval distance statistics — the evidence base for tuning the threshold',
+  })
+  retrievalStats(@Query('days') days?: string) {
+    // A bad `days` falls back to the default inside stats(), so no ceremony
+    // beyond handing a number (or nothing) over.
+    return this.knowledgeRetrieval.stats(
+      days === undefined ? undefined : Number(days),
+    );
   }
 }

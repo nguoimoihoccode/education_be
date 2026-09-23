@@ -591,7 +591,10 @@ describe('AiService', () => {
 
     expect(knowledgeRetrieval.search).toHaveBeenCalledWith(
       'phân biệt hai thì này',
-      { excludeLessonId: null },
+      {
+        excludeLessonId: null,
+        logContext: { conversationId: 'conv-1', lessonId: null },
+      },
     );
   });
 
@@ -666,7 +669,10 @@ describe('AiService', () => {
 
     expect(knowledgeRetrieval.search).toHaveBeenCalledWith(
       'giải thích bài này',
-      { excludeLessonId: lessonId },
+      {
+        excludeLessonId: lessonId,
+        logContext: { conversationId: 'conv-1', lessonId },
+      },
     );
   });
 

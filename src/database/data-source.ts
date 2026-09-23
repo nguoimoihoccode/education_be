@@ -31,6 +31,7 @@ import { AiEmbeddingSettings } from '../modules/ai/entities/ai-embedding-setting
 import { AiKnowledgeChunk } from '../modules/ai/entities/ai-knowledge-chunk.entity';
 import { AiMessage } from '../modules/ai/entities/ai-message.entity';
 import { AiProviderSettings } from '../modules/ai/entities/ai-provider-settings.entity';
+import { AiRetrievalLog } from '../modules/ai/entities/ai-retrieval-log.entity';
 import {
   School,
   AcademicYear,
@@ -94,6 +95,7 @@ export default new DataSource({
     AiProviderSettings,
     AiEmbeddingSettings,
     AiKnowledgeChunk,
+    AiRetrievalLog,
     // School platform entities
     School,
     AcademicYear,

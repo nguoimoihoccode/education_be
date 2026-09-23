@@ -3,6 +3,7 @@ import { RolesGuard } from '../../common/guards/roles.guard';
 import { AiController } from './ai.controller';
 import { AiService } from './ai.service';
 import { KnowledgeIndexService } from './knowledge-index.service';
+import { KnowledgeRetrievalService } from './knowledge-retrieval.service';
 
 describe('AiController', () => {
   const req = { user: { sub: 42 } } as any;
@@ -24,6 +25,7 @@ describe('AiController', () => {
     reindexAll: jest.Mock;
     status: jest.Mock;
   };
+  let knowledgeRetrieval: { stats: jest.Mock };
 
   beforeEach(async () => {
     aiService = {
@@ -51,11 +53,18 @@ describe('AiController', () => {
       status: jest.fn().mockResolvedValue({ chunks: 9, pending: 0 }),
     };
 
+    knowledgeRetrieval = {
+      stats: jest
+        .fn()
+        .mockResolvedValue({ totalQueries: 4, zeroHitQueries: 3 }),
+    };
+
     const moduleRef = await Test.createTestingModule({
       controllers: [AiController],
       providers: [
         { provide: AiService, useValue: aiService },
         { provide: KnowledgeIndexService, useValue: knowledgeIndex },
+        { provide: KnowledgeRetrievalService, useValue: knowledgeRetrieval },
       ],
     })
       .overrideGuard(RolesGuard)
@@ -158,5 +167,22 @@ describe('AiController', () => {
     });
     expect(knowledgeIndex.reindexAll).not.toHaveBeenCalled();
     expect(result).toEqual({ lessonId: 'l1' });
+  });
+
+  it('reports retrieval stats over the default window', async () => {
+    const result = await controller.retrievalStats();
+
+    expect(knowledgeRetrieval.stats).toHaveBeenCalledWith(undefined);
+    expect(result).toEqual({ totalQueries: 4, zeroHitQueries: 3 });
+  });
+
+  // A bad `days` is the caller's typo, not a 500: stats() clamps it back to the
+  // default rather than throwing.
+  it('hands the optional window over for stats() to clamp', async () => {
+    await controller.retrievalStats('7');
+    expect(knowledgeRetrieval.stats).toHaveBeenCalledWith(7);
+
+    await controller.retrievalStats('not-a-number');
+    expect(knowledgeRetrieval.stats).toHaveBeenCalledWith(Number.NaN);
   });
 });

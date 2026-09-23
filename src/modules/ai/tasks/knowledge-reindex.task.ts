@@ -1,5 +1,9 @@
 import { Injectable, Logger } from '@nestjs/common';
 import { Cron, CronExpression } from '@nestjs/schedule';
+import {
+  RETRIEVAL_LOG_RETENTION_DAYS,
+  KnowledgeRetrievalService,
+} from '../knowledge-retrieval.service';
 import { KnowledgeIndexService } from '../knowledge-index.service';
 
 /**
@@ -14,7 +18,10 @@ import { KnowledgeIndexService } from '../knowledge-index.service';
 export class KnowledgeReindexTask {
   private readonly logger = new Logger(KnowledgeReindexTask.name);
 
-  constructor(private readonly knowledgeIndex: KnowledgeIndexService) {}
+  constructor(
+    private readonly knowledgeIndex: KnowledgeIndexService,
+    private readonly knowledgeRetrieval: KnowledgeRetrievalService,
+  ) {}
 
   /**
    * 4 AM, an hour after the token cleanup, so the two nightly sweeps do not run
@@ -39,6 +46,24 @@ export class KnowledgeReindexTask {
       // sets one up. That is worth a log line, not a crash.
       this.logger.error(
         'Knowledge reindex failed',
+        error instanceof Error ? error.stack : undefined,
+      );
+    }
+
+    // The retrieval log's retention rides this task so it needs no cron of its
+    // own, and its own try/catch so a reindex failure cannot skip it — or the
+    // other way round.
+    try {
+      const pruned = await this.knowledgeRetrieval.pruneOldLogs();
+      if (pruned > 0) {
+        this.logger.log(
+          `Pruned ${pruned} retrieval log rows older than ` +
+            `${RETRIEVAL_LOG_RETENTION_DAYS} days`,
+        );
+      }
+    } catch (error) {
+      this.logger.warn(
+        'Retrieval log prune failed',
         error instanceof Error ? error.stack : undefined,
       );
     }

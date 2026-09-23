@@ -2,19 +2,22 @@ import { Repository } from 'typeorm';
 import { CacheService } from '../../common/cache/cache.service';
 import { EmbeddingService } from './embedding.service';
 import { AiKnowledgeChunk } from './entities/ai-knowledge-chunk.entity';
+import { AiRetrievalLog } from './entities/ai-retrieval-log.entity';
 import {
   DEFAULT_RETRIEVAL_LIMIT,
   KnowledgeRetrievalService,
   MAX_COSINE_DISTANCE,
   MAX_RETRIEVAL_LIMIT,
+  QUERY_PREVIEW_LENGTH,
+  RETRIEVAL_STATS_MAX_WINDOW_DAYS,
 } from './knowledge-retrieval.service';
 
 const LESSON = '11111111-1111-4111-8111-111111111111';
-const OTHER_LESSON = '22222222-2222-4222-8222-222222222222';
 const COURSE = '33333333-3333-4333-8333-333333333333';
 
 describe('KnowledgeRetrievalService', () => {
   let chunksRepo: { query: jest.Mock };
+  let logsRepo: { insert: jest.Mock; query: jest.Mock; delete: jest.Mock };
   let embedding: { resolveConfig: jest.Mock; embed: jest.Mock };
   let cache: { get: jest.Mock; set: jest.Mock };
   let service: KnowledgeRetrievalService;
@@ -46,6 +49,11 @@ describe('KnowledgeRetrievalService', () => {
 
   beforeEach(() => {
     chunksRepo = { query: jest.fn().mockResolvedValue([row()]) };
+    logsRepo = {
+      insert: jest.fn().mockResolvedValue(undefined),
+      query: jest.fn().mockResolvedValue([]),
+      delete: jest.fn().mockResolvedValue({ affected: 0 }),
+    };
     embedding = {
       resolveConfig: jest.fn(),
       embed: jest.fn().mockResolvedValue([[0.1, 0.2]]),
@@ -58,6 +66,7 @@ describe('KnowledgeRetrievalService', () => {
 
     service = new KnowledgeRetrievalService(
       chunksRepo as unknown as Repository<AiKnowledgeChunk>,
+      logsRepo as unknown as Repository<AiRetrievalLog>,
       embedding as unknown as EmbeddingService,
       cache as unknown as CacheService,
     );
@@ -93,7 +102,7 @@ describe('KnowledgeRetrievalService', () => {
     await service.search('query', { lessonId: LESSON });
 
     const [sql, params] = chunksRepo.query.mock.calls[0];
-    expect(sql).toContain('lesson_id = $3');
+    expect(sql).toContain('lesson_id = $2');
     expect(params).toContain(LESSON);
   });
 
@@ -103,7 +112,7 @@ describe('KnowledgeRetrievalService', () => {
     await service.search('query', { excludeLessonId: LESSON });
 
     const [sql, params] = chunksRepo.query.mock.calls[0];
-    expect(sql).toContain('lesson_id <> $3');
+    expect(sql).toContain('lesson_id <> $2');
     expect(params).toContain(LESSON);
   });
 
@@ -114,44 +123,74 @@ describe('KnowledgeRetrievalService', () => {
 
     const [sql, params] = chunksRepo.query.mock.calls[0];
     expect(sql).not.toContain('lesson_id =');
-    expect(sql).toContain('course_id = $3');
+    expect(sql).toContain('course_id = $2');
     expect(params).not.toContain('not-a-uuid');
   });
 
-  it('applies the distance threshold and ordering in SQL', async () => {
+  // The threshold lives in code now, not in the WHERE clause: the point of the
+  // retrieval log is to see the near-misses, and SQL filtering would throw them
+  // away before anything could record them.
+  it('applies ordering in SQL and the threshold after it', async () => {
     await service.search('query');
 
-    const [sql, params] = chunksRepo.query.mock.calls[0];
-    expect(sql).toContain('embedding <=> $1::vector <= $2');
+    const [sql] = chunksRepo.query.mock.calls[0];
     expect(sql).toContain('ORDER BY embedding <=> $1::vector');
-    expect(params[1]).toBe(MAX_COSINE_DISTANCE);
+    expect(sql).not.toContain('::vector <=');
   });
 
-  it('caps the number of chunks returned', async () => {
-    await service.search('query', { limit: 99 });
+  it('drops candidates beyond the threshold but keeps them for the log', async () => {
+    chunksRepo.query.mockResolvedValue([
+      row({ id: 'chunk-1', distance: 0.4 }),
+      row({ id: 'chunk-2', distance: 0.8 }),
+    ]);
 
+    const hits = await service.search('query');
+
+    expect(hits.map((hit) => hit.id)).toEqual(['chunk-1']);
+    expect(logsRepo.insert).toHaveBeenCalledWith(
+      expect.objectContaining({
+        candidateCount: 2,
+        hitCount: 1,
+        bestDistance: 0.4,
+        distances: [0.4, 0.8],
+      }),
+    );
+  });
+
+  it('caps the hits after the scan, not in the SQL', async () => {
+    chunksRepo.query.mockResolvedValue([
+      row({ id: 'chunk-1', distance: 0.2 }),
+      row({ id: 'chunk-2', distance: 0.3 }),
+    ]);
+
+    const hits = await service.search('query', { limit: 1 });
+
+    expect(hits).toHaveLength(1);
     const [sql, params] = chunksRepo.query.mock.calls[0];
     expect(params[params.length - 1]).toBe(MAX_RETRIEVAL_LIMIT);
     expect(sql).toContain(`LIMIT $${params.length}`);
   });
 
   it('falls back to the default limit for a missing or nonsensical one', async () => {
-    await service.search('query', { limit: 0 });
-    expect(chunksRepo.query.mock.calls[0][1].at(-1)).toBe(
+    chunksRepo.query.mockResolvedValue(
+      Array.from({ length: MAX_RETRIEVAL_LIMIT }, (_, index) =>
+        row({ id: `chunk-${index}`, distance: 0.1 }),
+      ),
+    );
+
+    expect(await service.search('query', { limit: 0 })).toHaveLength(
       DEFAULT_RETRIEVAL_LIMIT,
     );
 
-    chunksRepo.query.mockClear();
-    await service.search('query', { limit: Number.NaN });
-    expect(chunksRepo.query.mock.calls[0][1].at(-1)).toBe(
-      DEFAULT_RETRIEVAL_LIMIT,
-    );
+    const nanResult = await service.search('query', { limit: Number.NaN });
+    expect(nanResult).toHaveLength(DEFAULT_RETRIEVAL_LIMIT);
   });
 
   it('makes no request and no query for an empty question', async () => {
     expect(await service.search('   ')).toEqual([]);
     expect(embedding.embed).not.toHaveBeenCalled();
     expect(chunksRepo.query).not.toHaveBeenCalled();
+    expect(logsRepo.insert).not.toHaveBeenCalled();
   });
 
   // Tầng A still answers, so a learner's message must not fail over this.
@@ -160,6 +199,7 @@ describe('KnowledgeRetrievalService', () => {
 
     expect(await service.search('query')).toEqual([]);
     expect(embedding.embed).not.toHaveBeenCalled();
+    expect(logsRepo.insert).not.toHaveBeenCalled();
   });
 
   it('returns nothing rather than throwing when the provider fails', async () => {
@@ -167,6 +207,176 @@ describe('KnowledgeRetrievalService', () => {
 
     expect(await service.search('query')).toEqual([]);
     expect(chunksRepo.query).not.toHaveBeenCalled();
+    expect(logsRepo.insert).not.toHaveBeenCalled();
+  });
+
+  describe('retrieval log', () => {
+    // The row is the datapoint that makes MAX_COSINE_DISTANCE tunable: what the
+    // scan saw, what passed, and enough context to judge why.
+    it('logs one row per search with context and a truncated preview', async () => {
+      const question = '  thì   hiện\ntại là gì  '.repeat(30);
+
+      await service.search(question, {
+        logContext: { conversationId: 'conv-1', lessonId: LESSON },
+      });
+
+      expect(logsRepo.insert).toHaveBeenCalledTimes(1);
+      const logged = logsRepo.insert.mock.calls[0][0];
+      expect(logged).toMatchObject({
+        conversationId: 'conv-1',
+        lessonId: LESSON,
+        candidateCount: 1,
+        hitCount: 1,
+        bestDistance: 0.21,
+        distances: [0.21],
+      });
+      expect(logged.queryPreview.startsWith('thì hiện tại là gì')).toBe(true);
+      expect(logged.queryPreview.length).toBeLessThanOrEqual(
+        QUERY_PREVIEW_LENGTH,
+      );
+    });
+
+    it('logs a zero-candidate search with a null best distance', async () => {
+      chunksRepo.query.mockResolvedValue([]);
+
+      await service.search('chuyện gì chưa có trong tài liệu');
+
+      expect(logsRepo.insert).toHaveBeenCalledWith(
+        expect.objectContaining({
+          candidateCount: 0,
+          hitCount: 0,
+          bestDistance: null,
+          distances: [],
+        }),
+      );
+    });
+
+    it('records near-miss distances that the hits never show', async () => {
+      chunksRepo.query.mockResolvedValue([row({ distance: 0.78 })]);
+
+      const hits = await service.search('query');
+
+      expect(hits).toEqual([]);
+      expect(logsRepo.insert).toHaveBeenCalledWith(
+        expect.objectContaining({
+          hitCount: 0,
+          bestDistance: 0.78,
+        }),
+      );
+    });
+
+    // The log informs tuning; losing one row to a transient write failure is
+    // acceptable, failing the learner's message over it is not.
+    it('still answers when writing the log fails', async () => {
+      logsRepo.insert.mockRejectedValue(new Error('write failed'));
+
+      const hits = await service.search('query');
+
+      expect(hits).toHaveLength(1);
+    });
+  });
+
+  describe('stats', () => {
+    const statRow = (
+      best_distance: number | null,
+      hit_count: number,
+    ): { best_distance: number | null; hit_count: number } => ({
+      best_distance,
+      hit_count,
+    });
+
+    const rows = [
+      statRow(0.2, 3),
+      statRow(0.8, 0),
+      statRow(0.9, 0),
+      statRow(null, 0),
+    ];
+
+    it('aggregates the window into the numbers the threshold decision needs', async () => {
+      logsRepo.query.mockResolvedValueOnce(rows).mockResolvedValueOnce([
+        {
+          query_preview: 'ngữ pháp quá khứ',
+          best_distance: 0.8,
+          created_at: new Date('2026-09-23T01:00:00Z'),
+        },
+      ]);
+
+      const result = await service.stats();
+
+      expect(result.windowDays).toBe(30);
+      expect(result.currentThreshold).toBe(MAX_COSINE_DISTANCE);
+      expect(result.totalQueries).toBe(4);
+      expect(result.queriesWithHits).toBe(1);
+      expect(result.zeroHitQueries).toBe(3);
+      expect(result.zeroHitRate).toBeCloseTo(0.75);
+      expect(result.avgHitCount).toBeCloseTo(0.75);
+      expect(result.bestDistance.min).toBe(0.2);
+      expect(result.bestDistance.max).toBe(0.9);
+      expect(result.bestDistance.avg).toBeCloseTo(1.9 / 3);
+      expect(result.bestDistance.p50).toBeCloseTo(0.8);
+      expect(result.bestDistance.p90).toBeCloseTo(0.8);
+      expect(result.buckets).toEqual([
+        { key: 'very-close', from: 0, to: 0.3, count: 1 },
+        { key: 'close', from: 0.3, to: 0.5, count: 0 },
+        { key: 'edge', from: 0.5, to: MAX_COSINE_DISTANCE, count: 0 },
+        { key: 'beyond', from: MAX_COSINE_DISTANCE, to: 0.9, count: 1 },
+        { key: 'far', from: 0.9, to: null, count: 1 },
+        { key: 'none', from: null, to: null, count: 1 },
+      ]);
+      expect(result.recentZeroHitQueries).toEqual([
+        {
+          queryPreview: 'ngữ pháp quá khứ',
+          bestDistance: 0.8,
+          createdAt: '2026-09-23T01:00:00.000Z',
+        },
+      ]);
+    });
+
+    it('returns nulls and empty buckets over an empty window', async () => {
+      const result = await service.stats();
+
+      expect(result.totalQueries).toBe(0);
+      expect(result.zeroHitRate).toBe(0);
+      expect(result.avgHitCount).toBeNull();
+      expect(result.bestDistance.p50).toBeNull();
+      expect(result.bestDistance.max).toBeNull();
+      expect(result.buckets.every((bucket) => bucket.count === 0)).toBe(true);
+      expect(result.recentZeroHitQueries).toEqual([]);
+    });
+
+    it('asks Postgres for the clamped window in both queries', async () => {
+      await service.stats(RETRIEVAL_STATS_MAX_WINDOW_DAYS + 500);
+
+      expect(logsRepo.query).toHaveBeenCalledTimes(2);
+      expect(logsRepo.query.mock.calls[0][0]).toContain('days => 90::int');
+      expect(logsRepo.query.mock.calls[1][0]).toContain('days => 90::int');
+      // The zero-hit sample only makes sense per window and newest-first.
+      expect(logsRepo.query.mock.calls[1][0]).toContain('hit_count = 0');
+      expect(logsRepo.query.mock.calls[1][0]).toContain(
+        'ORDER BY created_at DESC',
+      );
+
+      logsRepo.query.mockClear();
+      await service.stats(Number.NaN);
+      expect(logsRepo.query.mock.calls[0][0]).toContain('days => 30::int');
+    });
+  });
+
+  describe('pruneOldLogs', () => {
+    it('deletes rows past the retention window and reports the count', async () => {
+      logsRepo.delete.mockResolvedValue({ affected: 7 });
+
+      await expect(service.pruneOldLogs()).resolves.toBe(7);
+
+      // `LessThan` wraps the cutoff in a FindOperator; the Date itself sits in
+      // `.value`.
+      const criteria = logsRepo.delete.mock.calls[0][0];
+      const cutoff = criteria.createdAt.value as Date;
+      const cutoffDays =
+        (Date.now() - cutoff.getTime()) / (24 * 60 * 60 * 1000);
+      expect(cutoffDays).toBeGreaterThan(89);
+      expect(cutoffDays).toBeLessThan(91);
+    });
   });
 
   describe('query embedding cache', () => {

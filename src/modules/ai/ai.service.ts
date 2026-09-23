@@ -259,6 +259,7 @@ export class AiService {
   private async buildSystemPrompt(
     lessonId?: string | null,
     query?: string | null,
+    conversationId?: string | null,
   ): Promise<BuiltSystemPrompt> {
     const { rules } = await this.resolveSystemRules();
     const lessonContext =
@@ -266,10 +267,16 @@ export class AiService {
 
     // Chunks from the lesson already in the prompt are excluded: the lesson tier
     // supplies that lesson in full, so retrieving pieces of it again would spend
-    // the reference budget to repeat what the model has already read.
+    // the reference budget to repeat what the model has already read. The
+    // logContext goes nowhere near the search — it only labels the
+    // ai_retrieval_logs row the search writes.
     const hits = query
       ? await this.knowledgeRetrieval.search(query, {
           excludeLessonId: lessonId,
+          logContext: {
+            conversationId: conversationId ?? null,
+            lessonId: lessonId ?? null,
+          },
         })
       : [];
     const references = renderReferenceBlock(hits);
@@ -412,6 +419,7 @@ export class AiService {
     const { prompt: systemPrompt, references } = await this.buildSystemPrompt(
       conversation.lessonId,
       message,
+      conversationId,
     );
     const chatMessages = [
       {
