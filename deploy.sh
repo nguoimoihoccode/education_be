@@ -19,7 +19,7 @@ if [ -f "$SCRIPT_DIR/deploy.env" ]; then
   set -a; source "$SCRIPT_DIR/deploy.env"; set +a
 fi
 
-: "${VPS_HOST:=103.20.102.93}"
+: "${VPS_HOST:=116.118.6.139}"
 : "${VPS_USER:=root}"
 : "${APP_DIR:=/opt/stockvn}"
 : "${SSH_KEY:=${HOME}/.ssh/stockvn_deploy}"
