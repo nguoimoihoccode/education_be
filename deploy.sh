@@ -55,12 +55,12 @@ vssh() { ssh "${SSH_OPTS[@]}" "$REMOTE" "$@"; }
 vscp() { scp "${SSH_OPTS[@]}" "$@"; }
 
 # Backend is not published to the host; check it through the frontend proxy
-# which nginx routes to the backend container (host port 8080 -> /api/health).
+# which nginx routes to the backend container (host port 8090 -> /api/health).
 healthcheck_backend() {
-  # Source :8080 frontend expect backend up via compose depends; we poll upstream.
-  log "Waiting for backend health via :8080/api/health ..."
+  # Source :8090 frontend expect backend up via compose depends; we poll upstream.
+  log "Waiting for backend health via :8090/api/health ..."
   for _ in $(seq 1 40); do
-    code=$(vssh "curl -s -o /dev/null -w '%{http_code}' http://localhost:8080/api/health 2>/dev/null || echo 000")
+    code=$(vssh "curl -s -o /dev/null -w '%{http_code}' http://localhost:8090/api/health 2>/dev/null || echo 000")
     if [ "$code" = "200" ]; then
       log "Backend healthy (HTTP 200 via proxy)."
       return 0

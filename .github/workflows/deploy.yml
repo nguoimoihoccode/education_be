@@ -264,7 +264,9 @@ jobs:
 
             wait_healthy() {
               for _ in $(seq 1 30); do
-                curl --fail --show-error --silent http://127.0.0.1:8080/api/health && return 0
+                # 8090, not 8080: the frontend container is published on 8090 because
+                # 8080 on this VPS belongs to another project.
+                curl --fail --show-error --silent http://127.0.0.1:8090/api/health && return 0
                 sleep 5
               done
               return 1

@@ -102,7 +102,9 @@ services:
     container_name: stockvn-frontend
     restart: unless-stopped
     ports:
-      - "8080:80"
+      # 8080 on this VPS belongs to the nexus-agent frontend. Bind the SPA to
+      # 8090 instead; the host nginx vhost and the deploy health checks follow.
+      - "8090:80"
     depends_on:
       backend:
         condition: service_healthy
