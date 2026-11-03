@@ -1,0 +1,48 @@
+{
+  "schemaVersion": 1,
+  "examVersionId": "22222222-2222-4222-8222-222222222222",
+  "submissionId": "33333333-3333-4333-8333-333333333333",
+  "inputRevision": 3,
+  "results": [
+    {
+      "questionKey": "II.3",
+      "criterionGrades": [
+        {
+          "criterionId": "views",
+          "pointsUnits": 500,
+          "reason": "Dữ liệu tổng hợp kiểm tra contract, không phải nhận xét bài học sinh.",
+          "evidenceRegionIds": [
+            "synthetic.drawing"
+          ]
+        },
+        {
+          "criterionId": "geometry",
+          "pointsUnits": 250,
+          "reason": "Điểm giả lập để kiểm tra giới hạn và phép cộng.",
+          "evidenceRegionIds": [
+            "synthetic.drawing"
+          ]
+        },
+        {
+          "criterionId": "placement",
+          "pointsUnits": 0,
+          "reason": "Trường hợp điểm 0 vẫn phải tham chiếu bằng chứng.",
+          "evidenceRegionIds": [
+            "synthetic.drawing"
+          ]
+        },
+        {
+          "criterionId": "dimensions",
+          "pointsUnits": null,
+          "reason": "Trường hợp chưa thể đánh giá phải giữ null.",
+          "evidenceRegionIds": [
+            "synthetic.drawing"
+          ]
+        }
+      ],
+      "blockingCodes": [
+        "insufficient_evidence"
+      ]
+    }
+  ]
+}

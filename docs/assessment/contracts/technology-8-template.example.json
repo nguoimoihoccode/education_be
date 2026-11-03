@@ -1,0 +1,417 @@
+{
+  "schemaVersion": 1,
+  "subject": "Công nghệ",
+  "grade": 8,
+  "examCode": "102",
+  "declaredExamPageCount": 2,
+  "pointScale": 1000,
+  "maxScoreUnits": 10000,
+  "questions": [
+    {
+      "questionKey": "I.1",
+      "kind": "single_choice",
+      "text": "Trên bản vẽ kỹ thuật, tỉ lệ 1:2 thuộc loại tỉ lệ nào?",
+      "maxUnits": 250,
+      "sourceRegionIds": [],
+      "options": [
+        {
+          "id": "A",
+          "text": "Tỉ lệ phóng to."
+        },
+        {
+          "id": "B",
+          "text": "Tỉ lệ thu nhỏ."
+        },
+        {
+          "id": "C",
+          "text": "Tỉ lệ nguyên hình."
+        },
+        {
+          "id": "D",
+          "text": "Tỉ lệ tiêu chuẩn chung."
+        }
+      ],
+      "answerKey": null
+    },
+    {
+      "questionKey": "I.2",
+      "kind": "single_choice",
+      "text": "Nét đứt mảnh trên bản vẽ kỹ thuật được sử dụng để biểu diễn yếu tố nào?",
+      "maxUnits": 250,
+      "sourceRegionIds": [],
+      "options": [
+        {
+          "id": "A",
+          "text": "Đường thấy, cạnh thấy."
+        },
+        {
+          "id": "B",
+          "text": "Đường gióng, đường kích thước."
+        },
+        {
+          "id": "C",
+          "text": "Đường khuất, cạnh khuất."
+        },
+        {
+          "id": "D",
+          "text": "Đường tâm, đường đối xứng."
+        }
+      ],
+      "answerKey": null
+    },
+    {
+      "questionKey": "I.3",
+      "kind": "single_choice",
+      "text": "Trong phương pháp chiếu góc thứ nhất, hình chiếu bằng được đặt ở vị trí nào so với hình chiếu đứng?",
+      "maxUnits": 250,
+      "sourceRegionIds": [],
+      "options": [
+        {
+          "id": "A",
+          "text": "Ở phía trên hình chiếu đứng."
+        },
+        {
+          "id": "B",
+          "text": "Ở phía dưới hình chiếu đứng."
+        },
+        {
+          "id": "C",
+          "text": "Ở bên trái hình chiếu đứng."
+        },
+        {
+          "id": "D",
+          "text": "Ở bên phải hình chiếu đứng."
+        }
+      ],
+      "answerKey": null
+    },
+    {
+      "questionKey": "I.4",
+      "kind": "single_choice",
+      "text": "Hình chiếu cạnh có hướng chiếu từ đâu vào vật thể?",
+      "maxUnits": 250,
+      "sourceRegionIds": [],
+      "options": [
+        {
+          "id": "A",
+          "text": "Từ trước tới."
+        },
+        {
+          "id": "B",
+          "text": "Từ trên xuống."
+        },
+        {
+          "id": "C",
+          "text": "Từ trái sang."
+        },
+        {
+          "id": "D",
+          "text": "Từ phải sang."
+        }
+      ],
+      "answerKey": null
+    },
+    {
+      "questionKey": "I.5",
+      "kind": "single_choice",
+      "text": "Bản vẽ chi tiết bao gồm những nội dung cơ bản nào?",
+      "maxUnits": 250,
+      "sourceRegionIds": [],
+      "options": [
+        {
+          "id": "A",
+          "text": "Khung tên, hình biểu diễn, kích thước, yêu cầu kỹ thuật."
+        },
+        {
+          "id": "B",
+          "text": "Khung tên, bảng kê, hình biểu diễn, kích thước."
+        },
+        {
+          "id": "C",
+          "text": "Khung tên, bảng kê, phân tích chi tiết, tổng hợp."
+        },
+        {
+          "id": "D",
+          "text": "Khung tên, hình biểu diễn, kích thước, bảng kê, tổng hợp."
+        }
+      ],
+      "answerKey": null
+    },
+    {
+      "questionKey": "I.6",
+      "kind": "single_choice",
+      "text": "Khi đọc bản vẽ chi tiết, bước đầu tiên cần thực hiện là đọc nội dung nào?",
+      "maxUnits": 250,
+      "sourceRegionIds": [],
+      "options": [
+        {
+          "id": "A",
+          "text": "Kích thước."
+        },
+        {
+          "id": "B",
+          "text": "Hình biểu diễn."
+        },
+        {
+          "id": "C",
+          "text": "Khung tên."
+        },
+        {
+          "id": "D",
+          "text": "Yêu cầu kỹ thuật."
+        }
+      ],
+      "answerKey": null
+    },
+    {
+      "questionKey": "I.7",
+      "kind": "single_choice",
+      "text": "Trình tự các bước đọc bản vẽ lắp theo quy chuẩn kỹ thuật là gì?",
+      "maxUnits": 250,
+      "sourceRegionIds": [],
+      "options": [
+        {
+          "id": "A",
+          "text": "Khung tên → Bảng kê → Hình biểu diễn → Kích thước → Phân tích chi tiết → Tổng hợp."
+        },
+        {
+          "id": "B",
+          "text": "Khung tên → Hình biểu diễn → Bảng kê → Kích thước → Phân tích chi tiết → Tổng hợp."
+        },
+        {
+          "id": "C",
+          "text": "Bảng kê → Khung tên → Hình biểu diễn → Kích thước → Phân tích chi tiết → Tổng hợp."
+        },
+        {
+          "id": "D",
+          "text": "Khung tên → Bảng kê → Kích thước → Hình biểu diễn → Phân tích chi tiết → Tổng hợp."
+        }
+      ],
+      "answerKey": null
+    },
+    {
+      "questionKey": "I.8",
+      "kind": "single_choice",
+      "text": "Trong bản vẽ lắp, nội dung Bảng kê bao gồm các thông tin nào?",
+      "maxUnits": 250,
+      "sourceRegionIds": [],
+      "options": [
+        {
+          "id": "A",
+          "text": "Tên gọi sản phẩm, tỉ lệ bản vẽ, tên người vẽ."
+        },
+        {
+          "id": "B",
+          "text": "Tên gọi chi tiết, số lượng, vật liệu và ghi chú."
+        },
+        {
+          "id": "C",
+          "text": "Yêu cầu xử lý bề mặt, dung sai kích thước."
+        },
+        {
+          "id": "D",
+          "text": "Hướng chiếu, hình cắt và các kích thước chung."
+        }
+      ],
+      "answerKey": null
+    },
+    {
+      "questionKey": "I.9",
+      "kind": "single_choice",
+      "text": "Hình biểu diễn nào trong bản vẽ nhà thể hiện hình dáng kiến trúc bên ngoài của ngôi nhà?",
+      "maxUnits": 250,
+      "sourceRegionIds": [],
+      "options": [
+        {
+          "id": "A",
+          "text": "Mặt bằng."
+        },
+        {
+          "id": "B",
+          "text": "Mặt đứng."
+        },
+        {
+          "id": "C",
+          "text": "Mặt cắt."
+        },
+        {
+          "id": "D",
+          "text": "Bảng kê."
+        }
+      ],
+      "answerKey": null
+    },
+    {
+      "questionKey": "I.10",
+      "kind": "single_choice",
+      "text": "Ký hiệu hai đường song song trên bản vẽ nhà thường dùng để biểu diễn bộ phận nào?",
+      "maxUnits": 250,
+      "sourceRegionIds": [],
+      "options": [
+        {
+          "id": "A",
+          "text": "Cửa đi một cánh."
+        },
+        {
+          "id": "B",
+          "text": "Cầu thang."
+        },
+        {
+          "id": "C",
+          "text": "Tường."
+        },
+        {
+          "id": "D",
+          "text": "Cửa sổ đơn."
+        }
+      ],
+      "answerKey": null
+    },
+    {
+      "questionKey": "I.11",
+      "kind": "single_choice",
+      "text": "Vật liệu cơ khí nào thuộc nhóm kim loại màu?",
+      "maxUnits": 250,
+      "sourceRegionIds": [],
+      "options": [
+        {
+          "id": "A",
+          "text": "Gang và thép."
+        },
+        {
+          "id": "B",
+          "text": "Đồng và nhôm."
+        },
+        {
+          "id": "C",
+          "text": "Nhựa dẻo và cao su."
+        },
+        {
+          "id": "D",
+          "text": "Gốm sứ và thủy tinh."
+        }
+      ],
+      "answerKey": null
+    },
+    {
+      "questionKey": "I.12",
+      "kind": "single_choice",
+      "text": "Bộ truyền động nào thuộc nhóm truyền động ăn khớp?",
+      "maxUnits": 250,
+      "sourceRegionIds": [],
+      "options": [
+        {
+          "id": "A",
+          "text": "Truyền động đai."
+        },
+        {
+          "id": "B",
+          "text": "Truyền động bánh răng và truyền động xích."
+        },
+        {
+          "id": "C",
+          "text": "Truyền động bánh đai."
+        },
+        {
+          "id": "D",
+          "text": "Truyền động con lăn đều."
+        }
+      ],
+      "answerKey": null
+    },
+    {
+      "questionKey": "I.13",
+      "kind": "true_false_group",
+      "text": "Cho bộ truyền động đai gồm bánh dẫn D1 có đường kính 250 mm, bánh bị dẫn D2 có đường kính 100 mm quay với tốc độ n2 = 600 vòng/phút. Đánh dấu Đ hoặc S cho các mệnh đề.",
+      "maxUnits": 1000,
+      "sourceRegionIds": [],
+      "statements": [
+        {
+          "id": "a",
+          "text": "Bánh bị dẫn D1 có tốc độ quay chậm hơn bánh dẫn D2."
+        },
+        {
+          "id": "b",
+          "text": "Tỉ số truyền i của bộ truyền động đai này có giá trị bằng 2,5."
+        },
+        {
+          "id": "c",
+          "text": "Tốc độ quay của bánh bị dẫn n1 nhận giá trị là 1500 vòng/phút."
+        },
+        {
+          "id": "d",
+          "text": "Nếu muốn bánh bị dẫn quay chậm lại, người ta có thể giảm đường kính bánh dẫn D1 hoặc tăng đường kính bánh bị dẫn D2."
+        }
+      ],
+      "answerKey": null,
+      "scoringPolicy": null
+    },
+    {
+      "questionKey": "II.1.a",
+      "kind": "rubric_text",
+      "text": "Nêu công dụng của bản vẽ chi tiết và trình bày trình tự các bước đọc bản vẽ chi tiết theo quy chuẩn kỹ thuật.",
+      "maxUnits": 1000,
+      "sourceRegionIds": [],
+      "criteria": [],
+      "acceptedAnswerForms": [
+        "text"
+      ]
+    },
+    {
+      "questionKey": "II.1.b",
+      "kind": "rubric_table",
+      "text": "So sánh sự khác nhau về tính chất (thành phần, tính dẫn điện, dẫn nhiệt, độ bền) và phạm vi ứng dụng thực tế giữa kim loại đen (thép, gang) và kim loại màu (đồng, nhôm).",
+      "maxUnits": 1000,
+      "sourceRegionIds": [],
+      "criteria": [],
+      "acceptedAnswerForms": [
+        "text",
+        "table"
+      ]
+    },
+    {
+      "questionKey": "II.2.a",
+      "kind": "rubric_text",
+      "text": "Trình bày trình tự các bước đọc bản vẽ lắp. So sánh sự khác nhau cơ bản về nội dung giữa bản vẽ lắp và bản vẽ chi tiết.",
+      "maxUnits": 1000,
+      "sourceRegionIds": [],
+      "criteria": [],
+      "acceptedAnswerForms": [
+        "text",
+        "table"
+      ]
+    },
+    {
+      "questionKey": "II.2.b",
+      "kind": "rubric_text",
+      "text": "Phân biệt vai trò của mặt bằng, mặt đứng và mặt cắt trong bản vẽ nhà. Giải thích vì sao mặt bằng được coi là hình biểu diễn quan trọng nhất của ngôi nhà.",
+      "maxUnits": 1000,
+      "sourceRegionIds": [],
+      "criteria": [],
+      "acceptedAnswerForms": [
+        "text",
+        "table"
+      ]
+    },
+    {
+      "questionKey": "II.3",
+      "kind": "rubric_drawing",
+      "text": "Vẽ 3 hình chiếu vuông góc (hình chiếu đứng, hình chiếu bằng, hình chiếu cạnh) của khối hộp chữ nhật có L=40 mm, W=20 mm, H=30 mm theo phương pháp chiếu góc thứ nhất. Bố trí vị trí các hình chiếu và ghi đầy đủ kích thước.",
+      "maxUnits": 2000,
+      "sourceRegionIds": [],
+      "criteria": [],
+      "acceptedAnswerForms": [
+        "drawing"
+      ]
+    }
+  ],
+  "gradingDefaults": {
+    "blankScoreUnits": 0,
+    "carryForwardErrorPolicy": "no_duplicate_penalty",
+    "rounding": {
+      "mode": "half_up",
+      "normalizeTo": 10,
+      "targetDecimals": 1
+    }
+  }
+}

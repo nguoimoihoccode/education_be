@@ -1,0 +1,107 @@
+{
+  "schemaVersion": 1,
+  "purpose": "Design fixture only; photographs remain outside Git; no real student grades or identities.",
+  "images": [
+    {
+      "imageId": "img-1",
+      "primaryRole": "written_answer",
+      "expectedExamCode": "102",
+      "backgroundExamCodes": [
+        "103"
+      ],
+      "questionKeys": [
+        "II.1.b",
+        "II.2.a"
+      ]
+    },
+    {
+      "imageId": "img-2",
+      "primaryRole": "written_answer",
+      "answerForm": "drawing",
+      "questionKeys": [
+        "II.3"
+      ]
+    },
+    {
+      "imageId": "img-3",
+      "primaryRole": "written_answer",
+      "backgroundIdentityMustBeIgnored": true,
+      "questionKeys": [
+        "II.2.a",
+        "II.2.b",
+        "II.3"
+      ]
+    },
+    {
+      "imageId": "img-4",
+      "primaryRole": "mixed",
+      "printedExamPageNumber": 1,
+      "printedExamPageCount": 2,
+      "expectedExamCode": "102",
+      "questionKeys": [
+        "I.1",
+        "I.2",
+        "I.3",
+        "I.4",
+        "I.5",
+        "I.6",
+        "I.7",
+        "I.8",
+        "I.9",
+        "I.10",
+        "I.11",
+        "I.12"
+      ]
+    },
+    {
+      "imageId": "img-5",
+      "primaryRole": "mixed",
+      "printedExamPageNumber": 2,
+      "printedExamPageCount": 2,
+      "expectedExamCode": "102",
+      "questionKeys": [
+        "I.13",
+        "II.1.a",
+        "II.1.b",
+        "II.2.a",
+        "II.2.b",
+        "II.3"
+      ]
+    }
+  ],
+  "proposedWrittenPageOrder": [
+    "img-1",
+    "img-3",
+    "img-2"
+  ],
+  "initialReviewExpectations": [
+    {
+      "questionKey": "II.1.a",
+      "code": "answer_not_found",
+      "severity": "blocking",
+      "note": "Not found in clearly visible answer regions; teacher must verify missing pages or blank. This is not a zero score."
+    },
+    {
+      "questionKey": "II.3",
+      "code": "drawing_review_required",
+      "severity": "blocking",
+      "note": "Pilot policy requires teacher confirmation of drawing."
+    }
+  ],
+  "syntheticGradeContext": {
+    "questionKey": "II.3",
+    "maxUnits": 2000,
+    "criteriaMaxUnits": {
+      "views": 500,
+      "geometry": 500,
+      "placement": 500,
+      "dimensions": 500
+    },
+    "allowedEvidenceRegionIds": [
+      "synthetic.drawing"
+    ],
+    "backgroundRegionIds": [
+      "synthetic.background"
+    ]
+  }
+}
