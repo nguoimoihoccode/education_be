@@ -1,0 +1,77 @@
+{
+  "schemaVersion": 1,
+  "currency": "USD",
+  "isMeasured": false,
+  "description": "Hypothetical billed-token illustration, not a quote or quality-equivalent benchmark. Thinking is already included in billableOutputTokens. No cache hits, tools, network/storage or teacher time included.",
+  "classSize": 35,
+  "sharedKey": {
+    "profileId": "deepseek_key_reasoning",
+    "callsPerAssessment": 1,
+    "inputTokensPerCall": 5000,
+    "billableOutputTokensPerCall": 2000
+  },
+  "scenarios": [
+    {
+      "name": "naive_three_full_context_calls",
+      "stages": [
+        {
+          "role": "full_context",
+          "profileId": "gemini25_reader",
+          "callsPerSubmissionWhenTriggered": 3,
+          "triggerProbability": 1,
+          "inputTokensPerCall": 5000,
+          "billableOutputTokensPerCall": 3000
+        }
+      ],
+      "expectedClassCostUsdIllustration": 0.95952,
+      "expectedSubmissionCostUsdIllustration": 0.027414857142857144
+    },
+    {
+      "name": "conditional_multi_agent_with_drawing",
+      "stages": [
+        {
+          "role": "reader",
+          "profileId": "gemini25_reader",
+          "callsPerSubmissionWhenTriggered": 1,
+          "triggerProbability": 1,
+          "inputTokensPerCall": 5000,
+          "billableOutputTokensPerCall": 3000
+        },
+        {
+          "role": "assembler_fallback",
+          "profileId": "gemini25_text_light",
+          "callsPerSubmissionWhenTriggered": 1,
+          "triggerProbability": 0.2,
+          "inputTokensPerCall": 3000,
+          "billableOutputTokensPerCall": 500
+        },
+        {
+          "role": "text_grader",
+          "profileId": "deepseek_text_budget",
+          "callsPerSubmissionWhenTriggered": 1,
+          "triggerProbability": 1,
+          "inputTokensPerCall": 3000,
+          "billableOutputTokensPerCall": 800
+        },
+        {
+          "role": "drawing_grader",
+          "profileId": "gemini38_vision",
+          "callsPerSubmissionWhenTriggered": 1,
+          "triggerProbability": 1,
+          "inputTokensPerCall": 2000,
+          "billableOutputTokensPerCall": 400
+        },
+        {
+          "role": "sampled_audit",
+          "profileId": "gemini38_vision",
+          "callsPerSubmissionWhenTriggered": 1,
+          "triggerProbability": 0.05,
+          "inputTokensPerCall": 2000,
+          "billableOutputTokensPerCall": 300
+        }
+      ],
+      "expectedClassCostUsdIllustration": 0.50771375,
+      "expectedSubmissionCostUsdIllustration": 0.014506107142857144
+    }
+  ]
+}

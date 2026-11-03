@@ -1,0 +1,522 @@
+{
+  "$schema": "http://json-schema.org/draft-07/schema#",
+  "$id": "urn:assessment:agent-routing:v1",
+  "type": "object",
+  "additionalProperties": false,
+  "required": [
+    "schemaVersion",
+    "routingVersion",
+    "deploymentState",
+    "policy",
+    "execution",
+    "profiles",
+    "agents"
+  ],
+  "properties": {
+    "schemaVersion": {
+      "const": 1
+    },
+    "routingVersion": {
+      "type": "string",
+      "minLength": 1
+    },
+    "deploymentState": {
+      "enum": [
+        "design_only",
+        "pilot"
+      ]
+    },
+    "policy": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "currency",
+        "tenantProviderAllowlist",
+        "maxProviderCallsPerSubmissionRevision",
+        "maxProviderCallsPerTemplate",
+        "maxCostMicrosPerSubmissionRevision",
+        "dailyCostLimitMicros",
+        "maxEscalationRoundsPerQuestion",
+        "maxSchemaRepairAttempts",
+        "auditSampleRate",
+        "auditSeedRef",
+        "drawingRequiresTeacherConfirmation",
+        "allowModelSelfApproval",
+        "allowGroundingTools"
+      ],
+      "properties": {
+        "currency": {
+          "const": "USD"
+        },
+        "tenantProviderAllowlist": {
+          "type": "array",
+          "minItems": 1,
+          "uniqueItems": true,
+          "items": {
+            "enum": [
+              "google",
+              "deepseek"
+            ]
+          }
+        },
+        "maxProviderCallsPerSubmissionRevision": {
+          "type": "integer",
+          "minimum": 1,
+          "maximum": 24
+        },
+        "maxProviderCallsPerTemplate": {
+          "type": "integer",
+          "minimum": 1,
+          "maximum": 12
+        },
+        "maxCostMicrosPerSubmissionRevision": {
+          "type": "integer",
+          "minimum": 1
+        },
+        "dailyCostLimitMicros": {
+          "type": "integer",
+          "minimum": 1
+        },
+        "maxEscalationRoundsPerQuestion": {
+          "type": "integer",
+          "minimum": 0,
+          "maximum": 1
+        },
+        "maxSchemaRepairAttempts": {
+          "type": "integer",
+          "minimum": 0,
+          "maximum": 1
+        },
+        "auditSampleRate": {
+          "type": "number",
+          "minimum": 0,
+          "maximum": 1
+        },
+        "auditSeedRef": {
+          "type": "string",
+          "pattern": "^[A-Z][A-Z0-9_]*$"
+        },
+        "drawingRequiresTeacherConfirmation": {
+          "const": true
+        },
+        "allowModelSelfApproval": {
+          "const": false
+        },
+        "allowGroundingTools": {
+          "const": false
+        }
+      }
+    },
+    "execution": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "mode",
+        "maxParallelJobs",
+        "maxParallelProviderCalls",
+        "admitFreeDiskGiB",
+        "pauseBelowFreeDiskGiB",
+        "localCacheMaxGiB"
+      ],
+      "properties": {
+        "mode": {
+          "const": "remote_mac_https"
+        },
+        "maxParallelJobs": {
+          "type": "integer",
+          "minimum": 1,
+          "maximum": 2
+        },
+        "maxParallelProviderCalls": {
+          "type": "integer",
+          "minimum": 1,
+          "maximum": 2
+        },
+        "admitFreeDiskGiB": {
+          "type": "integer",
+          "minimum": 1
+        },
+        "pauseBelowFreeDiskGiB": {
+          "type": "integer",
+          "minimum": 1
+        },
+        "localCacheMaxGiB": {
+          "type": "integer",
+          "minimum": 1,
+          "maximum": 5
+        }
+      }
+    },
+    "profiles": {
+      "type": "object",
+      "minProperties": 1,
+      "patternProperties": {
+        "^[a-z][a-z0-9_]*$": {
+          "type": "object",
+          "additionalProperties": false,
+          "required": [
+            "provider",
+            "model",
+            "apiDialect",
+            "credentialRef",
+            "capabilities",
+            "reasoningPolicy",
+            "maxOutputTokens",
+            "qualityGate",
+            "availability",
+            "allowThroughDate",
+            "pricing",
+            "maxInputTokens"
+          ],
+          "properties": {
+            "provider": {
+              "enum": [
+                "google",
+                "deepseek"
+              ]
+            },
+            "model": {
+              "type": "string",
+              "minLength": 1
+            },
+            "apiDialect": {
+              "enum": [
+                "google_generate_content",
+                "openai_chat_completions"
+              ]
+            },
+            "credentialRef": {
+              "type": "string",
+              "pattern": "^[A-Z][A-Z0-9_]*$"
+            },
+            "capabilities": {
+              "type": "array",
+              "minItems": 2,
+              "uniqueItems": true,
+              "items": {
+                "enum": [
+                  "text",
+                  "vision",
+                  "structured_json",
+                  "batch"
+                ]
+              }
+            },
+            "reasoningPolicy": {
+              "enum": [
+                "disabled",
+                "low",
+                "provider_default"
+              ]
+            },
+            "maxOutputTokens": {
+              "type": "integer",
+              "minimum": 256,
+              "maximum": 8192
+            },
+            "qualityGate": {
+              "enum": [
+                "benchmark_required",
+                "passed"
+              ]
+            },
+            "availability": {
+              "enum": [
+                "project_access_required",
+                "verify_with_project"
+              ]
+            },
+            "allowThroughDate": {
+              "type": [
+                "string",
+                "null"
+              ],
+              "format": "date"
+            },
+            "pricing": {
+              "type": "object",
+              "additionalProperties": false,
+              "required": [
+                "currency",
+                "snapshotDate",
+                "validThroughDate",
+                "inputMicrosPerMillion",
+                "outputMicrosPerMillion",
+                "cachedInputMicrosPerMillion",
+                "reserveAtPeakRate"
+              ],
+              "properties": {
+                "currency": {
+                  "const": "USD"
+                },
+                "snapshotDate": {
+                  "type": "string",
+                  "format": "date"
+                },
+                "validThroughDate": {
+                  "type": "string",
+                  "format": "date"
+                },
+                "inputMicrosPerMillion": {
+                  "type": "integer",
+                  "minimum": 0,
+                  "maximum": 1000000000
+                },
+                "outputMicrosPerMillion": {
+                  "type": "integer",
+                  "minimum": 0,
+                  "maximum": 1000000000
+                },
+                "cachedInputMicrosPerMillion": {
+                  "type": "integer",
+                  "minimum": 0,
+                  "maximum": 1000000000
+                },
+                "reserveAtPeakRate": {
+                  "type": "boolean"
+                }
+              }
+            },
+            "maxInputTokens": {
+              "type": "integer",
+              "minimum": 256,
+              "maximum": 131072
+            }
+          }
+        }
+      },
+      "additionalProperties": false
+    },
+    "agents": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "image_reader",
+        "answer_assembler",
+        "key_builder",
+        "objective_scorer",
+        "text_grader",
+        "drawing_grader",
+        "independent_auditor",
+        "result_validator"
+      ],
+      "properties": {
+        "image_reader": {
+          "allOf": [
+            {
+              "$ref": "#/definitions/agent"
+            },
+            {
+              "properties": {
+                "receivesAnswerKey": {
+                  "const": false
+                }
+              }
+            }
+          ]
+        },
+        "answer_assembler": {
+          "allOf": [
+            {
+              "$ref": "#/definitions/agent"
+            },
+            {
+              "properties": {
+                "receivesAnswerKey": {
+                  "const": false
+                }
+              }
+            }
+          ]
+        },
+        "key_builder": {
+          "allOf": [
+            {
+              "$ref": "#/definitions/agent"
+            },
+            {
+              "properties": {
+                "receivesAnswerKey": {
+                  "const": false
+                },
+                "receivesStudentAnswers": {
+                  "const": false
+                }
+              }
+            }
+          ]
+        },
+        "objective_scorer": {
+          "allOf": [
+            {
+              "$ref": "#/definitions/agent"
+            },
+            {
+              "properties": {
+                "mode": {
+                  "const": "code_only"
+                }
+              }
+            }
+          ]
+        },
+        "text_grader": {
+          "allOf": [
+            {
+              "$ref": "#/definitions/agent"
+            }
+          ]
+        },
+        "drawing_grader": {
+          "allOf": [
+            {
+              "$ref": "#/definitions/agent"
+            }
+          ]
+        },
+        "independent_auditor": {
+          "allOf": [
+            {
+              "$ref": "#/definitions/agent"
+            }
+          ]
+        },
+        "result_validator": {
+          "allOf": [
+            {
+              "$ref": "#/definitions/agent"
+            },
+            {
+              "properties": {
+                "mode": {
+                  "const": "code_only"
+                }
+              }
+            }
+          ]
+        }
+      }
+    }
+  },
+  "definitions": {
+    "agent": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "mode",
+        "trigger",
+        "primaryProfileId",
+        "fallbackProfileId",
+        "escalationProfileId",
+        "visionProfileId",
+        "receivesStudentAnswers",
+        "receivesAnswerKey"
+      ],
+      "properties": {
+        "mode": {
+          "enum": [
+            "code_only",
+            "code_first",
+            "model"
+          ]
+        },
+        "trigger": {
+          "enum": [
+            "always",
+            "ambiguity_only",
+            "new_exam_or_rubric",
+            "objective_answer",
+            "text_answer",
+            "drawing_answer",
+            "risk_or_sample"
+          ]
+        },
+        "primaryProfileId": {
+          "anyOf": [
+            {
+              "type": "string",
+              "pattern": "^[a-z][a-z0-9_]*$"
+            },
+            {
+              "type": "null"
+            }
+          ]
+        },
+        "fallbackProfileId": {
+          "anyOf": [
+            {
+              "type": "string",
+              "pattern": "^[a-z][a-z0-9_]*$"
+            },
+            {
+              "type": "null"
+            }
+          ]
+        },
+        "escalationProfileId": {
+          "anyOf": [
+            {
+              "type": "string",
+              "pattern": "^[a-z][a-z0-9_]*$"
+            },
+            {
+              "type": "null"
+            }
+          ]
+        },
+        "visionProfileId": {
+          "anyOf": [
+            {
+              "type": "string",
+              "pattern": "^[a-z][a-z0-9_]*$"
+            },
+            {
+              "type": "null"
+            }
+          ]
+        },
+        "receivesStudentAnswers": {
+          "type": "boolean"
+        },
+        "receivesAnswerKey": {
+          "type": "boolean"
+        }
+      },
+      "allOf": [
+        {
+          "if": {
+            "properties": {
+              "mode": {
+                "const": "code_only"
+              }
+            }
+          },
+          "then": {
+            "properties": {
+              "primaryProfileId": {
+                "const": null
+              },
+              "fallbackProfileId": {
+                "const": null
+              },
+              "escalationProfileId": {
+                "const": null
+              },
+              "visionProfileId": {
+                "const": null
+              }
+            }
+          },
+          "else": {
+            "properties": {
+              "primaryProfileId": {
+                "type": "string",
+                "minLength": 1
+              }
+            }
+          }
+        }
+      ]
+    }
+  }
+}

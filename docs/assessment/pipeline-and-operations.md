@@ -2,6 +2,8 @@
 
 Tham chiếu [thiết kế](../superpowers/specs/2026-11-03-ai-assisted-assessment-design.md) và [hợp đồng dữ liệu/API](data-and-api-contract.md). Các mức giới hạn ở đây là mặc định thiết kế cho pilot, chưa phải kết quả load test.
 
+V1.1 bổ sung [agent/model router](multi-agent-model-routing.md) và [giao thức worker Mac](remote-worker-protocol.md). Những đoạn worker claim/ghi DB trực tiếp bên dưới mô tả mode co-located; mode remote dùng API coordinator trên VPS với cùng fencing và validation.
+
 ## 1. Bố cục mã nguồn dự kiến
 
 Các đường dẫn sau là file cần tạo/sửa lúc triển khai, không phải file đã tồn tại.
@@ -210,9 +212,11 @@ Sau purge, UI báo evidence đã hết hạn; không tự chấm lại từ dữ
 Biến cấu hình mới được thêm vào config.validation.ts khi triển khai, không đọc fallback từ AI Tutor:
 
 - ASSESSMENT_ENABLED mặc định false.
+- ASSESSMENT_ROUTING_CONFIG_PATH trỏ cấu hình agent/model có phiên bản; khi có file này, đây là nguồn routing chuẩn thay cho ánh xạ profile đơn giản ban đầu.
 - ASSESSMENT_QUEUE_REDIS_URL bắt buộc khi enabled; khác REDIS_URL cache.
 - ASSESSMENT_STORAGE_DRIVER = s3 trong pilot; bucket, endpoint, region, credential refs qua biến môi trường/secret.
 - ASSESSMENT_READ_PROFILE, ASSESSMENT_GRADE_PROFILE và ASSESSMENT_DRAWING_PROFILE trỏ cấu hình server có provider/model/base URL/key reference/capabilities.
+- Ba profile đơn giản trên là chế độ chuyển tiếp khi chưa có routing file; remote worker luôn dùng snapshot do server cấp, không tự đổi profile từ env. Credential references được resolve cục bộ, không chuyển secret qua job payload.
 - Profile OCR riêng là tùy chọn nếu reader tổng hợp đã đủ; cấu hình rõ khi chọn adapter.
 - ASSESSMENT_DAILY_COST_LIMIT_MICROS và bảng đơn giá/profile do operator đặt, bắt buộc ở pilot có gọi provider; đây là giới hạn vận hành, không phải billing.
 - Các giới hạn ở mục 9 được validator chặn giá trị âm/vô hạn; profile có max output, timeout và rate quota rõ.

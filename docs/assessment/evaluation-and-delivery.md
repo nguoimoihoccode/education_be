@@ -10,6 +10,8 @@ Thư mục [contracts](contracts/README.md) chứa JSON Schema và mẫu cấu t
 
 Những kiểm tra hiện có thể làm: JSON hợp lệ, mẫu đúng schema, mã câu không trùng, 12 câu lựa chọn × 250 units, nhóm Đúng/Sai 1000 units, bốn mục tự luận × 1000 units, hình 2000 units, tổng 10000 units. Chưa thể tuyên bố OCR/AI chính xác từ các kiểm tra này.
 
+V1.1 thêm schema/config agent routing, ví dụ tính chi phí giả định, 12 ca M01–M12 trong [multi-agent routing](multi-agent-model-routing.md) và 12 ca W01–W12 trong [remote protocol](remote-worker-protocol.md). Tổng bộ nghiệm thu là 40 ca cơ sở và 24 ca bổ sung, chưa phải 64 test ứng dụng đã chạy.
+
 ## 2. Bộ nghiệm thu bắt buộc
 
 | ID | Tình huống | Kết quả cần có |
@@ -123,6 +125,8 @@ File tích hợp: src/app.module.ts, src/database/data-source.ts, src/modules/sc
 
 Đầu ra: upload staging/seal, worker entrypoint, jobs/dispatcher/reconciler, prepare/layout/extract, viewer hiển thị vùng trên ảnh.
 
+V1.1 của gói này bao gồm WorkerOnly authentication, registry, HTTPS coordinator, call permits và lease tests W01–W12; không mở Redis/DB ra Internet để ghép worker Mac.
+
 Frontend: assessment.api.ts, assessment.types.ts, các route/query keys, UploadGroups và EvidenceViewer. Infra: storage/worker/queue services trong cả hai compose manifests.
 
 Điều kiện xong: năm ảnh được nhóm/ghép đúng, sửa crop tạo revision, không lẫn nền; A01–A10/A23–A26/A32/A33. Chưa tuyên bố đã có đủ khả năng chấm nếu chưa hoàn thành gói 3/4.
@@ -130,6 +134,8 @@ Frontend: assessment.api.ts, assessment.types.ts, các route/query keys, UploadG
 ### Gói 3 — Đề dùng chung và chấm theo đáp án
 
 Đầu ra: draft/approve/impact ExamVersion; trắc nghiệm và nhóm Đúng/Sai tính bằng code; key draft không nhìn bài học sinh.
+
+Thêm router/config version, profile lifecycle, per-agent schemas và budget thống nhất. Những call assembler không cần thiết phải bằng 0; kiểm tra M01–M12 trước khi bật routing mặc định.
 
 Điều kiện xong: A11–A14/A34/A35/A39, kiểm tra 12×0.25 + 1 + 6 = 10 của mẫu; thiếu quy tắc Đ/S được yêu cầu duyệt, không tự dùng quy chế khác.
 
@@ -191,5 +197,7 @@ Chỉ hoàn thành tài liệu không đồng nghĩa tính năng đã triển kh
 - Mẫu đề có 18 questionKey duy nhất, 12 câu lựa chọn, bốn mệnh đề Đ/S và tổng 10000 units; chưa có đáp án được duyệt.
 - Payload bị thêm finalScore/approved, điểm âm, units phân số hoặc thiếu evidence cho điểm số đều bị schema từ chối.
 - Quy tắc làm tròn được kiểm tra tại 0, điểm tối đa, 7.249/10, 7.25/10 và các điểm lẻ thành phần.
-- Năm tài liệu Markdown không có link nội bộ hỏng hoặc code fence lệch; năm file JSON parse được; bảng dữ liệu có 16 nhóm và bộ nghiệm thu có A01–A40 không trùng.
+- Ở v1 cơ sở: năm tài liệu Markdown không có link nội bộ hỏng hoặc code fence lệch; năm file JSON parse được; bảng dữ liệu có 16 nhóm và bộ nghiệm thu có A01–A40 không trùng. V1.1 mở rộng thêm routing/remote protocol, ba JSON artifacts và worker registry; các kiểm tra bổ sung được chạy riêng khi bàn giao v1.1.
 - Thay đổi chỉ là tài liệu/hợp đồng thiết kế. Chưa chạy benchmark OCR/model, migrations, kiểm thử ứng dụng hoặc load test.
+
+Rà soát v1.1 cùng ngày: ba schema và ba payload mẫu hợp lệ; profile references, modality, ngày hiệu lực và cap input được kiểm tra; bảy cấu hình sai quyền/chấm bằng model ngoài ý định bị schema từ chối. Phép tính chi phí giả định được đối chiếu bằng integer micros. Bảy Markdown, tám JSON, 17 nhóm dữ liệu và 64 tình huống nghiệm thu có cấu trúc/liên kết hợp lệ. Không gọi provider có phí hoặc coi các kiểm tra tài liệu là kết quả benchmark.

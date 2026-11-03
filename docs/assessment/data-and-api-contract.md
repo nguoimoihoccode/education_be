@@ -164,6 +164,14 @@ actor_id, route_scope, idempotency_key, request_hash, state (running|completed),
 
 Unique (school_id, actor_id, route_scope, idempotency_key). TTL 7 ngày; ràng buộc publication/job vẫn bảo vệ sau TTL. Cùng key khác request_hash trả 409. Row running hết lease được tiếp tục an toàn từ các hiệu ứng miền đã commit.
 
+### 2.17 school_assessment_workers
+
+name, bootstrap_key_digest, key_version, allowed_stages jsonb, allowed_profile_ids jsonb, max_concurrent_jobs, state (active|paused|revoked), last_seen_at, created_by. Các cột id/school_id/timestamps theo quy ước chung. Mỗi worker registration chỉ thuộc một trường.
+
+Không lưu bootstrap secret dạng rõ. Worker JWT có audience riêng, không dùng user JWT. Lease/auth/endpoint chi tiết ở [remote-worker-protocol.md](remote-worker-protocol.md).
+
+V1.1 bổ sung vào jobs: execution_target, assigned_worker_id nullable, routing_version, routing_policy_hash và producer_agent. Profile/usage snapshots phân biệt inferenceProfileHash với billingProfileHash để đổi giá không làm vô hiệu cache inference. Không cần bảng riêng cho từng agent hoặc model.
+
 ## 3. Policy tính điểm chuẩn
 
 Với earnedUnits và maxUnits là integer không âm, maxUnits > 0:
@@ -325,7 +333,7 @@ FE dùng cache:false cho assessment đang xử lý/duyệt và cho grade report 
 Tách ba migration có thể kiểm tra độc lập:
 
 1. AddAssessmentFoundation: assessment, roster, exam versions, submission, assets, pages, regions, answer revisions.
-2. AddAssessmentProcessing: grading/review runs, events, jobs, provider calls, idempotency, exports.
+2. AddAssessmentProcessing: grading/review runs, events, jobs, provider calls, idempotency, exports, worker registry và remote lease/routing metadata.
 3. AddAssessmentPublications: publications, nullable source column/unique/FK/check trên school_grades.
 
 Các FK trỏ bảng tạo ở migration sau, như current_review_revision_id, được gắn sau khi bảng đích tồn tại; không tham chiếu bảng chưa tạo trong migration nền.

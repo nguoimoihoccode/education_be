@@ -1,6 +1,6 @@
 # Thiết kế hệ thống chấm bài bằng AI có giáo viên duyệt
 
-Ngày: 2026-11-03. Phiên bản thiết kế: 1.0.
+Ngày: 2026-11-03. Phiên bản thiết kế: 1.1.
 
 Trạng thái: đặc tả để triển khai và đánh giá; chưa phải chức năng đã được cài đặt hoặc đã đạt độ chính xác thực nghiệm.
 
@@ -20,6 +20,7 @@ Những quyết định đã thống nhất:
 - Đáp án/rubric dùng chung cho một phiên bản mã đề. AI có thể soạn nháp khi thiếu; giáo viên xác nhận một lần trước khi công bố điểm của đợt đó.
 - Hỗ trợ lựa chọn, nhóm Đúng/Sai, tự luận ngắn, bảng so sánh và hình vẽ cơ bản trong bộ ảnh mẫu.
 - Bản đầu triển khai một môn/một khối, một lần nộp chính thức cho mỗi học sinh trong mỗi đợt. Upload lại là sửa đầu vào, không tạo thêm đầu điểm.
+- Mở rộng v1.1: nhiều agent theo nhiệm vụ với model cấu hình riêng, code-first và escalation có giới hạn; executor có thể chạy native trên Mac qua HTTPS tới VPS.
 
 Không bao gồm trong bản đầu: tự công bố điểm hoàn toàn không có giáo viên, tự tách chắc chắn mọi PDF gộp nhiều học sinh, chấm mọi loại hình học/bản vẽ, kiểm tra đạo văn, billing, thay đổi quy chế tính điểm trung bình của trường.
 
@@ -102,6 +103,8 @@ Các bất biến:
 
 Chọn modular monolith cùng worker riêng. Phương án worker Python chỉ được bổ sung nếu benchmark chứng minh cần thư viện OCR/CV chuyên biệt. Phương án microservices theo từng công đoạn chưa có lợi ích đủ để thêm broker hoặc datastore mới.
 
+Agent không đồng nghĩa một microservice: worker Mac có thể thực thi nhiều vai trò/model. Routing chi tiết nằm trong [multi-agent-model-routing.md](../../assessment/multi-agent-model-routing.md). Khi worker ở Mac, coordinator lease/DB nằm trên VPS và worker giao tiếp qua [remote-worker-protocol.md](../../assessment/remote-worker-protocol.md); DB/Redis không public để Mac truy cập trực tiếp.
+
 ~~~mermaid
 flowchart TD
   UI["React: Upload và kiểm tra"] --> API["NestJS Assessment API"]
@@ -150,7 +153,7 @@ Tên module, file và hợp đồng chi tiết được mô tả trong [pipeline
 
 ## 7. Dữ liệu, phiên bản và điểm
 
-Hợp đồng chuẩn nằm trong [data-and-api-contract.md](../../assessment/data-and-api-contract.md). Không tạo lại School, Student hoặc QuizSession.
+Hợp đồng chuẩn nằm trong [data-and-api-contract.md](../../assessment/data-and-api-contract.md). Không tạo lại School, Student hoặc QuizSession. V1.1 thêm worker registry; dùng lại jobs/provider calls cho agent, không tạo một bộ bảng cho mỗi agent.
 
 - ID miền school/assessment là UUID; studentId và actorId là integer users.id.
 - Mọi bảng assessment có school_id. Liên kết cha/con được ràng buộc cùng tenant, không chỉ dựa vào UUID.
@@ -210,6 +213,8 @@ Hợp đồng công việc, storage, retry, giới hạn tài nguyên và cấu 
 Kịch bản nghiệm thu, benchmark và các gói triển khai nằm trong [evaluation-and-delivery.md](../../assessment/evaluation-and-delivery.md). Đây là thứ tự triển khai và tiêu chí bàn giao, không khẳng định đã triển khai.
 
 Model/OCR cụ thể được lựa chọn bằng benchmark cùng bộ bài giữ riêng để đánh giá; không giả định cấu hình AI Tutor hiện tại hỗ trợ ảnh. Mặc định feature tắt cho tới khi profile có khả năng cần thiết, storage và Redis queue đạt readiness.
+
+Model, reasoning, pricing và lifecycle là cấu hình có phiên bản. Ví dụ Gemini 2.5 Flash đọc ảnh → code/model text nhỏ ghép dữ liệu → model khác chấm được hỗ trợ, nhưng không bắt mọi bài phải trả phí cho tất cả agent. Mỗi profile cần kiểm tra quyền project, vòng đời và benchmark trước khi bật.
 
 Chưa tự công bố điểm ở bất kỳ mức tự tin nào trong phiên bản đầu. Tối ưu hiệu quả bằng xử lý tự động và duyệt theo ngoại lệ; việc chốt vẫn do giáo viên.
 

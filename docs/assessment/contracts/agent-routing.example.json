@@ -1,0 +1,271 @@
+{
+  "schemaVersion": 1,
+  "routingVersion": "2026-11-03.v1.1",
+  "deploymentState": "design_only",
+  "policy": {
+    "currency": "USD",
+    "tenantProviderAllowlist": [
+      "google",
+      "deepseek"
+    ],
+    "maxProviderCallsPerSubmissionRevision": 24,
+    "maxProviderCallsPerTemplate": 12,
+    "maxCostMicrosPerSubmissionRevision": 50000,
+    "dailyCostLimitMicros": 10000000,
+    "maxEscalationRoundsPerQuestion": 1,
+    "maxSchemaRepairAttempts": 1,
+    "auditSampleRate": 0.05,
+    "auditSeedRef": "ASSESSMENT_AUDIT_SEED",
+    "drawingRequiresTeacherConfirmation": true,
+    "allowModelSelfApproval": false,
+    "allowGroundingTools": false
+  },
+  "execution": {
+    "mode": "remote_mac_https",
+    "maxParallelJobs": 1,
+    "maxParallelProviderCalls": 2,
+    "admitFreeDiskGiB": 15,
+    "pauseBelowFreeDiskGiB": 10,
+    "localCacheMaxGiB": 2
+  },
+  "profiles": {
+    "gemini25_reader": {
+      "provider": "google",
+      "model": "gemini-2.5-flash",
+      "apiDialect": "google_generate_content",
+      "credentialRef": "ASSESSMENT_GOOGLE_API_KEY",
+      "capabilities": [
+        "text",
+        "structured_json",
+        "vision",
+        "batch"
+      ],
+      "reasoningPolicy": "disabled",
+      "maxOutputTokens": 4096,
+      "qualityGate": "benchmark_required",
+      "availability": "project_access_required",
+      "allowThroughDate": "2026-11-30",
+      "pricing": {
+        "currency": "USD",
+        "snapshotDate": "2026-11-03",
+        "validThroughDate": "2026-11-30",
+        "inputMicrosPerMillion": 300000,
+        "outputMicrosPerMillion": 2500000,
+        "cachedInputMicrosPerMillion": 30000,
+        "reserveAtPeakRate": false
+      },
+      "maxInputTokens": 32768
+    },
+    "gemini35_reader": {
+      "provider": "google",
+      "model": "gemini-3.5-flash-lite",
+      "apiDialect": "google_generate_content",
+      "credentialRef": "ASSESSMENT_GOOGLE_API_KEY",
+      "capabilities": [
+        "text",
+        "structured_json",
+        "vision",
+        "batch"
+      ],
+      "reasoningPolicy": "provider_default",
+      "maxOutputTokens": 4096,
+      "qualityGate": "benchmark_required",
+      "availability": "verify_with_project",
+      "allowThroughDate": null,
+      "pricing": {
+        "currency": "USD",
+        "snapshotDate": "2026-11-03",
+        "validThroughDate": "2026-11-30",
+        "inputMicrosPerMillion": 300000,
+        "outputMicrosPerMillion": 2500000,
+        "cachedInputMicrosPerMillion": 30000,
+        "reserveAtPeakRate": false
+      },
+      "maxInputTokens": 32768
+    },
+    "gemini25_text_light": {
+      "provider": "google",
+      "model": "gemini-2.5-flash-lite",
+      "apiDialect": "google_generate_content",
+      "credentialRef": "ASSESSMENT_GOOGLE_API_KEY",
+      "capabilities": [
+        "text",
+        "structured_json"
+      ],
+      "reasoningPolicy": "disabled",
+      "maxOutputTokens": 4096,
+      "qualityGate": "benchmark_required",
+      "availability": "project_access_required",
+      "allowThroughDate": null,
+      "pricing": {
+        "currency": "USD",
+        "snapshotDate": "2026-11-03",
+        "validThroughDate": "2026-11-30",
+        "inputMicrosPerMillion": 100000,
+        "outputMicrosPerMillion": 400000,
+        "cachedInputMicrosPerMillion": 10000,
+        "reserveAtPeakRate": false
+      },
+      "maxInputTokens": 32768
+    },
+    "deepseek_text_budget": {
+      "provider": "deepseek",
+      "model": "deepseek-flash",
+      "apiDialect": "openai_chat_completions",
+      "credentialRef": "ASSESSMENT_DEEPSEEK_API_KEY",
+      "capabilities": [
+        "text",
+        "structured_json"
+      ],
+      "reasoningPolicy": "disabled",
+      "maxOutputTokens": 4096,
+      "qualityGate": "benchmark_required",
+      "availability": "verify_with_project",
+      "allowThroughDate": null,
+      "pricing": {
+        "currency": "USD",
+        "snapshotDate": "2026-11-03",
+        "validThroughDate": "2026-11-30",
+        "inputMicrosPerMillion": 300000,
+        "outputMicrosPerMillion": 1200000,
+        "cachedInputMicrosPerMillion": 6000,
+        "reserveAtPeakRate": true
+      },
+      "maxInputTokens": 32768
+    },
+    "deepseek_key_reasoning": {
+      "provider": "deepseek",
+      "model": "deepseek-v4-pro",
+      "apiDialect": "openai_chat_completions",
+      "credentialRef": "ASSESSMENT_DEEPSEEK_API_KEY",
+      "capabilities": [
+        "text",
+        "structured_json"
+      ],
+      "reasoningPolicy": "provider_default",
+      "maxOutputTokens": 4096,
+      "qualityGate": "benchmark_required",
+      "availability": "verify_with_project",
+      "allowThroughDate": null,
+      "pricing": {
+        "currency": "USD",
+        "snapshotDate": "2026-11-03",
+        "validThroughDate": "2026-11-30",
+        "inputMicrosPerMillion": 1320000,
+        "outputMicrosPerMillion": 3960000,
+        "cachedInputMicrosPerMillion": 44000,
+        "reserveAtPeakRate": true
+      },
+      "maxInputTokens": 32768
+    },
+    "gemini38_vision": {
+      "provider": "google",
+      "model": "gemini-3.8-flash",
+      "apiDialect": "google_generate_content",
+      "credentialRef": "ASSESSMENT_GOOGLE_API_KEY",
+      "capabilities": [
+        "text",
+        "structured_json",
+        "vision",
+        "batch"
+      ],
+      "reasoningPolicy": "low",
+      "maxOutputTokens": 4096,
+      "qualityGate": "benchmark_required",
+      "availability": "verify_with_project",
+      "allowThroughDate": null,
+      "pricing": {
+        "currency": "USD",
+        "snapshotDate": "2026-11-03",
+        "validThroughDate": "2026-12-31",
+        "inputMicrosPerMillion": 750000,
+        "outputMicrosPerMillion": 3750000,
+        "cachedInputMicrosPerMillion": 75000,
+        "reserveAtPeakRate": false
+      },
+      "maxInputTokens": 32768
+    }
+  },
+  "agents": {
+    "image_reader": {
+      "mode": "model",
+      "trigger": "always",
+      "primaryProfileId": "gemini25_reader",
+      "fallbackProfileId": "gemini35_reader",
+      "escalationProfileId": "gemini38_vision",
+      "visionProfileId": null,
+      "receivesStudentAnswers": true,
+      "receivesAnswerKey": false
+    },
+    "answer_assembler": {
+      "mode": "code_first",
+      "trigger": "ambiguity_only",
+      "primaryProfileId": "gemini25_text_light",
+      "fallbackProfileId": "deepseek_text_budget",
+      "escalationProfileId": null,
+      "visionProfileId": null,
+      "receivesStudentAnswers": true,
+      "receivesAnswerKey": false
+    },
+    "key_builder": {
+      "mode": "model",
+      "trigger": "new_exam_or_rubric",
+      "primaryProfileId": "deepseek_key_reasoning",
+      "fallbackProfileId": null,
+      "escalationProfileId": null,
+      "visionProfileId": "gemini38_vision",
+      "receivesStudentAnswers": false,
+      "receivesAnswerKey": false
+    },
+    "objective_scorer": {
+      "mode": "code_only",
+      "trigger": "objective_answer",
+      "primaryProfileId": null,
+      "fallbackProfileId": null,
+      "escalationProfileId": null,
+      "visionProfileId": null,
+      "receivesStudentAnswers": true,
+      "receivesAnswerKey": true
+    },
+    "text_grader": {
+      "mode": "model",
+      "trigger": "text_answer",
+      "primaryProfileId": "deepseek_text_budget",
+      "fallbackProfileId": null,
+      "escalationProfileId": "deepseek_key_reasoning",
+      "visionProfileId": null,
+      "receivesStudentAnswers": true,
+      "receivesAnswerKey": true
+    },
+    "drawing_grader": {
+      "mode": "model",
+      "trigger": "drawing_answer",
+      "primaryProfileId": "gemini38_vision",
+      "fallbackProfileId": null,
+      "escalationProfileId": null,
+      "visionProfileId": null,
+      "receivesStudentAnswers": true,
+      "receivesAnswerKey": true
+    },
+    "independent_auditor": {
+      "mode": "model",
+      "trigger": "risk_or_sample",
+      "primaryProfileId": "gemini38_vision",
+      "fallbackProfileId": null,
+      "escalationProfileId": null,
+      "visionProfileId": null,
+      "receivesStudentAnswers": true,
+      "receivesAnswerKey": true
+    },
+    "result_validator": {
+      "mode": "code_only",
+      "trigger": "always",
+      "primaryProfileId": null,
+      "fallbackProfileId": null,
+      "escalationProfileId": null,
+      "visionProfileId": null,
+      "receivesStudentAnswers": false,
+      "receivesAnswerKey": true
+    }
+  }
+}
