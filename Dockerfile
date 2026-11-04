@@ -20,6 +20,10 @@ FROM node:22.14.0-alpine AS production
 
 WORKDIR /app
 
+# Vietnamese report exports embed the DejaVu face (renderReport); without it the
+# export fails closed with pdf_font_unavailable.
+RUN apk add --no-cache font-dejavu
+
 # Create non-root user for security
 RUN addgroup -g 1001 -S nodejs && \
     adduser -S nestjs -u 1001

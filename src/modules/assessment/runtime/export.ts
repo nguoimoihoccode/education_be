@@ -14,11 +14,36 @@ export interface ReportSnapshot {
     contextSnapshot: Record<string, unknown>;
   }[];
 }
+// The DejaVu face lives in a different directory on Debian and Alpine; the
+// image that serves a Vietnamese report embeds its own copy of it.
+const DEFAULT_FONT_CANDIDATES = [
+  '/usr/share/fonts/ttf-dejavu/DejaVuSans.ttf',
+  '/usr/share/fonts/dejavu/DejaVuSans.ttf',
+];
+async function resolveFontPath(explicit?: string): Promise<string> {
+  const configured = explicit || process.env.ASSESSMENT_PDF_FONT_PATH;
+  if (configured) {
+    try {
+      await access(configured);
+    } catch {
+      throw new Error('pdf_font_unavailable');
+    }
+    return configured;
+  }
+  for (const candidate of DEFAULT_FONT_CANDIDATES) {
+    try {
+      await access(candidate);
+      return candidate;
+    } catch {
+      // try the next well-known location
+    }
+  }
+  throw new Error('pdf_font_unavailable');
+}
 export async function renderReport(
   format: string,
   snapshot: ReportSnapshot,
-  fontPath = process.env.ASSESSMENT_PDF_FONT_PATH ||
-    '/usr/share/fonts/ttf-dejavu/DejaVuSans.ttf',
+  fontPath?: string,
 ): Promise<Buffer> {
   const rows = snapshot.publications.map((p) => ({
     'Student ID': p.studentId,
@@ -40,11 +65,7 @@ export async function renderReport(
     return XLSX.write(book, { type: 'buffer', bookType: 'xlsx' }) as Buffer;
   }
   if (format !== 'pdf') throw new Error('export_format_invalid');
-  try {
-    await access(fontPath);
-  } catch {
-    throw new Error('pdf_font_unavailable');
-  }
+  const pdfFont = await resolveFontPath(fontPath);
   return new Promise((resolve, reject) => {
     const pdf = new PDFDocument({
       size: 'A4',
@@ -56,7 +77,7 @@ export async function renderReport(
     pdf.on('end', () => resolve(Buffer.concat(chunks)));
     pdf.on('error', reject);
     pdf
-      .font(fontPath)
+      .font(pdfFont)
       .fontSize(16)
       .text(snapshot.title)
       .fontSize(9)

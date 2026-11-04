@@ -21,7 +21,11 @@ RUN npm ci --omit=dev && npm cache clean --force
 COPY --chown=nestjs:nodejs --from=builder /app/dist ./dist
 COPY --chown=nestjs:nodejs docs/assessment/contracts ./docs/assessment/contracts
 # Build-time smoke test: font embedding and the real Poppler renderer on synthetic data.
-RUN node -e 'const PDF=require("pdfkit");const fs=require("fs");const p=new PDF();p.pipe(fs.createWriteStream("/tmp/assessment-smoke.pdf"));p.font("/usr/share/fonts/ttf-dejavu/DejaVuSans.ttf").text("Kiem tra PDF");p.end();' \
+# The face is discovered rather than hard-coded: Alpine installs font-dejavu under
+# /usr/share/fonts/dejavu while Debian-based images use /usr/share/fonts/ttf-dejavu.
+RUN FONT="$(find /usr/share/fonts -name DejaVuSans.ttf | head -n 1)" \
+    && test -n "$FONT" \
+    && FONT="$FONT" node -e 'const PDF=require("pdfkit");const fs=require("fs");const p=new PDF();p.pipe(fs.createWriteStream("/tmp/assessment-smoke.pdf"));p.font(process.env.FONT).text("Kiem tra PDF");p.end();' \
     && pdftoppm -f 1 -singlefile -scale-to 64 -jpeg /tmp/assessment-smoke.pdf /tmp/assessment-smoke \
     && test -s /tmp/assessment-smoke.jpg \
     && rm -f /tmp/assessment-smoke.pdf /tmp/assessment-smoke.jpg
