@@ -1,3 +1,4 @@
+import { SchoolClassSubjectAccessService } from './school-class-subject-access.service';
 import { Module } from '@nestjs/common';
 import { TypeOrmModule } from '@nestjs/typeorm';
 import { SchoolController } from './school.controller';
@@ -71,6 +72,7 @@ import {
     MeController,
   ],
   providers: [
+    SchoolClassSubjectAccessService,
     SchoolService,
     ClassService,
     ParentLinkService,
@@ -83,6 +85,11 @@ import {
   // HomeworkService được QuizSessionCompletionService (EducationModule)
   // inject cho cầu nối quiz→điểm; chiều ngược lại SchoolModule không
   // import EducationModule nên không có cycle.
-  exports: [SchoolService, GradesService, HomeworkService],
+  exports: [
+    SchoolClassSubjectAccessService,
+    SchoolService,
+    GradesService,
+    HomeworkService,
+  ],
 })
 export class SchoolModule {}

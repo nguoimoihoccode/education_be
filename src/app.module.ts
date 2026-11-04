@@ -1,3 +1,5 @@
+import { AssessmentModule } from './modules/assessment/assessment.module';
+import { ASSESSMENT_ENTITIES } from './modules/assessment/entities/assessment.entities';
 import { Module } from '@nestjs/common';
 import { APP_GUARD, APP_FILTER, APP_INTERCEPTOR } from '@nestjs/core';
 import { ConfigModule, ConfigService } from '@nestjs/config';
@@ -127,6 +129,7 @@ import {
         password: configService.get<string>('DB_PASSWORD', 'postgres'),
         database: configService.get<string>('DB_DATABASE', 'stock_db'),
         entities: [
+          ...ASSESSMENT_ENTITIES,
           User,
           RefreshToken,
           TokenBlacklist,
@@ -196,6 +199,7 @@ import {
     DataExportModule,
     AiModule,
     SchoolModule,
+    AssessmentModule,
   ],
   controllers: [
     AppController,

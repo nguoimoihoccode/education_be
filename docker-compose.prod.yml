@@ -79,8 +79,19 @@ services:
       DB_PASSWORD: ${POSTGRES_PASSWORD}
       DB_DATABASE: ${POSTGRES_DB}
       REDIS_URL: ${REDIS_URL:-redis://redis:6379}
+      ASSESSMENT_ENABLED: ${ASSESSMENT_ENABLED:-false}
+      ASSESSMENT_QUEUE_REDIS_URL: ${ASSESSMENT_QUEUE_REDIS_URL:-}
+      ASSESSMENT_STORAGE_DRIVER: ${ASSESSMENT_STORAGE_DRIVER:-s3}
+      ASSESSMENT_S3_ENDPOINT: ${ASSESSMENT_S3_ENDPOINT:-}
+      ASSESSMENT_S3_REGION: ${ASSESSMENT_S3_REGION:-}
+      ASSESSMENT_S3_BUCKET: ${ASSESSMENT_S3_BUCKET:-}
+      ASSESSMENT_S3_ACCESS_KEY_ID: ${ASSESSMENT_S3_ACCESS_KEY_ID:-}
+      ASSESSMENT_S3_SECRET_ACCESS_KEY: ${ASSESSMENT_S3_SECRET_ACCESS_KEY:-}
+      ASSESSMENT_S3_FORCE_PATH_STYLE: ${ASSESSMENT_S3_FORCE_PATH_STYLE:-false}
+      ASSESSMENT_ROUTING_CONFIG_PATH: ${ASSESSMENT_ROUTING_CONFIG_PATH:-}
     volumes:
       - ./keys:/app/keys:ro
+      - ${ASSESSMENT_CONFIG_DIR:-./assessment-config}:/app/assessment-config:ro
     expose:
       - "3000"
     healthcheck:
@@ -116,9 +127,105 @@ services:
         max-size: "10m"
         max-file: "3"
 
+  # Explicit --profile assessment AND ASSESSMENT_ENABLED=true are required.
+  # This durable queue is independent of the disposable cache Redis above.
+  assessment-redis:
+    image: redis:7.4-alpine
+    profiles: [assessment]
+    restart: unless-stopped
+    command: [redis-server, --appendonly, "yes", --appendfsync, everysec, --maxmemory, 256mb, --maxmemory-policy, noeviction]
+    volumes:
+      - assessment-redis-data:/data
+    healthcheck:
+      test: [CMD, redis-cli, ping]
+      interval: 10s
+      timeout: 3s
+      retries: 5
+    mem_limit: 512m
+    cpus: "0.50"
+    init: true
+    stop_grace_period: 30s
+    security_opt:
+      - no-new-privileges:true
+    networks:
+      - stockvn-network
+    logging:
+      driver: json-file
+      options:
+        max-size: "10m"
+        max-file: "3"
+
+  assessment-worker:
+    build:
+      context: .
+      dockerfile: Dockerfile.assessment-worker
+    image: ${ASSESSMENT_WORKER_IMAGE:-stock-assessment-worker}:${IMAGE_TAG:-latest}
+    profiles: [assessment]
+    restart: unless-stopped
+    env_file:
+      - path: ${ASSESSMENT_WORKER_ENV_FILE:-./.env.assessment-worker}
+        required: false
+    depends_on:
+      db:
+        condition: service_healthy
+      assessment-redis:
+        condition: service_healthy
+    environment:
+      NODE_ENV: production
+      ALLOW_DB_SYNC: "false"
+      DB_HOST: db
+      DB_PORT: "5432"
+      DB_USERNAME: ${POSTGRES_USER}
+      DB_PASSWORD: ${POSTGRES_PASSWORD}
+      DB_DATABASE: ${POSTGRES_DB}
+      ASSESSMENT_ENABLED: ${ASSESSMENT_ENABLED:-false}
+      ASSESSMENT_QUEUE_REDIS_URL: ${ASSESSMENT_QUEUE_REDIS_URL:-}
+      ASSESSMENT_STORAGE_DRIVER: ${ASSESSMENT_STORAGE_DRIVER:-s3}
+      ASSESSMENT_S3_ENDPOINT: ${ASSESSMENT_S3_ENDPOINT:-}
+      ASSESSMENT_S3_REGION: ${ASSESSMENT_S3_REGION:-}
+      ASSESSMENT_S3_BUCKET: ${ASSESSMENT_S3_BUCKET:-}
+      ASSESSMENT_S3_ACCESS_KEY_ID: ${ASSESSMENT_S3_ACCESS_KEY_ID:-}
+      ASSESSMENT_S3_SECRET_ACCESS_KEY: ${ASSESSMENT_S3_SECRET_ACCESS_KEY:-}
+      ASSESSMENT_S3_FORCE_PATH_STYLE: ${ASSESSMENT_S3_FORCE_PATH_STYLE:-false}
+      ASSESSMENT_ROUTING_CONFIG_PATH: ${ASSESSMENT_ROUTING_CONFIG_PATH:-}
+      ASSESSMENT_WORKSPACE_PATH: /app/workspace
+      ASSESSMENT_WORKER_HEARTBEAT_PATH: /app/workspace/heartbeat
+      ASSESSMENT_JOB_CONCURRENCY: "1"
+      ASSESSMENT_PROVIDER_CONCURRENCY: "2"
+    volumes:
+      - assessment-workspace:/app/workspace
+      - ${ASSESSMENT_CONFIG_DIR:-./assessment-config}:/app/assessment-config:ro
+    read_only: true
+    # Small process temp only; PDF/image work goes on the disk volume.
+    tmpfs:
+      - /tmp:size=64m,mode=1777
+    mem_limit: 2g
+    cpus: "1.0"
+    pids_limit: 128
+    init: true
+    stop_grace_period: 120s
+    security_opt:
+      - no-new-privileges:true
+    cap_drop: [ALL]
+    healthcheck:
+      test: [CMD, node, -e, "try { const p = process.env.ASSESSMENT_WORKER_HEARTBEAT_PATH; process.exit(Date.now() - require('fs').statSync(p).mtimeMs < 120000 ? 0 : 1); } catch { process.exit(1); }"]
+      interval: 30s
+      timeout: 5s
+      retries: 3
+      start_period: 60s
+    networks:
+      - stockvn-network
+    logging:
+      driver: json-file
+      options:
+        max-size: "10m"
+        max-file: "3"
+
 networks:
   stockvn-network:
     driver: bridge
 
 volumes:
   pgdata:
+  assessment-redis-data:
+  assessment-workspace:

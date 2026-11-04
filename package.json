@@ -28,9 +28,13 @@
     "test:cov": "jest --coverage",
     "test:debug": "node --inspect-brk -r tsconfig-paths/register -r ts-node/register node_modules/.bin/jest --runInBand",
     "test:e2e": "jest --config ./test/e2e/jest-e2e.json",
-    "bootstrap:school": "node -r ts-node/register -r tsconfig-paths/register src/database/seeders/bootstrap-school.cli.ts"
+    "bootstrap:school": "node -r ts-node/register -r tsconfig-paths/register src/database/seeders/bootstrap-school.cli.ts",
+    "start:assessment-worker": "node dist/workers/assessment-worker.main.js"
   },
   "dependencies": {
+    "@aws-sdk/client-s3": "^3.1161.0",
+    "@aws-sdk/s3-presigned-post": "^3.1161.0",
+    "@aws-sdk/s3-request-presigner": "^3.1161.0",
     "@nestjs/common": "^11.0.1",
     "@nestjs/config": "^4.0.2",
     "@nestjs/core": "^11.0.1",
@@ -41,6 +45,8 @@
     "@nestjs/swagger": "^11.2.4",
     "@nestjs/throttler": "^6.5.0",
     "@nestjs/typeorm": "^11.0.0",
+    "ajv": "^8.20.0",
+    "ajv-formats": "^3.0.1",
     "bcryptjs": "^3.0.3",
     "bullmq": "^5.81.5",
     "class-transformer": "^0.5.1",
@@ -56,9 +62,11 @@
     "passport-google-oauth20": "^2.0.0",
     "passport-jwt": "^4.0.1",
     "pdf-parse": "^2.4.5",
+    "pdfkit": "^0.20.2",
     "pg": "^8.16.3",
     "reflect-metadata": "^0.2.2",
     "rxjs": "^7.8.1",
+    "sharp": "^0.35.5",
     "swagger-ui-express": "^5.0.1",
     "typeorm": "^0.3.28",
     "xlsx": "^0.18.5"
@@ -76,6 +84,7 @@
     "@types/passport-google-oauth20": "^2.0.17",
     "@types/passport-jwt": "^4.0.1",
     "@types/pdf-parse": "^1.1.5",
+    "@types/pdfkit": "^0.17.7",
     "@types/supertest": "^6.0.2",
     "eslint": "^9.18.0",
     "eslint-config-prettier": "^10.0.1",

@@ -1,0 +1,9 @@
+[
+  {
+    "AllowedOrigins": ["https://your-school.example"],
+    "AllowedMethods": ["GET", "HEAD", "POST"],
+    "AllowedHeaders": ["*"],
+    "ExposeHeaders": ["ETag"],
+    "MaxAgeSeconds": 300
+  }
+]

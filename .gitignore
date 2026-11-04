@@ -59,3 +59,8 @@ Thumbs.db
 .temp
 tmp/
 temp/
+
+# Private Assessment runtime configuration (samples remain tracked)
+assessment-config/*
+!assessment-config/README.md
+!assessment-config/*.example.json

@@ -1,0 +1,526 @@
+{
+  "$schema": "http://json-schema.org/draft-07/schema#",
+  "$id": "https://assessment.local/design/exam-template.schema.json",
+  "title": "Assessment ExamVersion document v1",
+  "description": "Structural validation supports draft documents; approved-mode domain validation must additionally require keys, policies, criteria and valid evidence.",
+  "type": "object",
+  "additionalProperties": false,
+  "required": [
+    "schemaVersion",
+    "subject",
+    "grade",
+    "examCode",
+    "declaredExamPageCount",
+    "pointScale",
+    "maxScoreUnits",
+    "questions",
+    "gradingDefaults"
+  ],
+  "properties": {
+    "schemaVersion": {
+      "const": 1
+    },
+    "subject": {
+      "type": "string",
+      "minLength": 1
+    },
+    "grade": {
+      "type": "integer",
+      "minimum": 1,
+      "maximum": 12
+    },
+    "examCode": {
+      "type": "string",
+      "minLength": 1,
+      "maxLength": 32
+    },
+    "declaredExamPageCount": {
+      "type": "integer",
+      "minimum": 1,
+      "maximum": 100
+    },
+    "pointScale": {
+      "const": 1000
+    },
+    "maxScoreUnits": {
+      "type": "integer",
+      "minimum": 1,
+      "maximum": 1000000
+    },
+    "questions": {
+      "type": "array",
+      "minItems": 1,
+      "maxItems": 200,
+      "items": {
+        "oneOf": [
+          {
+            "type": "object",
+            "additionalProperties": false,
+            "required": [
+              "questionKey",
+              "kind",
+              "text",
+              "maxUnits",
+              "sourceRegionIds",
+              "options",
+              "answerKey"
+            ],
+            "properties": {
+              "questionKey": {
+                "type": "string",
+                "pattern": "^[A-Za-z0-9]+(?:[._-][A-Za-z0-9]+)*$"
+              },
+              "kind": {
+                "const": "single_choice"
+              },
+              "text": {
+                "type": "string",
+                "minLength": 1
+              },
+              "maxUnits": {
+                "type": "integer",
+                "minimum": 1,
+                "maximum": 1000000
+              },
+              "sourceRegionIds": {
+                "type": "array",
+                "items": {
+                  "type": "string",
+                  "minLength": 1
+                },
+                "uniqueItems": true
+              },
+              "options": {
+                "type": "array",
+                "minItems": 2,
+                "maxItems": 8,
+                "items": {
+                  "type": "object",
+                  "additionalProperties": false,
+                  "required": ["id", "text"],
+                  "properties": {
+                    "id": {
+                      "type": "string",
+                      "pattern": "^[A-Za-z0-9]+(?:[._-][A-Za-z0-9]+)*$"
+                    },
+                    "text": {
+                      "type": "string",
+                      "minLength": 1
+                    }
+                  }
+                }
+              },
+              "answerKey": {
+                "type": ["string", "null"]
+              }
+            }
+          },
+          {
+            "type": "object",
+            "additionalProperties": false,
+            "required": [
+              "questionKey",
+              "kind",
+              "text",
+              "maxUnits",
+              "sourceRegionIds",
+              "statements",
+              "answerKey",
+              "scoringPolicy"
+            ],
+            "properties": {
+              "questionKey": {
+                "type": "string",
+                "pattern": "^[A-Za-z0-9]+(?:[._-][A-Za-z0-9]+)*$"
+              },
+              "kind": {
+                "const": "true_false_group"
+              },
+              "text": {
+                "type": "string",
+                "minLength": 1
+              },
+              "maxUnits": {
+                "type": "integer",
+                "minimum": 1,
+                "maximum": 1000000
+              },
+              "sourceRegionIds": {
+                "type": "array",
+                "items": {
+                  "type": "string",
+                  "minLength": 1
+                },
+                "uniqueItems": true
+              },
+              "statements": {
+                "type": "array",
+                "minItems": 1,
+                "maxItems": 10,
+                "items": {
+                  "type": "object",
+                  "additionalProperties": false,
+                  "required": ["id", "text"],
+                  "properties": {
+                    "id": {
+                      "type": "string",
+                      "pattern": "^[A-Za-z0-9]+(?:[._-][A-Za-z0-9]+)*$"
+                    },
+                    "text": {
+                      "type": "string",
+                      "minLength": 1
+                    }
+                  }
+                }
+              },
+              "answerKey": {
+                "type": ["object", "null"],
+                "additionalProperties": {
+                  "type": "boolean"
+                }
+              },
+              "scoringPolicy": {
+                "oneOf": [
+                  {
+                    "type": "null"
+                  },
+                  {
+                    "type": "object",
+                    "additionalProperties": false,
+                    "required": ["kind", "unitsPerCorrect"],
+                    "properties": {
+                      "kind": {
+                        "const": "per_statement"
+                      },
+                      "unitsPerCorrect": {
+                        "type": "integer",
+                        "minimum": 0
+                      }
+                    }
+                  },
+                  {
+                    "type": "object",
+                    "additionalProperties": false,
+                    "required": ["kind", "unitsByCorrectCount"],
+                    "properties": {
+                      "kind": {
+                        "const": "count_map"
+                      },
+                      "unitsByCorrectCount": {
+                        "type": "array",
+                        "minItems": 2,
+                        "items": {
+                          "type": "integer",
+                          "minimum": 0
+                        }
+                      }
+                    }
+                  }
+                ]
+              }
+            }
+          },
+          {
+            "type": "object",
+            "additionalProperties": false,
+            "required": [
+              "questionKey",
+              "kind",
+              "text",
+              "maxUnits",
+              "sourceRegionIds",
+              "criteria",
+              "acceptedAnswerForms"
+            ],
+            "properties": {
+              "questionKey": {
+                "type": "string",
+                "pattern": "^[A-Za-z0-9]+(?:[._-][A-Za-z0-9]+)*$"
+              },
+              "kind": {
+                "const": "rubric_text"
+              },
+              "text": {
+                "type": "string",
+                "minLength": 1
+              },
+              "maxUnits": {
+                "type": "integer",
+                "minimum": 1,
+                "maximum": 1000000
+              },
+              "sourceRegionIds": {
+                "type": "array",
+                "items": {
+                  "type": "string",
+                  "minLength": 1
+                },
+                "uniqueItems": true
+              },
+              "criteria": {
+                "type": "array",
+                "items": {
+                  "type": "object",
+                  "additionalProperties": false,
+                  "required": ["id", "description", "maxUnits", "levels"],
+                  "properties": {
+                    "id": {
+                      "type": "string",
+                      "pattern": "^[A-Za-z0-9]+(?:[._-][A-Za-z0-9]+)*$"
+                    },
+                    "description": {
+                      "type": "string",
+                      "minLength": 1
+                    },
+                    "maxUnits": {
+                      "type": "integer",
+                      "minimum": 1,
+                      "maximum": 1000000
+                    },
+                    "levels": {
+                      "type": "array",
+                      "minItems": 2,
+                      "items": {
+                        "type": "object",
+                        "additionalProperties": false,
+                        "required": ["pointsUnits", "description"],
+                        "properties": {
+                          "pointsUnits": {
+                            "type": "integer",
+                            "minimum": 0,
+                            "maximum": 1000000
+                          },
+                          "description": {
+                            "type": "string",
+                            "minLength": 1
+                          }
+                        }
+                      }
+                    }
+                  }
+                }
+              },
+              "acceptedAnswerForms": {
+                "type": "array",
+                "minItems": 1,
+                "uniqueItems": true,
+                "items": {
+                  "enum": ["text", "table", "drawing"]
+                }
+              }
+            }
+          },
+          {
+            "type": "object",
+            "additionalProperties": false,
+            "required": [
+              "questionKey",
+              "kind",
+              "text",
+              "maxUnits",
+              "sourceRegionIds",
+              "criteria",
+              "acceptedAnswerForms"
+            ],
+            "properties": {
+              "questionKey": {
+                "type": "string",
+                "pattern": "^[A-Za-z0-9]+(?:[._-][A-Za-z0-9]+)*$"
+              },
+              "kind": {
+                "const": "rubric_table"
+              },
+              "text": {
+                "type": "string",
+                "minLength": 1
+              },
+              "maxUnits": {
+                "type": "integer",
+                "minimum": 1,
+                "maximum": 1000000
+              },
+              "sourceRegionIds": {
+                "type": "array",
+                "items": {
+                  "type": "string",
+                  "minLength": 1
+                },
+                "uniqueItems": true
+              },
+              "criteria": {
+                "type": "array",
+                "items": {
+                  "type": "object",
+                  "additionalProperties": false,
+                  "required": ["id", "description", "maxUnits", "levels"],
+                  "properties": {
+                    "id": {
+                      "type": "string",
+                      "pattern": "^[A-Za-z0-9]+(?:[._-][A-Za-z0-9]+)*$"
+                    },
+                    "description": {
+                      "type": "string",
+                      "minLength": 1
+                    },
+                    "maxUnits": {
+                      "type": "integer",
+                      "minimum": 1,
+                      "maximum": 1000000
+                    },
+                    "levels": {
+                      "type": "array",
+                      "minItems": 2,
+                      "items": {
+                        "type": "object",
+                        "additionalProperties": false,
+                        "required": ["pointsUnits", "description"],
+                        "properties": {
+                          "pointsUnits": {
+                            "type": "integer",
+                            "minimum": 0,
+                            "maximum": 1000000
+                          },
+                          "description": {
+                            "type": "string",
+                            "minLength": 1
+                          }
+                        }
+                      }
+                    }
+                  }
+                }
+              },
+              "acceptedAnswerForms": {
+                "type": "array",
+                "minItems": 1,
+                "uniqueItems": true,
+                "items": {
+                  "enum": ["text", "table", "drawing"]
+                }
+              }
+            }
+          },
+          {
+            "type": "object",
+            "additionalProperties": false,
+            "required": [
+              "questionKey",
+              "kind",
+              "text",
+              "maxUnits",
+              "sourceRegionIds",
+              "criteria",
+              "acceptedAnswerForms"
+            ],
+            "properties": {
+              "questionKey": {
+                "type": "string",
+                "pattern": "^[A-Za-z0-9]+(?:[._-][A-Za-z0-9]+)*$"
+              },
+              "kind": {
+                "const": "rubric_drawing"
+              },
+              "text": {
+                "type": "string",
+                "minLength": 1
+              },
+              "maxUnits": {
+                "type": "integer",
+                "minimum": 1,
+                "maximum": 1000000
+              },
+              "sourceRegionIds": {
+                "type": "array",
+                "items": {
+                  "type": "string",
+                  "minLength": 1
+                },
+                "uniqueItems": true
+              },
+              "criteria": {
+                "type": "array",
+                "items": {
+                  "type": "object",
+                  "additionalProperties": false,
+                  "required": ["id", "description", "maxUnits", "levels"],
+                  "properties": {
+                    "id": {
+                      "type": "string",
+                      "pattern": "^[A-Za-z0-9]+(?:[._-][A-Za-z0-9]+)*$"
+                    },
+                    "description": {
+                      "type": "string",
+                      "minLength": 1
+                    },
+                    "maxUnits": {
+                      "type": "integer",
+                      "minimum": 1,
+                      "maximum": 1000000
+                    },
+                    "levels": {
+                      "type": "array",
+                      "minItems": 2,
+                      "items": {
+                        "type": "object",
+                        "additionalProperties": false,
+                        "required": ["pointsUnits", "description"],
+                        "properties": {
+                          "pointsUnits": {
+                            "type": "integer",
+                            "minimum": 0,
+                            "maximum": 1000000
+                          },
+                          "description": {
+                            "type": "string",
+                            "minLength": 1
+                          }
+                        }
+                      }
+                    }
+                  }
+                }
+              },
+              "acceptedAnswerForms": {
+                "type": "array",
+                "minItems": 1,
+                "uniqueItems": true,
+                "items": {
+                  "enum": ["text", "table", "drawing"]
+                }
+              }
+            }
+          }
+        ]
+      }
+    },
+    "gradingDefaults": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["blankScoreUnits", "carryForwardErrorPolicy", "rounding"],
+      "properties": {
+        "blankScoreUnits": {
+          "const": 0
+        },
+        "carryForwardErrorPolicy": {
+          "enum": ["no_duplicate_penalty", "independent_criteria"]
+        },
+        "rounding": {
+          "type": "object",
+          "additionalProperties": false,
+          "required": ["mode", "normalizeTo", "targetDecimals"],
+          "properties": {
+            "mode": {
+              "const": "half_up"
+            },
+            "normalizeTo": {
+              "const": 10
+            },
+            "targetDecimals": {
+              "const": 1
+            }
+          }
+        }
+      }
+    }
+  }
+}

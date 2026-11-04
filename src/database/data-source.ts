@@ -1,3 +1,4 @@
+import { ASSESSMENT_ENTITIES } from '../modules/assessment/entities/assessment.entities';
 import 'dotenv/config';
 import 'reflect-metadata';
 import { DataSource } from 'typeorm';
@@ -57,6 +58,7 @@ export default new DataSource({
   password: process.env.DB_PASSWORD || 'postgres',
   database: process.env.DB_DATABASE || 'stock_db',
   entities: [
+    ...ASSESSMENT_ENTITIES,
     User,
     RefreshToken,
     TokenBlacklist,

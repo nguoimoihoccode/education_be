@@ -1,5 +1,6 @@
 import {
   BadRequestException,
+  ConflictException,
   Injectable,
   NotFoundException,
 } from '@nestjs/common';
@@ -44,6 +45,7 @@ export interface GradeEntryView {
   term: number;
   quizSessionId: string | null;
   homeworkId: string | null;
+  source?: { kind: 'assessment'; publicationId: string } | null;
 }
 
 function toView(entry: GradeEntry): GradeEntryView {
@@ -61,6 +63,14 @@ function toView(entry: GradeEntry): GradeEntryView {
     term: entry.term,
     quizSessionId: entry.quizSessionId ?? null,
     homeworkId: entry.homeworkId ?? null,
+    ...(entry.assessmentPublicationId
+      ? {
+          source: {
+            kind: 'assessment' as const,
+            publicationId: entry.assessmentPublicationId,
+          },
+        }
+      : {}),
   };
 }
 
@@ -164,6 +174,12 @@ export class GradesService {
       entry.classId,
       dto.subjectId ?? entry.subjectId,
     );
+    if (entry.assessmentPublicationId)
+      throw new ConflictException({
+        error: 'ASSESSMENT_SOURCE_GRADE_LOCKED',
+        message:
+          'Assessment grades must be changed through assessment review and publication',
+      });
     if (dto.subjectId) entry.subjectId = subject.id;
 
     if (dto.studentId !== undefined && dto.studentId !== entry.studentId) {
@@ -200,6 +216,12 @@ export class GradesService {
     });
     if (!entry) throw new NotFoundException('Grade not found');
     await this.assertWriteAccess(userId, entry.classId, entry.subjectId);
+    if (entry.assessmentPublicationId)
+      throw new ConflictException({
+        error: 'ASSESSMENT_SOURCE_GRADE_LOCKED',
+        message:
+          'Assessment grades must be changed through assessment review and publication',
+      });
 
     await this.gradeRepository.delete({ id: entry.id });
     await this.activityLog.recordBestEffort({

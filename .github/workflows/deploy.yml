@@ -17,6 +17,7 @@ concurrency:
 env:
   REGISTRY: ghcr.io
   BACKEND_IMAGE: ghcr.io/${{ github.repository }}
+  ASSESSMENT_WORKER_IMAGE: ghcr.io/${{ github.repository }}-assessment-worker
   DB_IMAGE: ghcr.io/${{ github.repository }}-postgres
   # Bump this together with the pgvector version in docker/postgres/Dockerfile.
   # A database image should change rarely and on purpose: it is the one artefact
@@ -78,6 +79,18 @@ jobs:
           cache-from: type=gha,scope=backend
           cache-to: type=gha,mode=max,scope=backend
 
+      - name: Build and push assessment worker
+        uses: docker/build-push-action@v6
+        with:
+          context: .
+          file: Dockerfile.assessment-worker
+          push: true
+          tags: |
+            ${{ env.ASSESSMENT_WORKER_IMAGE }}:${{ github.sha }}
+            ${{ env.ASSESSMENT_WORKER_IMAGE }}:latest
+          cache-from: type=gha,scope=assessment-worker
+          cache-to: type=gha,mode=max,scope=assessment-worker
+
   # Its own job and its own cache scope: this image has nothing to do with the
   # backend build, and mixing the two caches would make each invalidate the other.
   build-and-push-db:
@@ -134,7 +147,7 @@ jobs:
           host: ${{ secrets.VPS_HOST }}
           username: ${{ secrets.VPS_USER }}
           key: ${{ secrets.VPS_SSH_KEY }}
-          source: docker-compose.prod.yml
+          source: "docker-compose.prod.yml,scripts/retain-docker-images.py"
           target: ${{ secrets.VPS_APP_DIR }}
 
       - name: Deploy services
@@ -143,6 +156,7 @@ jobs:
           GHCR_USERNAME: ${{ github.actor }}
           GHCR_TOKEN: ${{ secrets.GITHUB_TOKEN }}
           BACKEND_IMAGE: ${{ env.BACKEND_IMAGE }}
+          ASSESSMENT_WORKER_IMAGE: ${{ env.ASSESSMENT_WORKER_IMAGE }}
           DB_IMAGE: ${{ env.DB_IMAGE }}
           DB_IMAGE_TAG: ${{ env.DB_IMAGE_TAG }}
           IMAGE_TAG: ${{ github.sha }}
@@ -150,7 +164,7 @@ jobs:
           host: ${{ secrets.VPS_HOST }}
           username: ${{ secrets.VPS_USER }}
           key: ${{ secrets.VPS_SSH_KEY }}
-          envs: GHCR_USERNAME,GHCR_TOKEN,BACKEND_IMAGE,DB_IMAGE,DB_IMAGE_TAG,IMAGE_TAG
+          envs: GHCR_USERNAME,GHCR_TOKEN,BACKEND_IMAGE,ASSESSMENT_WORKER_IMAGE,DB_IMAGE,DB_IMAGE_TAG,IMAGE_TAG
           script: |
             set -euo pipefail
             cd "${{ secrets.VPS_APP_DIR }}"
@@ -163,6 +177,13 @@ jobs:
 
             echo "$GHCR_TOKEN" | docker login ghcr.io -u "$GHCR_USERNAME" --password-stdin
             export BACKEND_IMAGE DB_IMAGE DB_IMAGE_TAG IMAGE_TAG
+            assessment_enabled=$(docker compose -f docker-compose.prod.yml --env-file .env.prod config --format json | python3 -c 'import json,sys; print(str(json.load(sys.stdin)["services"]["backend"]["environment"].get("ASSESSMENT_ENABLED", "false")).lower())')
+            if [ "$assessment_enabled" = "true" ]; then
+              export COMPOSE_PROFILES=assessment
+              docker compose -f docker-compose.prod.yml --env-file .env.prod pull assessment-worker
+            else
+              docker compose -f docker-compose.prod.yml --env-file .env.prod --profile assessment stop assessment-worker || true
+            fi
             docker compose -f docker-compose.prod.yml --env-file .env.prod pull db backend
 
             # Recreate the database BEFORE migrating. A migration can need a
@@ -290,6 +311,30 @@ jobs:
 
             wait_healthy || rollback
 
+            if [ "$assessment_enabled" = "true" ]; then
+              docker compose -f docker-compose.prod.yml --env-file .env.prod up -d assessment-redis assessment-worker
+              worker_healthy=false
+              for _ in $(seq 1 30); do
+                worker_id=$(docker compose -f docker-compose.prod.yml --env-file .env.prod ps -q assessment-worker)
+                if [ -n "$worker_id" ] && [ "$(docker inspect --format '{{.State.Health.Status}}' "$worker_id")" = "healthy" ]; then
+                  worker_healthy=true
+                  break
+                fi
+                sleep 5
+              done
+              if [ "$worker_healthy" != "true" ]; then
+                echo "Assessment worker failed readiness; restoring previous application images." >&2
+                if [ -n "$previous_tag" ]; then
+                  export IMAGE_TAG="$previous_tag"
+                  docker compose -f docker-compose.prod.yml --env-file .env.prod pull backend assessment-worker
+                  docker compose -f docker-compose.prod.yml --env-file .env.prod up -d backend assessment-worker
+                else
+                  docker compose -f docker-compose.prod.yml --env-file .env.prod stop assessment-worker
+                fi
+                exit 1
+              fi
+            fi
+
             printf '%s' "$IMAGE_TAG" > .last-backend-tag
-            docker image prune -f --filter "until=168h"
+            python3 scripts/retain-docker-images.py --keep 3 "$BACKEND_IMAGE" "$ASSESSMENT_WORKER_IMAGE" "$DB_IMAGE"
             docker compose -f docker-compose.prod.yml --env-file .env.prod ps

@@ -19,6 +19,22 @@ jobs:
   backend:
     name: Backend quality gate
     runs-on: ubuntu-latest
+    services:
+      assessment-postgres:
+        image: postgres:16-alpine
+        env:
+          POSTGRES_PASSWORD: assessment-test-only
+        ports:
+          - 5432:5432
+        options: >-
+          --health-cmd "pg_isready -U postgres"
+          --health-interval 5s
+          --health-timeout 5s
+          --health-retries 10
+    env:
+      ASSESSMENT_TEST_PG: "true"
+      ASSESSMENT_TEST_PG_USER: postgres
+      ASSESSMENT_TEST_PG_PASSWORD: assessment-test-only
 
     steps:
       - name: Checkout
@@ -34,6 +50,9 @@ jobs:
       - name: Install dependencies
         run: npm ci
 
+      - name: Test VPS image retention policy
+        run: python3 -m unittest discover -s scripts -p test_retain_docker_images.py
+
       - name: Run backend quality gate
         run: npm run ci
 
@@ -42,4 +61,10 @@ jobs:
         with:
           context: .
           file: Dockerfile
+          push: false
+      - name: Assessment worker Docker build check
+        uses: docker/build-push-action@v6
+        with:
+          context: .
+          file: Dockerfile.assessment-worker
           push: false

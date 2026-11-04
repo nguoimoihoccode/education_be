@@ -32,6 +32,8 @@ RUN npm ci --omit=dev && npm cache clean --force
 
 # Copy built application from builder stage
 COPY --chown=nestjs:nodejs --from=builder /app/dist ./dist
+# API routing/readiness validates the same canonical contracts as the worker.
+COPY --chown=nestjs:nodejs docs/assessment/contracts ./docs/assessment/contracts
 
 # Switch to non-root user
 USER nestjs

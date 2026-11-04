@@ -120,6 +120,9 @@ export class GradeEntry {
   @Column({ name: 'quiz_session_id', type: 'uuid', nullable: true })
   quizSessionId?: string | null;
 
+  @Column({ name: 'assessment_publication_id', type: 'uuid', nullable: true })
+  assessmentPublicationId?: string | null;
+
   // Đầu điểm tự sinh từ BTVN (homework) — xóa bài giao thì kéo theo điểm
   @ManyToOne(() => HomeworkAssignment, {
     onDelete: 'CASCADE',

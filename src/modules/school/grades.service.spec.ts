@@ -667,3 +667,41 @@ describe('GradesService.getClassRanking', () => {
     });
   });
 });
+
+describe('assessment grade source protection', () => {
+  it.each(['update', 'remove'] as const)(
+    'blocks legacy %s mutations before a write',
+    async (action) => {
+      const gradeRepository = createRepository({
+        findOne: jest
+          .fn()
+          .mockResolvedValue(gradeRow({ assessmentPublicationId: 'pub' })),
+      });
+      const { service } = createService({ gradeRepository });
+      await expect(
+        action === 'update'
+          ? service.update(TEACHER_ID, 'g1', { score: 9 })
+          : service.remove(TEACHER_ID, 'g1'),
+      ).rejects.toMatchObject({
+        response: { error: 'ASSESSMENT_SOURCE_GRADE_LOCKED' },
+      });
+      expect(gradeRepository.save).not.toHaveBeenCalled();
+      expect(gradeRepository.delete).not.toHaveBeenCalled();
+    },
+  );
+  it('keeps unauthorized source grades indistinguishable from missing grades', async () => {
+    const { service } = createService({
+      gradeRepository: createRepository({
+        findOne: jest
+          .fn()
+          .mockResolvedValue(gradeRow({ assessmentPublicationId: 'pub' })),
+      }),
+      classRepository: createRepository({
+        findOne: jest.fn().mockResolvedValue(null),
+      }),
+    });
+    await expect(service.remove(TEACHER_ID, 'g1')).rejects.toBeInstanceOf(
+      NotFoundException,
+    );
+  });
+});
