@@ -301,6 +301,11 @@ jobs:
               fi
 
               echo "Health check failed. Rolling back to $previous_tag." >&2
+              # The failed container is about to be replaced, taking its logs with
+              # it. Print them first, or the next diagnosis starts from nothing.
+              docker compose -f docker-compose.prod.yml --env-file .env.prod ps >&2 || true
+              docker compose -f docker-compose.prod.yml --env-file .env.prod \
+                logs --no-color --tail 200 backend >&2 || true
               export IMAGE_TAG="$previous_tag"
               docker compose -f docker-compose.prod.yml --env-file .env.prod pull backend
               docker compose -f docker-compose.prod.yml --env-file .env.prod up -d --remove-orphans backend
