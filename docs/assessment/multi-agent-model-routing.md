@@ -6,7 +6,7 @@ Ngày kiểm tra nguồn/model/giá: 2026-11-03. Đây là mở rộng của [th
 
 Agent là một nhiệm vụ có input/output và quyền rõ ràng; không nhất thiết là một tiến trình hoặc một microservice. NestJS điều phối đồ thị công việc, chọn model theo cấu hình và kiểm tra mọi đầu ra.
 
-Một worker trên Mac có thể thực thi nhiều loại agent, gọi nhiều provider qua API. Không tải một model local cho mỗi agent. Không cần thêm CrewAI/LangGraph hoặc broker khác để thực hiện luồng cố định này.
+Một container worker trên VPS có thể thực thi nhiều loại agent, gọi nhiều provider qua API. Không tải một model local cho mỗi agent. Không cần thêm CrewAI/LangGraph hoặc broker khác để thực hiện luồng cố định này.
 
 So sánh ba cách:
 
@@ -22,7 +22,7 @@ Chọn cách thứ ba. Mục tiêu là chi phí thấp nhất **trong giới h�
 
 | Agent | Việc làm | Thực thi | Không được làm |
 |---|---|---|---|
-| PagePreparer | Chọn tờ chính, xoay, crop, chất lượng ảnh | Code trên Mac; layout model khi cần | Tạo lại nét chữ hoặc lấy giấy nền làm bài |
+| PagePreparer | Chọn tờ chính, xoay, crop, chất lượng ảnh | Code trong worker VPS; layout model khi cần | Tạo lại nét chữ hoặc lấy giấy nền làm bài |
 | ImageReader | Đọc đề, dấu chọn, chữ viết, bảng, hình thành observations | Model vision cấu hình riêng | Nhận đáp án đúng hoặc quyết định điểm |
 | AnswerAssembler | Ghép câu/trang, chuẩn hóa schema và liên kết regions | Code trước; model text nhỏ chỉ khi mơ hồ | Sửa câu trả lời cho giống đáp án |
 | KeyBuilder | Soạn draft key/rubric dùng chung cho mã đề | Model text reasoning; vision branch nếu đề có hình cần hiểu | Lấy bài học sinh làm đáp án chuẩn hoặc tự approve |
@@ -60,6 +60,8 @@ flowchart TD
 ~~~
 
 KeyBuilder chạy một lần cho mỗi phiên bản đề/rubric, song song khi có đủ vùng đề. Grader nhận đúng version; kết quả dùng rubric draft chỉ là nháp và không được công bố.
+
+Một đợt có thể có hai hoặc nhiều mã đề. Coordinator nhóm theo assessmentId + examVersionId; mỗi nhóm dùng key/rubric tương ứng, không gọi KeyBuilder lại cho từng học sinh. Chỉ tái sử dụng nội dung/rubric giữa hai mã sau khi đã xác minh ánh xạ câu và lựa chọn; không mặc định cùng số câu là cùng đáp án.
 
 Các lượt đọc lại là job mới có fingerprint/attempt budget rõ. Không có vòng agent tự gọi nhau vô hạn. Một vòng escalation mỗi câu, tối đa một independent audit; vẫn nằm trong cap tổng 24 paid attempts/bài/revision của thiết kế cơ sở.
 
@@ -179,13 +181,13 @@ Mỗi profile trong ví dụ cap input 32768 tokens và output 4096 tokens; coor
 
 Mặc định ví dụ: cap 0.05 USD/bài/revision và 10 USD/ngày của tenant để minh họa cấu hình; trường phải chọn mức phù hợp trước pilot. Giá trị này không phải chi phí thực tế dự đoán.
 
-## 10. Mac và VPS
+## 10. Triển khai VPS v1.2
 
-VPS giữ web/API, DB, job state, routing/budget, publication và audit. Mac chạy PagePreparer và executor của các agent, gọi provider qua API; không giữ model nặng mặc định.
+VPS giữ web/API, DB, job state, routing/budget, publication và audit, đồng thời chạy container assessment-worker riêng cho PagePreparer và executor các agent. Worker gọi provider qua API, không giữ model nặng. Mac không tham gia xử lý hoặc lưu cache bài.
 
-Remote worker nhận việc/trả kết quả bằng HTTPS outbound, theo [remote-worker-protocol.md](remote-worker-protocol.md). Không public Redis/PostgreSQL hoặc cổng Mac. Worker không có quyền approve rubric/finalize.
+Worker kết nối PostgreSQL và assessment-redis qua mạng Docker nội bộ, dùng cùng lease/fencing và revision validation của pipeline. Không dựng remote coordinator endpoints hoặc worker JWT/registry trong bản này. Worker không tự approve rubric/finalize. File routing có execution.mode = vps_colocated.
 
-M4 16 GB bắt đầu một job và tối đa hai provider calls đồng thời. Cache cục bộ cap 2 GiB. Admission yêu cầu còn ít nhất 15 GiB, pause dưới 10 GiB; khuyến nghị vận hành có 30–50 GiB trống. Đây là chính sách pilot, chưa là số đo throughput.
+Bắt đầu một job và tối đa hai provider calls đồng thời; cache worker cap 2 GiB. Admission yêu cầu volume tạm còn ít nhất 15 GiB, pause dưới 10 GiB. Đây là chính sách pilot đề xuất, cần kiểm tra dung lượng/RAM/CPU VPS trước khi bật. Lưu file lâu dài trong private object storage bên ngoài VPS; xem [vps-deployment.md](vps-deployment.md).
 
 ## 11. Kiểm tra bổ sung
 

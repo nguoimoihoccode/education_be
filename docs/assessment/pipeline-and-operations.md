@@ -2,7 +2,7 @@
 
 Tham chiếu [thiết kế](../superpowers/specs/2026-11-03-ai-assisted-assessment-design.md) và [hợp đồng dữ liệu/API](data-and-api-contract.md). Các mức giới hạn ở đây là mặc định thiết kế cho pilot, chưa phải kết quả load test.
 
-V1.1 bổ sung [agent/model router](multi-agent-model-routing.md) và [giao thức worker Mac](remote-worker-protocol.md). Những đoạn worker claim/ghi DB trực tiếp bên dưới mô tả mode co-located; mode remote dùng API coordinator trên VPS với cùng fencing và validation.
+V1.2 dùng [agent/model router](multi-agent-model-routing.md) và [worker container trên VPS](vps-deployment.md), mode vps_colocated. Worker claim/ghi DB và kết nối queue qua mạng nội bộ. Giao thức remote worker được giữ tham khảo, ngoài phạm vi triển khai hiện tại.
 
 ## 1. Bố cục mã nguồn dự kiến
 
@@ -121,7 +121,7 @@ MVP dùng thư viện xử lý ảnh Node và renderer PDF trong container worke
 
 Khi class có hai tên trùng nhau, yêu cầu chọn roster member. Nếu tên trên tờ chính khác nhóm đã chọn, giữ input trong nhóm tạm có flag; không tự chuyển bài đã có điểm sang học sinh khác.
 
-Nhận diện mã đề phải kèm nội dung đề. Mã 102 trong đợt khác không phải cùng template. Một vùng câu có thể có nhiều source regions và nhiều pages.
+Nhận diện mã đề phải kèm nội dung đề. Cùng một đợt nhận hai hoặc nhiều mã đề; coordinator ghép mỗi bài với đúng examVersionId rồi mới cấp key/rubric cho grader. Mã 102 trong đợt khác không phải cùng template; câu cùng số ở hai mã khác nhau không tự dùng chung đáp án. Trang bài làm không in mã có thể kế thừa mã từ tờ chính khi liên kết trang trong cùng bài đã được xác lập và không có bằng chứng mâu thuẫn. Mã thiếu, mâu thuẫn hoặc nội dung không khớp phiên bản tạo exam_code_conflict và chặn chấm theo key chưa xác định, không chặn các bài khác. Một vùng câu có thể có nhiều source regions và nhiều pages.
 
 Nếu không tìm thấy II.1.a, tra lại tất cả vùng trong submission một lần theo câu hỏi và các trang chưa ghép. Nếu vẫn không tìm thấy, tạo answer_not_found. Không dùng trang nền hoặc câu của học sinh khác để “điền đủ”.
 
@@ -178,6 +178,8 @@ Worker lưu error code có thể xử lý, không trả raw prompt, response có
 
 S3-compatible storage là mặc định cho pilot có nhiều process. Local-private adapter chỉ phục vụ dev có volume dùng chung; không dùng thư mục avatar public.
 
+Hiện compose production chưa cấp storage S3-compatible. Gói 2 phải provision private bucket trên dịch vụ ngoài hoặc thêm service storage tự host có volume/backup; cấu hình endpoint HTTPS dùng được từ browser và worker VPS, credentials theo prefix, CORS, presigned POST/read và lifecycle. Không bắt buộc chạy MinIO trên VPS nếu dùng storage ngoài. Bucket và adapter phải qua readiness trước khi bật upload.
+
 Upload flow: API tạo asset/staging key → cấp presigned POST policy với key chính xác, MIME và content-length-range → client upload → complete → seal job kiểm tra bytes → copy sang sealed key mới → prepare. Client không có quyền upload cho sealed prefix. Nếu storage có versioning, ghi version ID bên cạnh checksum.
 
 Seal phải dùng đúng bytes đã kiểm tra: pin version của staging rồi copy đúng version đó; nếu storage không có versioning, stream bytes một lần vào sealed key mới đồng thời tính checksum và chỉ chuyển asset sang sealed khi hoàn tất. Không verify một key rồi copy lại key mutable sau đó vì client còn có thể ghi đè staging.
@@ -216,7 +218,7 @@ Biến cấu hình mới được thêm vào config.validation.ts khi triển kh
 - ASSESSMENT_QUEUE_REDIS_URL bắt buộc khi enabled; khác REDIS_URL cache.
 - ASSESSMENT_STORAGE_DRIVER = s3 trong pilot; bucket, endpoint, region, credential refs qua biến môi trường/secret.
 - ASSESSMENT_READ_PROFILE, ASSESSMENT_GRADE_PROFILE và ASSESSMENT_DRAWING_PROFILE trỏ cấu hình server có provider/model/base URL/key reference/capabilities.
-- Ba profile đơn giản trên là chế độ chuyển tiếp khi chưa có routing file; remote worker luôn dùng snapshot do server cấp, không tự đổi profile từ env. Credential references được resolve cục bộ, không chuyển secret qua job payload.
+- Ba profile đơn giản trên là chế độ chuyển tiếp khi chưa có routing file; worker VPS luôn dùng routing snapshot đã pin cho job, không tự đổi profile giữa chừng. Credential references được resolve cục bộ, không chuyển secret qua job payload.
 - Profile OCR riêng là tùy chọn nếu reader tổng hợp đã đủ; cấu hình rõ khi chọn adapter.
 - ASSESSMENT_DAILY_COST_LIMIT_MICROS và bảng đơn giá/profile do operator đặt, bắt buộc ở pilot có gọi provider; đây là giới hạn vận hành, không phải billing.
 - Các giới hạn ở mục 9 được validator chặn giá trị âm/vô hạn; profile có max output, timeout và rate quota rõ.
@@ -228,6 +230,8 @@ Reserve ngân sách trước call bằng transaction; đối soát sau call bằ
 Ngân sách ngày của trường tính theo Asia/Ho_Chi_Minh; lưu timestamps UTC. Không tự đổi currency theo tỷ giá runtime. Profile phải có đơn giá quy về currency ngân sách trước khi được bật.
 
 Redis queue bật AOF appendfsync everysec, volume bền vững và noeviction. Cấu hình allkeys-lru/appendonly no/tmpfs của cache giữ riêng. PostgreSQL jobs và reconciler chịu trách nhiệm khôi phục cả khi Redis restart làm mất một phần dữ liệu.
+
+Gói 2 phải dựng thêm instance Redis riêng, mặc định service `assessment-redis` trong docker-compose.prod.yml và manifest dev tương ứng khi triển khai. Hiện production chỉ có service `redis` cho REDIS_URL cache; thêm riêng ASSESSMENT_QUEUE_REDIS_URL mà chưa dựng instance không đáp ứng yêu cầu. Service mới có named volume, healthcheck và chỉ kết nối mạng nội bộ, không public cổng ra Internet. Worker VPS dùng URL Redis nội bộ; không triển khai worker trên Mac.
 
 ## 11. Quan sát và khôi phục
 
@@ -255,6 +259,8 @@ Pages gợi ý AssessmentListPage, AssessmentWorkspacePage, SubmissionReviewPage
 Chỉ hiển thị dữ liệu giáo viên cần quyết định: học sinh/mã đề/điểm/cảnh báo, không hiển thị queue IDs, token counts hoặc profile hashes trong luồng chính. Đợt đã có key approved không bắt xác nhận key lần nữa.
 
 TanStack query keys gồm assessment, submission, progress và exports; chứa school/session context khi cần. Các GET trong lúc xử lý dùng cache:false, staleTime:0. Không persist ảnh/bản đọc/điểm nháp vào localStorage hoặc service-worker cache. Trong ../education_fe/vite.config.ts, loại origin/path storage riêng tư và assessment evidence khỏi rule CacheFirst cho ảnh; chỉ navigateFallbackDenylist /api hiện tại chưa đủ. Khi logout xóa cache theo session-cleanup hiện có.
+
+Đây là việc bắt buộc trong Gói 2 trước khi viewer dùng ảnh thật. Rule ảnh hiện tại kiểm tra phần mở rộng trên URL đầy đủ: ảnh cùng origin có URL kết thúc bằng .jpg/.png… có thể vào images-cache và tồn tại qua logout; URL có query ký hoặc ảnh khác origin không mặc nhiên khớp rule RegExp này. Vẫn phải thiết kế theo allowlist ảnh public, NetworkOnly cho evidence/proxy riêng tư và response Cache-Control: private, no-store; header không thay thế quy tắc service worker. Khi nâng service worker phải xóa images-cache cũ để loại dữ liệu đã cache, đồng thời bổ sung cleanup Cache Storage ở mọi đường logout/hết phiên/chuyển tài khoản. Session cleanup hiện có chưa chứng minh đã dọn Cache Storage. A33 cần kiểm tra ảnh raw, crop, thumbnail, PDF và URL ký không còn truy cập được offline từ cache sau khi kết thúc phiên.
 
 Sau finalize/withdraw, invalidation áp cả cache server-state và cache Axios grade reads. Chỉnh sửa optimistic chỉ dùng cho UI an toàn; điểm đã chốt phải dựa vào response server, không tự cộng trên client.
 

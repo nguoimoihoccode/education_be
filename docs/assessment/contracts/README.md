@@ -5,7 +5,7 @@
 - grading-output.schema.json: đầu ra rubric/drawing grader; không cho model tự khai điểm cuối hoặc trạng thái approved.
 - grading-output.synthetic.example.json: điểm giả lập để kiểm tra contract, không phải kết quả chấm ảnh người dùng.
 - sample-case-manifest.json: vai trò năm ảnh và các kiểm tra kỳ vọng; không chứa ảnh hoặc tên học sinh.
-- agent-routing.schema.json và agent-routing.example.json: cấu hình agent/model v1.1 ở trạng thái design_only; quality gates chưa được xác nhận.
+- agent-routing.schema.json và agent-routing.example.json: cấu hình agent/model v1.2 với execution.mode = vps_colocated, ở trạng thái design_only; quality gates chưa được xác nhận.
 - cost-scenarios.example.json: phép tính từ token giả định, không phải benchmark hoặc báo giá thực.
 
 Schema kiểm tra cấu trúc. Domain validation vẫn phải kiểm tra tổng điểm, ID duy nhất, key thuộc options, criterion max, evidence cùng bài/tenant, vùng nền, trạng thái rubric và manifest hiện hành.

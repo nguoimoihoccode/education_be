@@ -33,6 +33,8 @@ assessment_id, exam_code, version_number, state (draft|approved|superseded), doc
 
 Unique (assessment_id, exam_code, version_number). Nội dung document và hashes bất biến; sửa tạo bản mới. Bản approved không bị sửa tại chỗ. Superseded vẫn được đọc để giải thích điểm cũ.
 
+Một assessment có thể chứa một hoặc nhiều exam_code. exam_code là mã đề phát cho học sinh; version_number là lần sửa nội dung/đáp án của chính mã đó. Mỗi submission đủ dữ liệu để chấm gắn đúng một exam_version_id; questionKey và answerKey được diễn giải trong phiên bản ấy. Câu I.1 của mã 101 không tự tương đương câu I.1 của mã 102, kể cả khi hai đề chỉ đảo thứ tự câu hoặc lựa chọn. Đổi mã/phiên bản gắn với bài làm phải tăng input_revision và tạo lại kết quả phần bị ảnh hưởng; giữ lịch sử điểm đã công bố theo quy tắc hiện có.
+
 document gồm:
 
 - metadata môn/khối, mã đề, số trang đề được khai báo, maxScoreUnits;
@@ -164,13 +166,15 @@ actor_id, route_scope, idempotency_key, request_hash, state (running|completed),
 
 Unique (school_id, actor_id, route_scope, idempotency_key). TTL 7 ngày; ràng buộc publication/job vẫn bảo vệ sau TTL. Cùng key khác request_hash trả 409. Row running hết lease được tiếp tục an toàn từ các hiệu ứng miền đã commit.
 
-### 2.17 school_assessment_workers
+### 2.17 school_assessment_workers — tùy chọn tương lai, ngoài phạm vi VPS v1.2
+
+Chỉ tạo khi mở lại remote worker; không đưa bảng này vào migrations bắt buộc của VPS v1.2.
 
 name, bootstrap_key_digest, key_version, allowed_stages jsonb, allowed_profile_ids jsonb, max_concurrent_jobs, state (active|paused|revoked), last_seen_at, created_by. Các cột id/school_id/timestamps theo quy ước chung. Mỗi worker registration chỉ thuộc một trường.
 
 Không lưu bootstrap secret dạng rõ. Worker JWT có audience riêng, không dùng user JWT. Lease/auth/endpoint chi tiết ở [remote-worker-protocol.md](remote-worker-protocol.md).
 
-V1.1 bổ sung vào jobs: execution_target, assigned_worker_id nullable, routing_version, routing_policy_hash và producer_agent. Profile/usage snapshots phân biệt inferenceProfileHash với billingProfileHash để đổi giá không làm vô hiệu cache inference. Không cần bảng riêng cho từng agent hoặc model.
+V1.2 jobs dùng execution_target = vps_colocated, routing_version, routing_policy_hash và producer_agent; lease owner là ID tiến trình worker với fencing token. assigned_worker_id FK tới remote registry được hoãn cùng remote mode; không tạo FK tới bảng chưa triển khai. Profile/usage snapshots phân biệt inferenceProfileHash với billingProfileHash để đổi giá không làm vô hiệu cache inference. Không cần bảng riêng cho từng agent hoặc model.
 
 ## 3. Policy tính điểm chuẩn
 
@@ -333,7 +337,7 @@ FE dùng cache:false cho assessment đang xử lý/duyệt và cho grade report 
 Tách ba migration có thể kiểm tra độc lập:
 
 1. AddAssessmentFoundation: assessment, roster, exam versions, submission, assets, pages, regions, answer revisions.
-2. AddAssessmentProcessing: grading/review runs, events, jobs, provider calls, idempotency, exports, worker registry và remote lease/routing metadata.
+2. AddAssessmentProcessing: grading/review runs, events, jobs, provider calls, idempotency, exports, lease/fencing và routing metadata cho worker VPS; hoãn worker registry và remote auth metadata.
 3. AddAssessmentPublications: publications, nullable source column/unique/FK/check trên school_grades.
 
 Các FK trỏ bảng tạo ở migration sau, như current_review_revision_id, được gắn sau khi bảng đích tồn tại; không tham chiếu bảng chưa tạo trong migration nền.

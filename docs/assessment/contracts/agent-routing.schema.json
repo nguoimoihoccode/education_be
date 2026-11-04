@@ -120,7 +120,7 @@
       ],
       "properties": {
         "mode": {
-          "const": "remote_mac_https"
+          "const": "vps_colocated"
         },
         "maxParallelJobs": {
           "type": "integer",

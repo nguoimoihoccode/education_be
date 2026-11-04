@@ -10,7 +10,7 @@ Thư mục [contracts](contracts/README.md) chứa JSON Schema và mẫu cấu t
 
 Những kiểm tra hiện có thể làm: JSON hợp lệ, mẫu đúng schema, mã câu không trùng, 12 câu lựa chọn × 250 units, nhóm Đúng/Sai 1000 units, bốn mục tự luận × 1000 units, hình 2000 units, tổng 10000 units. Chưa thể tuyên bố OCR/AI chính xác từ các kiểm tra này.
 
-V1.1 thêm schema/config agent routing, ví dụ tính chi phí giả định, 12 ca M01–M12 trong [multi-agent routing](multi-agent-model-routing.md) và 12 ca W01–W12 trong [remote protocol](remote-worker-protocol.md). Tổng bộ nghiệm thu là 40 ca cơ sở và 24 ca bổ sung, chưa phải 64 test ứng dụng đã chạy.
+V1.2 chạy worker trên VPS theo [vps-deployment.md](vps-deployment.md). Phạm vi nghiệm thu hiện tại gồm 40 ca A01–A40 và 12 ca M01–M12 của multi-agent; đây là 52 kịch bản thiết kế, chưa phải test ứng dụng đã chạy. W01–W12 của remote protocol được giữ tham khảo, ngoài phạm vi hiện tại.
 
 ## 2. Bộ nghiệm thu bắt buộc
 
@@ -27,9 +27,9 @@ V1.1 thêm schema/config agent routing, ví dụ tính chi phí giả định, 1
 | A09 | “Đề gồm 2 trang” nhưng thiếu trang tự luận | Không coi đủ mọi bài làm chỉ vì có đề 1/2 và 2/2. |
 | A10 | Đ/S khó phân biệt hoặc lệch ô | Chỉ vùng/câu liên quan cần đọc lại; không tự chọn ký hiệu thuận đáp án. |
 | A11 | Khoanh hai đáp án, tẩy một đáp án | Chỉ lấy lựa chọn cuối nếu có đủ bằng chứng; nếu chưa rõ thì choice_ambiguous. |
-| A12 | Không có đáp án riêng | Soạn một draft key cho cùng mã đề; học sinh khác dùng chung sau duyệt. |
+| A12 | Cùng đợt có hai hoặc nhiều mã đề, chưa có đáp án riêng | Soạn một draft key cho mỗi mã/phiên bản; mỗi bài dùng đúng examVersionId, học sinh cùng mã dùng chung sau duyệt. Không tạo đợt riêng cho từng mã. |
 | A13 | Đáp án học sinh tình cờ đều đúng | Vẫn không dùng các lựa chọn đó làm nguồn key. |
-| A14 | Mã 102 xuất hiện trong hai đợt/năm khác nhau | Không trộn template chỉ vì cùng mã. |
+| A14 | Mã 102 xuất hiện trong hai đợt/năm khác nhau; mã thiếu hoặc nội dung không khớp mã trong đợt hiện tại | Không trộn template chỉ vì cùng mã hoặc số câu; bài chưa xác định đúng phiên bản được giữ để xử lý, các bài đủ dữ liệu tiếp tục. |
 | A15 | Hình chiếu có kích thước bị gạch sửa | Giữ hình và dấu sửa; flag nếu chưa rõ giá trị cuối. |
 | A16 | Ảnh hình vẽ bị nghiêng hoặc thay độ phân giải | Không quy đổi pixel sang mm không có hiệu chuẩn. |
 | A17 | Một học sinh có điểm hình nhưng chưa được xác nhận trong pilot | drawing_review_required chặn chốt; các điểm khác vẫn hiển thị. |
@@ -61,11 +61,11 @@ Không coi ảnh nền chứa một tờ giấy khác là bằng chứng ngườ
 
 ## 3. Dataset và ground truth
 
-Khởi động với 100–200 bài của cùng môn/khối, có nhiều chất lượng chữ và cách chụp; đây là tập khám phá/pilot, không đủ chứng minh khả năng dùng cho mọi môn.
+Khởi động với 100–200 bài của cùng môn/khối, có nhiều chất lượng chữ, cách chụp và hai hoặc nhiều mã đề trong cùng kỳ thi; đây là tập khám phá/pilot, không đủ chứng minh khả năng dùng cho mọi môn.
 
 Lấy các nhóm có chủ đích: ảnh rõ; nghiêng/bóng; giấy chồng; trắc nghiệm sửa; Đ/S; bảng; câu qua trang; thiếu trang; hình vẽ. Giữ cả ca hệ thống abstain, không chỉ lưu ca đọc thành công.
 
-Hai giáo viên chấm độc lập trên một phần tập để đo mức bất đồng, sau đó thống nhất đáp án/rubric và adjudicate những ca khác nhau. Ground truth gồm:
+Dùng lại bài đã chấm sẵn, đáp án/thang điểm chính thức và kết quả giáo viên đã duyệt trong quá trình sử dụng để tạo dữ liệu tham chiếu. Tái sử dụng các lần sửa điểm có lý do, không bổ sung công đoạn chấm thủ công riêng vào luồng sản phẩm. Chỉ dùng nhãn đã được đối chiếu nguồn và đúng mã/phiên bản đề; giữ nhãn của tập holdout cố định trước khi chạy đánh giá. Khi chưa có nhãn tham chiếu đủ tin cậy, báo rõ chưa đo được chất lượng chấm thay vì dùng điểm AI tự sinh làm chuẩn. Ground truth gồm:
 
 - chủ bài và mã đề từ tờ chính;
 - nội dung câu hỏi/điểm, thứ tự và liên kết trang;
@@ -125,9 +125,18 @@ File tích hợp: src/app.module.ts, src/database/data-source.ts, src/modules/sc
 
 Đầu ra: upload staging/seal, worker entrypoint, jobs/dispatcher/reconciler, prepare/layout/extract, viewer hiển thị vùng trên ảnh.
 
-V1.1 của gói này bao gồm WorkerOnly authentication, registry, HTTPS coordinator, call permits và lease tests W01–W12; không mở Redis/DB ra Internet để ghép worker Mac.
+V1.2 của gói này chạy assessment-worker trong container riêng trên VPS, kết nối DB/queue qua mạng Docker nội bộ. Giữ lease/fencing, budget reservation và checkpoint; không triển khai WorkerOnly authentication, remote registry hoặc HTTPS claim endpoints. Kiểm tra tài nguyên host và giới hạn worker theo vps-deployment.md trước khi bật.
 
-Frontend: assessment.api.ts, assessment.types.ts, các route/query keys, UploadGroups và EvidenceViewer. Infra: storage/worker/queue services trong cả hai compose manifests.
+Frontend: assessment.api.ts, assessment.types.ts, các route/query keys, UploadGroups và EvidenceViewer. Infra: storage/worker/queue trong manifest dev ../docker-compose.yml và các manifest production đang được duy trì (docker-compose.prod.yml của backend, ../docker-compose.prod.yml của workspace); xác định entrypoint deploy thực tế để cập nhật nhất quán.
+
+Hạ tầng bắt buộc của Gói 2, chưa có sẵn trong cấu hình production hiện tại:
+
+- Dựng instance Redis hàng đợi riêng, mặc định service `assessment-redis` trong docker-compose.prod.yml; giữ service `redis` hiện có cho cache. Redis mới dùng AOF `appendfsync everysec`, `noeviction`, named volume bền vững và healthcheck; không dùng tmpfs hoặc publish cổng ra Internet. Backend/coordinator nhận ASSESSMENT_QUEUE_REDIS_URL trỏ instance mới, khác REDIS_URL. Worker VPS kết nối queue qua mạng Docker nội bộ. Cập nhật manifest dev tương ứng theo vị trí thực tế khi triển khai.
+- Cấp S3-compatible storage trước khi bật upload: endpoint, private bucket, credentials có quyền theo prefix, CORS cho origin giáo viên, presigned POST/read và lifecycle. Nếu dùng dịch vụ ngoài VPS thì không cần thêm container storage; nếu tự host thì phải thêm service storage, volume bền vững, HTTPS endpoint và backup. Browser và worker VPS phải truy cập được endpoint HTTPS được ký, không dùng hostname nội bộ Docker trong URL cấp ra ngoài. Việc chọn managed hay tự host phải được chốt trong triển khai, không coi storage là dependency đã tồn tại.
+- Tạo runtime worker có `sharp` là dependency production và binary Poppler (`pdftoppm` hoặc `pdftocairo`); Dockerfile backend hiện tại chưa chuẩn bị runtime này. Kiểm tra binary và render thực tế trong image worker VPS. `sharp` trong devDependencies của frontend không đáp ứng worker.
+- Sửa vite.config.ts trước khi đưa ảnh bài thật vào viewer: chỉ cache ảnh public theo allowlist origin/path, dùng NetworkOnly cho evidence và loại mọi đường dẫn proxy ảnh riêng tư khỏi rule ảnh chung. Xóa cache ảnh cũ khi nâng service worker; bổ sung dọn cache dữ liệu riêng tư ở mọi đường kết thúc phiên. Kiểm tra A33 bằng tài khoản A → logout → tài khoản B và chế độ offline.
+
+Readiness Gói 2 phải xác nhận queue persistence/recovery, storage upload–seal–read từ cả browser và worker, render PDF thực tế, và ảnh riêng tư không xuất hiện trong Cache Storage. Chưa đạt thì giữ feature tắt. AOF everysec vẫn có cửa sổ mất dữ liệu Redis khi crash; PostgreSQL jobs/reconciler chịu trách nhiệm phục hồi. Các dependency trên được dựng và kiểm tra trong Gói 2, không dồn tới Gói 6.
 
 Điều kiện xong: năm ảnh được nhóm/ghép đúng, sửa crop tạo revision, không lẫn nền; A01–A10/A23–A26/A32/A33. Chưa tuyên bố đã có đủ khả năng chấm nếu chưa hoàn thành gói 3/4.
 

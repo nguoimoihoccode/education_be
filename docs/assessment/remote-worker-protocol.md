@@ -1,5 +1,7 @@
 # Worker trên Mac nhận việc qua HTTPS — Assessment v1.1
 
+Trạng thái từ 2026-11-04: phương án tham khảo đã được thay thế bởi [triển khai VPS v1.2](vps-deployment.md). Không triển khai remote endpoints, WorkerOnly JWT, bootstrap keys hoặc worker Mac trong phạm vi hiện tại. W01–W12 chỉ áp dụng nếu mở lại phương án remote trong tương lai.
+
 Tài liệu bổ sung [pipeline](pipeline-and-operations.md) và [multi-agent routing](multi-agent-model-routing.md). Chưa triển khai endpoint hoặc cài worker trên máy người dùng.
 
 ## 1. Phân công VPS và Mac

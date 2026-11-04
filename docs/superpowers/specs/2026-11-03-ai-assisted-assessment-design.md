@@ -1,8 +1,10 @@
 # Thiết kế hệ thống chấm bài bằng AI có giáo viên duyệt
 
-Ngày: 2026-11-03. Phiên bản thiết kế: 1.1.
+Ngày: 2026-11-03. Phiên bản thiết kế: 1.2, cập nhật 2026-11-04.
 
-Trạng thái: đặc tả để triển khai và đánh giá; chưa phải chức năng đã được cài đặt hoặc đã đạt độ chính xác thực nghiệm.
+Cập nhật 2026-11-04: bỏ yêu cầu giáo viên chấm độc lập để tạo bộ đánh giá; làm rõ nhiều mã đề trong cùng đợt chấm.
+
+Trạng thái: đã có mã triển khai ban đầu trong workspace, xem [trạng thái và bằng chứng kiểm tra](../../assessment/implementation-status.md). Chưa deploy/bật production hoặc đạt độ chính xác OCR/chấm bài thực nghiệm.
 
 ## 1. Mục tiêu và quyết định sản phẩm
 
@@ -18,9 +20,10 @@ Những quyết định đã thống nhất:
 - Tách đọc bài và chấm bài thành hai hợp đồng độc lập.
 - Chấm tự động tạo điểm đề xuất; chốt điểm là hành động có chủ đích của giáo viên.
 - Đáp án/rubric dùng chung cho một phiên bản mã đề. AI có thể soạn nháp khi thiếu; giáo viên xác nhận một lần trước khi công bố điểm của đợt đó.
+- Một đợt hỗ trợ hai hoặc nhiều mã đề ngay trong bản đầu. Mỗi bài dùng đúng phiên bản đề, đáp án và rubric của mã tương ứng; giáo viên không phải tạo đợt riêng cho từng mã.
 - Hỗ trợ lựa chọn, nhóm Đúng/Sai, tự luận ngắn, bảng so sánh và hình vẽ cơ bản trong bộ ảnh mẫu.
 - Bản đầu triển khai một môn/một khối, một lần nộp chính thức cho mỗi học sinh trong mỗi đợt. Upload lại là sửa đầu vào, không tạo thêm đầu điểm.
-- Mở rộng v1.1: nhiều agent theo nhiệm vụ với model cấu hình riêng, code-first và escalation có giới hạn; executor có thể chạy native trên Mac qua HTTPS tới VPS.
+- Nhiều agent theo nhiệm vụ với model cấu hình riêng, code-first và escalation có giới hạn. V1.2 triển khai executor trong container worker riêng trên VPS hiện có; model chạy tại provider qua API, không tải model local lên VPS hoặc Mac.
 
 Không bao gồm trong bản đầu: tự công bố điểm hoàn toàn không có giáo viên, tự tách chắc chắn mọi PDF gộp nhiều học sinh, chấm mọi loại hình học/bản vẽ, kiểm tra đạo văn, billing, thay đổi quy chế tính điểm trung bình của trường.
 
@@ -66,7 +69,9 @@ Nhận dạng họ tên chỉ đề xuất liên kết với roster. Tên duy nh
 
 Sau khi bấm Chấm bài, API trả mã công việc, không giữ HTTP để chờ AI. Giáo viên có thể rời trang. Hệ thống tiếp tục xử lý và tạo kết quả nháp cả khi rubric mới đang chờ duyệt; giao diện ghi rõ kết quả tạm thời.
 
-Nếu chưa có đáp án, bộ soạn đáp án chỉ nhận câu hỏi và tài liệu chấm do giáo viên cung cấp; không nhận lựa chọn/bài làm của học sinh làm đáp án mẫu. Giáo viên xác nhận đáp án/rubric một lần ngay trong khu vực kết quả. Sửa khung chấm tạo phiên bản mới và tính lại phần bị ảnh hưởng.
+Hệ thống nhận diện mã đề trên tờ chính, đối chiếu nội dung và tự nhóm bài theo mã trong cùng đợt, ví dụ 101, 102, 103. Mỗi bài được gắn một examVersionId cụ thể trước khi chấm. Mã chưa xác định hoặc mâu thuẫn chỉ giữ lại bài liên quan để giáo viên xử lý; những bài đủ dữ liệu vẫn tiếp tục.
+
+Nếu chưa có đáp án, bộ soạn đáp án chỉ nhận câu hỏi và tài liệu chấm do giáo viên cung cấp; không nhận lựa chọn/bài làm của học sinh làm đáp án mẫu. Giáo viên xác nhận đáp án/rubric một lần cho mỗi phiên bản mã đề ngay trong khu vực kết quả, có thể duyệt nhiều mã trong cùng màn hình. Bản đã duyệt được dùng lại cho toàn bộ bài cùng mã/phiên bản. Sửa khung chấm tạo phiên bản mới và tính lại phần bị ảnh hưởng.
 
 ### 3.4 Kiểm tra và chốt
 
@@ -103,7 +108,7 @@ Các bất biến:
 
 Chọn modular monolith cùng worker riêng. Phương án worker Python chỉ được bổ sung nếu benchmark chứng minh cần thư viện OCR/CV chuyên biệt. Phương án microservices theo từng công đoạn chưa có lợi ích đủ để thêm broker hoặc datastore mới.
 
-Agent không đồng nghĩa một microservice: worker Mac có thể thực thi nhiều vai trò/model. Routing chi tiết nằm trong [multi-agent-model-routing.md](../../assessment/multi-agent-model-routing.md). Khi worker ở Mac, coordinator lease/DB nằm trên VPS và worker giao tiếp qua [remote-worker-protocol.md](../../assessment/remote-worker-protocol.md); DB/Redis không public để Mac truy cập trực tiếp.
+Agent không đồng nghĩa một microservice: một worker VPS thực thi nhiều vai trò/model. Routing chi tiết nằm trong [multi-agent-model-routing.md](../../assessment/multi-agent-model-routing.md); topology, giới hạn tài nguyên và vận hành nằm trong [vps-deployment.md](../../assessment/vps-deployment.md). Worker dùng DB/Redis qua mạng Docker nội bộ. Giao thức remote worker là tài liệu tham khảo cho tương lai, ngoài phạm vi triển khai hiện tại.
 
 ~~~mermaid
 flowchart TD
@@ -153,7 +158,7 @@ Tên module, file và hợp đồng chi tiết được mô tả trong [pipeline
 
 ## 7. Dữ liệu, phiên bản và điểm
 
-Hợp đồng chuẩn nằm trong [data-and-api-contract.md](../../assessment/data-and-api-contract.md). Không tạo lại School, Student hoặc QuizSession. V1.1 thêm worker registry; dùng lại jobs/provider calls cho agent, không tạo một bộ bảng cho mỗi agent.
+Hợp đồng chuẩn nằm trong [data-and-api-contract.md](../../assessment/data-and-api-contract.md). Không tạo lại School, Student hoặc QuizSession. V1.2 hoãn remote worker registry, giữ 16 nhóm bảng cơ sở và dùng lại jobs/provider calls cho agent; không tạo một bộ bảng cho mỗi agent.
 
 - ID miền school/assessment là UUID; studentId và actorId là integer users.id.
 - Mọi bảng assessment có school_id. Liên kết cha/con được ràng buộc cùng tenant, không chỉ dựa vào UUID.

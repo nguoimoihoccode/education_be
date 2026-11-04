@@ -1,6 +1,6 @@
 {
   "schemaVersion": 1,
-  "routingVersion": "2026-11-03.v1.1",
+  "routingVersion": "2026-11-04.v1.2-vps",
   "deploymentState": "design_only",
   "policy": {
     "currency": "USD",
@@ -21,7 +21,7 @@
     "allowGroundingTools": false
   },
   "execution": {
-    "mode": "remote_mac_https",
+    "mode": "vps_colocated",
     "maxParallelJobs": 1,
     "maxParallelProviderCalls": 2,
     "admitFreeDiskGiB": 15,
