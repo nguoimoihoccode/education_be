@@ -205,7 +205,7 @@ Quota lớp/đợt được kiểm tra trên tổng asset đã có và đang upl
 
 Một vùng khó có thể dùng escalation model được cấu hình; vẫn trong call/cost budget, lưu model mới trong provenance. Không upscale/biến đổi để tự tạo nét viết không có trong ảnh.
 
-Staging bỏ dở xóa sau 24 giờ. Mặc định raw/derived images và raw provider outputs lưu 365 ngày sau lần công bố gần nhất; báo cáo tải xuống hết hạn sau 7 ngày. Unpublished draft không hoạt động 90 ngày được cảnh báo trước và xóa bytes theo retention job. Điểm/review/audit không bị xóa chỉ vì queue hoặc file TTL hết. Retention là cấu hình sản phẩm của trường, không phải tuyên bố về nghĩa vụ pháp lý.
+Staging bỏ dở xóa sau 24 giờ. Mặc định raw/derived images và raw provider outputs lưu 365 ngày sau lần công bố gần nhất; báo cáo tải xuống hết hạn sau 24 giờ theo API hiện tại. Trạng thái hết hạn truy cập và dọn bytes được đặc tả trong [phụ lục pilot v1.3](../superpowers/specs/2026-11-05-assessment-pilot-completion-design.md). Unpublished draft không hoạt động 90 ngày được cảnh báo trước và xóa bytes theo retention job. Điểm/review/audit không bị xóa chỉ vì queue hoặc file TTL hết. Retention là cấu hình sản phẩm của trường, không phải tuyên bố về nghĩa vụ pháp lý.
 
 Sau purge, UI báo evidence đã hết hạn; không tự chấm lại từ dữ liệu ảnh đã xóa. Upload bổ sung tạo đầu vào mới; điểm đã công bố vẫn giữ nguyên tới khi giáo viên chốt bản mới.
 

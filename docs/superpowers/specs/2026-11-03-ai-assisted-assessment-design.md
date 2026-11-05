@@ -6,6 +6,8 @@ Cập nhật 2026-11-04: bỏ yêu cầu giáo viên chấm độc lập để t
 
 Trạng thái: đã có mã triển khai ban đầu trong workspace, xem [trạng thái và bằng chứng kiểm tra](../../assessment/implementation-status.md). Chưa deploy/bật production hoặc đạt độ chính xác OCR/chấm bài thực nghiệm.
 
+Phần hoàn thiện trước pilot được đặc tả trong [phụ lục v1.3](2026-11-05-assessment-pilot-completion-design.md), gồm phạm vi mở, quyền khi tạm dừng, che dữ liệu trước AI, vòng đời S3 và thứ tự nghiệm thu.
+
 ## 1. Mục tiêu và quyết định sản phẩm
 
 Giáo viên tải ảnh/PDF có cả đề và bài làm. Hệ thống tự phân tích, chấm và trả bảng điểm đề xuất. Giáo viên xử lý ngoại lệ, có thể kiểm tra bất kỳ bài nào, rồi chốt cả nhóm vào sổ điểm đang có.

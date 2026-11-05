@@ -23,6 +23,8 @@ Provider được giả lập và ảnh là dữ liệu tổng hợp; các test 
 
 ## Trước khi bật pilot
 
+Xem [thiết kế hoàn thiện pilot v1.3](../superpowers/specs/2026-11-05-assessment-pilot-completion-design.md) để phân biệt phần cần xây thêm và các ca kiểm chứng trên staging.
+
 Cần private bucket S3, secrets model ở worker, routing đã benchmark, kiểm tra tài nguyên/quota/retention/backup theo [runbook](operations-runbook.md). Kiểm tra PDF trong container thật, storage upload–seal–read, lỗi mạng/Redis và privacy trình duyệt với hai tài khoản. Không đổi qualityGate thành passed chỉ để vượt readiness.
 
 Viewer có ảnh trang và overlay vùng đọc; giáo viên có thể chọn lại tờ giấy chính bằng 3–8 điểm, lưu theo input revision và yêu cầu đọc lại. Ảnh nguồn trước masking chỉ cấp riêng cho staff có quyền lớp × môn, không đưa vào kết quả học sinh/phụ huynh.
