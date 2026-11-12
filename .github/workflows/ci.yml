@@ -65,12 +65,6 @@ jobs:
           context: .
           file: Dockerfile
           push: false
-      - name: Assessment worker Docker build check
-        uses: docker/build-push-action@v6
-        with:
-          context: .
-          file: Dockerfile.assessment-worker
-          push: false
       - name: Assessment inference Docker build and Python tests
         uses: docker/build-push-action@v6
         with:

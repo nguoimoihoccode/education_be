@@ -17,8 +17,10 @@ concurrency:
 env:
   REGISTRY: ghcr.io
   BACKEND_IMAGE: ghcr.io/${{ github.repository }}
+  # One worker image, built from assessment-worker/Dockerfile. The name is
+  # unchanged across the Python cutover, so the package-retention script and
+  # the ghcr rules that already cover it keep working.
   ASSESSMENT_WORKER_IMAGE: ghcr.io/${{ github.repository }}-assessment-worker
-  ASSESSMENT_WORKER_PY_IMAGE: ghcr.io/${{ github.repository }}-assessment-worker-py
   ASSESSMENT_INFERENCE_IMAGE: ghcr.io/${{ github.repository }}-assessment-inference
   DB_IMAGE: ghcr.io/${{ github.repository }}-postgres
   # Bump this together with the pgvector version in docker/postgres/Dockerfile.
@@ -81,30 +83,18 @@ jobs:
           cache-from: type=gha,scope=backend
           cache-to: type=gha,mode=max,scope=backend
 
-      - name: Build and push assessment worker
-        uses: docker/build-push-action@v6
-        with:
-          context: .
-          file: Dockerfile.assessment-worker
-          push: true
-          tags: |
-            ${{ env.ASSESSMENT_WORKER_IMAGE }}:${{ github.sha }}
-            ${{ env.ASSESSMENT_WORKER_IMAGE }}:latest
-          cache-from: type=gha,scope=assessment-worker
-          cache-to: type=gha,mode=max,scope=assessment-worker
-
       # Build context is the repo root: the image ships docs/assessment/contracts.
-      - name: Build and push assessment python worker
+      - name: Build and push assessment worker
         uses: docker/build-push-action@v6
         with:
           context: .
           file: assessment-worker/Dockerfile
           push: true
           tags: |
-            ${{ env.ASSESSMENT_WORKER_PY_IMAGE }}:${{ github.sha }}
-            ${{ env.ASSESSMENT_WORKER_PY_IMAGE }}:latest
-          cache-from: type=gha,scope=assessment-worker-py
-          cache-to: type=gha,mode=max,scope=assessment-worker-py
+            ${{ env.ASSESSMENT_WORKER_IMAGE }}:${{ github.sha }}
+            ${{ env.ASSESSMENT_WORKER_IMAGE }}:latest
+          cache-from: type=gha,scope=assessment-worker
+          cache-to: type=gha,mode=max,scope=assessment-worker
 
       - name: Build and push assessment inference
         uses: docker/build-push-action@v6
@@ -183,7 +173,6 @@ jobs:
           GHCR_TOKEN: ${{ secrets.GITHUB_TOKEN }}
           BACKEND_IMAGE: ${{ env.BACKEND_IMAGE }}
           ASSESSMENT_WORKER_IMAGE: ${{ env.ASSESSMENT_WORKER_IMAGE }}
-          ASSESSMENT_WORKER_PY_IMAGE: ${{ env.ASSESSMENT_WORKER_PY_IMAGE }}
           ASSESSMENT_INFERENCE_IMAGE: ${{ env.ASSESSMENT_INFERENCE_IMAGE }}
           DB_IMAGE: ${{ env.DB_IMAGE }}
           DB_IMAGE_TAG: ${{ env.DB_IMAGE_TAG }}
@@ -192,7 +181,7 @@ jobs:
           host: ${{ secrets.VPS_HOST }}
           username: ${{ secrets.VPS_USER }}
           key: ${{ secrets.VPS_SSH_KEY }}
-          envs: GHCR_USERNAME,GHCR_TOKEN,BACKEND_IMAGE,ASSESSMENT_WORKER_IMAGE,ASSESSMENT_WORKER_PY_IMAGE,ASSESSMENT_INFERENCE_IMAGE,DB_IMAGE,DB_IMAGE_TAG,IMAGE_TAG
+          envs: GHCR_USERNAME,GHCR_TOKEN,BACKEND_IMAGE,ASSESSMENT_WORKER_IMAGE,ASSESSMENT_INFERENCE_IMAGE,DB_IMAGE,DB_IMAGE_TAG,IMAGE_TAG
           script: |
             set -euo pipefail
             cd "${{ secrets.VPS_APP_DIR }}"
@@ -204,7 +193,7 @@ jobs:
             fi
 
             echo "$GHCR_TOKEN" | docker login ghcr.io -u "$GHCR_USERNAME" --password-stdin
-            export BACKEND_IMAGE ASSESSMENT_WORKER_IMAGE ASSESSMENT_WORKER_PY_IMAGE ASSESSMENT_INFERENCE_IMAGE DB_IMAGE DB_IMAGE_TAG IMAGE_TAG
+            export BACKEND_IMAGE ASSESSMENT_WORKER_IMAGE ASSESSMENT_INFERENCE_IMAGE DB_IMAGE DB_IMAGE_TAG IMAGE_TAG
             # Outbound grading requires release-specific manual authorization.
             # Stop any previous gateway before deploying a new worker.
             docker compose -f docker-compose.prod.yml --env-file .env.prod \
@@ -212,9 +201,9 @@ jobs:
             assessment_enabled=$(docker compose -f docker-compose.prod.yml --env-file .env.prod config --format json | python3 -c 'import json,sys; print(str(json.load(sys.stdin)["services"]["backend"]["environment"].get("ASSESSMENT_ENABLED", "false")).lower())')
             if [ "$assessment_enabled" = "true" ]; then
               export COMPOSE_PROFILES=assessment
-              docker compose -f docker-compose.prod.yml --env-file .env.prod pull assessment-worker assessment-worker-py assessment-inference
+              docker compose -f docker-compose.prod.yml --env-file .env.prod pull assessment-worker assessment-inference
             else
-              docker compose -f docker-compose.prod.yml --env-file .env.prod --profile assessment stop assessment-worker assessment-worker-py assessment-inference || true
+              docker compose -f docker-compose.prod.yml --env-file .env.prod --profile assessment stop assessment-worker assessment-inference || true
             fi
             docker compose -f docker-compose.prod.yml --env-file .env.prod pull db backend
 
@@ -351,27 +340,29 @@ jobs:
             if [ "$assessment_enabled" = "true" ]; then
               assessment_up() {
                 docker compose -f docker-compose.prod.yml --env-file .env.prod \
-                  up -d --no-build --wait --wait-timeout 150 assessment-redis assessment-inference assessment-worker assessment-worker-py
+                  up -d --no-build --wait --wait-timeout 150 assessment-redis assessment-inference assessment-worker
               }
               if ! assessment_up; then
                 echo "Assessment services failed readiness; restoring the previous API." >&2
                 docker compose -f docker-compose.prod.yml --env-file .env.prod \
-                  stop assessment-worker assessment-worker-py assessment-inference || true
+                  stop assessment-worker assessment-inference || true
                 if [ -n "$previous_tag" ]; then
                   export IMAGE_TAG="$previous_tag"
                   docker compose -f docker-compose.prod.yml --env-file .env.prod pull backend
                   docker compose -f docker-compose.prod.yml --env-file .env.prod up -d --no-build backend
                   docker compose -f docker-compose.prod.yml --env-file .env.prod restart frontend || true
                   wait_healthy
-                  # A release before the Python split may not have a python
-                  # worker or inference image.
+                  # Same image name on both sides of the Python cutover: a
+                  # previous tag is either the Python worker or the Node one,
+                  # and the Compose entry runs whichever entrypoint the image
+                  # carries.
                   if docker compose -f docker-compose.prod.yml --env-file .env.prod \
-                    pull assessment-worker assessment-worker-py assessment-inference && assessment_up; then
+                    pull assessment-worker assessment-inference && assessment_up; then
                     echo "Restored assessment services from the previous release."
                   else
                     docker compose -f docker-compose.prod.yml --env-file .env.prod \
-                      stop assessment-worker assessment-worker-py assessment-inference || true
-                    echo "Assessment workers are stopped. Queued work remains in PostgreSQL and Redis." >&2
+                      stop assessment-worker assessment-inference || true
+                    echo "Assessment workers are stopped. Queued work remains in PostgreSQL." >&2
                   fi
                 fi
                 exit 1
@@ -379,5 +370,5 @@ jobs:
             fi
 
             printf '%s' "$IMAGE_TAG" > .last-backend-tag
-            python3 scripts/retain-docker-images.py --keep 3 "$BACKEND_IMAGE" "$ASSESSMENT_WORKER_IMAGE" "$ASSESSMENT_WORKER_PY_IMAGE" "$ASSESSMENT_INFERENCE_IMAGE" "$DB_IMAGE"
+            python3 scripts/retain-docker-images.py --keep 3 "$BACKEND_IMAGE" "$ASSESSMENT_WORKER_IMAGE" "$ASSESSMENT_INFERENCE_IMAGE" "$DB_IMAGE"
             docker compose -f docker-compose.prod.yml --env-file .env.prod ps

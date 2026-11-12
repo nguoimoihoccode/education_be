@@ -7,7 +7,7 @@ import {
   TEXT_REVOKE_EVENT,
   MANUAL_ONLY_EVENT,
 } from './runtime/external-text';
-import type { Question } from './runtime/grading';
+import type { Question } from './runtime/types';
 import { DOCX_LIMIT, DOCX_MIME } from './runtime/storage';
 import { examEvidence } from './runtime/exam-match';
 import { loadRouting } from './runtime/routing';

@@ -66,8 +66,7 @@ class AssessmentComposePrivacyTest(unittest.TestCase):
                           if "assessment-external-egress-net" in service.get("networks", {})},
                          {"assessment-external-grading"})
         self.assertIn("assessment-external-grading-net", worker["networks"])
-        for service in (worker, services["assessment-worker-py"]):
-            self.assertTrue(all(networks[name]["internal"] for name in service["networks"]))
+        self.assertTrue(all(networks[name]["internal"] for name in worker["networks"]))
         self.assertIn("assessment-data-net", services["db"]["networks"])
         self.assertIn("assessment-data-net", services["assessment-redis"]["networks"])
         self.assertNotIn("ports", inference)

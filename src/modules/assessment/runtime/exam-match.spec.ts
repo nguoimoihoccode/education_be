@@ -1,5 +1,5 @@
 import { examEvidence } from './exam-match';
-import type { Template } from './grading';
+import type { Template } from './types';
 
 const template: Template = {
   examCode: '102',

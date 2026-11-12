@@ -1,13 +1,12 @@
 """Port of ``runtime/extraction.spec.ts`` plus a prompt-drift guard.
 
-``READER_INSTRUCTION`` is compared against the TypeScript template literal
-itself, so an edit on either side fails here instead of silently changing what
-the model is asked for.
+``READER_INSTRUCTION`` is compared against ``fixtures/reader-instruction.txt``,
+the text frozen from the TypeScript worker at the cutover, so an edit here
+fails instead of silently changing what the model is asked for.
 """
 
 from __future__ import annotations
 
-import re
 from pathlib import Path
 
 import pytest
@@ -15,27 +14,13 @@ import pytest
 from assessment_worker.db.jobs import JobError
 from assessment_worker.extraction import READER_INSTRUCTION, validate_page_read, within_primary
 
-NODE_SOURCE = (
-    Path(__file__).parents[2]
-    / "src"
-    / "modules"
-    / "assessment"
-    / "runtime"
-    / "extraction.ts"
-)
+READER_INSTRUCTION_GOLDEN = Path(__file__).parent / "fixtures" / "reader-instruction.txt"
 
 
-def node_reader_instruction() -> str:
-    source = NODE_SOURCE.read_text("utf-8")
-    match = re.search(
-        r"export const READER_INSTRUCTION = `([^`]*)`;", source, re.DOTALL
+def test_reader_instruction_is_verbatim_from_the_frozen_golden_text():
+    assert READER_INSTRUCTION == READER_INSTRUCTION_GOLDEN.read_text("utf-8").rstrip(
+        "\n"
     )
-    assert match is not None
-    return match.group(1)
-
-
-def test_reader_instruction_is_verbatim_from_the_typescript_source():
-    assert READER_INSTRUCTION == node_reader_instruction()
 
 
 def test_rejects_evidence_from_a_background_sheet():

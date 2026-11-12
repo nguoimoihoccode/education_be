@@ -1,6 +1,32 @@
 import { createHash, createHmac, randomBytes } from 'node:crypto';
-import type { Question, CriterionGrade } from './grading';
-import { readBoundedResponse } from './inference';
+import type { Question, CriterionGrade } from './types';
+
+/**
+ * Reads the gateway response with a hard 2 MiB ceiling. It used to be shared
+ * with ``inference.ts``, which the Python cutover removed; this is the only
+ * caller left.
+ */
+async function readBoundedResponse(response: Response): Promise<string> {
+  if (!response.body) throw new Error('provider_response_empty');
+  const reader = response.body.getReader();
+  const chunks: Buffer[] = [];
+  let size = 0;
+  try {
+    while (true) {
+      const result = await reader.read();
+      if (result.done) break;
+      size += result.value.byteLength;
+      if (size > 2 * 1024 * 1024) {
+        await reader.cancel().catch(() => undefined);
+        throw new Error('provider_response_limit');
+      }
+      chunks.push(Buffer.from(result.value));
+    }
+    return Buffer.concat(chunks).toString('utf8');
+  } finally {
+    reader.releaseLock();
+  }
+}
 
 export const TEXT_RELEASE_EVENT = 'external_text_released';
 export const TEXT_REVOKE_EVENT = 'external_text_revoked';

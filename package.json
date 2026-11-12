@@ -28,8 +28,7 @@
     "test:cov": "jest --coverage",
     "test:debug": "node --inspect-brk -r tsconfig-paths/register -r ts-node/register node_modules/.bin/jest --runInBand",
     "test:e2e": "jest --config ./test/e2e/jest-e2e.json",
-    "bootstrap:school": "node -r ts-node/register -r tsconfig-paths/register src/database/seeders/bootstrap-school.cli.ts",
-    "start:assessment-worker": "node dist/workers/assessment-worker.main.js"
+    "bootstrap:school": "node -r ts-node/register -r tsconfig-paths/register src/database/seeders/bootstrap-school.cli.ts"
   },
   "dependencies": {
     "@aws-sdk/client-s3": "^3.1161.0",
@@ -62,11 +61,9 @@
     "passport-google-oauth20": "^2.0.0",
     "passport-jwt": "^4.0.1",
     "pdf-parse": "^2.4.5",
-    "pdfkit": "^0.20.2",
     "pg": "^8.16.3",
     "reflect-metadata": "^0.2.2",
     "rxjs": "^7.8.1",
-    "sharp": "^0.35.5",
     "swagger-ui-express": "^5.0.1",
     "typeorm": "^0.3.28",
     "xlsx": "^0.18.5"

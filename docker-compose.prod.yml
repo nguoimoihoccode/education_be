@@ -226,10 +226,15 @@ services:
         max-size: "10m"
         max-file: "3"
 
+  # The only assessment worker: one Python process owns all four stages.
+  # ASSESSMENT_WORKER_PYTHON_STAGES defaults to every stage when the variable is
+  # unset, and is passed as "" (not the default) to pause the worker during an
+  # incident. assessment-redis is kept only so a rollback to a pre-cutover
+  # release still finds its queue.
   assessment-worker:
     build:
       context: .
-      dockerfile: Dockerfile.assessment-worker
+      dockerfile: assessment-worker/Dockerfile
     image: ${ASSESSMENT_WORKER_IMAGE:-stock-assessment-worker}:${IMAGE_TAG:-latest}
     profiles: [assessment]
     restart: unless-stopped
@@ -239,23 +244,22 @@ services:
     depends_on:
       db:
         condition: service_healthy
-      assessment-redis:
-        condition: service_healthy
       assessment-inference:
         condition: service_healthy
     environment:
-      NODE_ENV: production
-      ALLOW_DB_SYNC: "false"
       DB_HOST: db
       DB_PORT: "5432"
       DB_USERNAME: ${POSTGRES_USER}
       DB_PASSWORD: ${POSTGRES_PASSWORD}
       DB_DATABASE: ${POSTGRES_DB}
       ASSESSMENT_ENABLED: ${ASSESSMENT_ENABLED:-false}
+      # `-` not `:-`: an explicitly empty value pauses claiming, while unset
+      # means "every stage".
+      ASSESSMENT_WORKER_PYTHON_STAGES: ${ASSESSMENT_WORKER_PYTHON_STAGES-seal,extract,grade,export}
+      ASSESSMENT_WORKER_DB_POOL: ${ASSESSMENT_WORKER_DB_POOL:-4}
       ASSESSMENT_EXTERNAL_GRADING_ENABLED: ${ASSESSMENT_EXTERNAL_GRADING_ENABLED:-false}
       ASSESSMENT_EXTERNAL_GRADING_POLICY: ${ASSESSMENT_EXTERNAL_GRADING_POLICY:-}
       ASSESSMENT_EXTERNAL_GRADING_ASSESSMENT_IDS: ${ASSESSMENT_EXTERNAL_GRADING_ASSESSMENT_IDS:-}
-      ASSESSMENT_QUEUE_REDIS_URL: ${ASSESSMENT_QUEUE_REDIS_URL:-}
       ASSESSMENT_STORAGE_DRIVER: ${ASSESSMENT_STORAGE_DRIVER:-s3}
       ASSESSMENT_S3_ENDPOINT: ${ASSESSMENT_S3_ENDPOINT:-}
       ASSESSMENT_S3_REGION: ${ASSESSMENT_S3_REGION:-}
@@ -267,79 +271,15 @@ services:
       ASSESSMENT_INFERENCE_URL: http://assessment-inference:8000
       ASSESSMENT_WORKSPACE_PATH: /app/workspace
       ASSESSMENT_WORKER_HEARTBEAT_PATH: /app/workspace/heartbeat
-      # Empty keeps the Node worker on every stage. A cutover narrows this to
-      # the stages the Python worker does not claim. Node always owns DOCX template jobs.
-      ASSESSMENT_WORKER_STAGES: ${ASSESSMENT_WORKER_STAGES:-}
-      ASSESSMENT_JOB_CONCURRENCY: "1"
-      ASSESSMENT_PROVIDER_CONCURRENCY: "2"
-    volumes:
-      - assessment-workspace:/app/workspace
-      - ${ASSESSMENT_CONFIG_DIR:-./assessment-config}:/app/assessment-config:ro
-    read_only: true
-    # Small process temp only; PDF/image work goes on the disk volume.
-    tmpfs:
-      - /tmp:size=64m,mode=1777
-    mem_limit: 2g
-    cpus: "1.0"
-    pids_limit: 128
-    init: true
-    stop_grace_period: 120s
-    security_opt:
-      - no-new-privileges:true
-    cap_drop: [ALL]
-    healthcheck:
-      test: [CMD, node, -e, "try { const p = process.env.ASSESSMENT_WORKER_HEARTBEAT_PATH; process.exit(Date.now() - require('fs').statSync(p).mtimeMs < 120000 ? 0 : 1); } catch { process.exit(1); }"]
-      interval: 30s
-      timeout: 5s
-      retries: 3
-      start_period: 60s
-    networks:
-      - assessment-data-net
-      - assessment-inference-net
-      - assessment-external-grading-net
-    logging:
-      driver: json-file
-      options:
-        max-size: "10m"
-        max-file: "3"
-
-  # Python worker. It claims only the stages named in
-  # ASSESSMENT_WORKER_PYTHON_STAGES (empty by default, so it claims nothing).
-  # A cutover sets that list here and removes the same stages from the Node
-  # worker's ASSESSMENT_WORKER_STAGES; the two never claim one stage, because
-  # both filter on school_assessment_jobs.stage.
-  # Its own workspace volume: the stale-directory sweep must never walk the
-  # other worker's job directories.
-  assessment-worker-py:
-    build:
-      context: .
-      dockerfile: assessment-worker/Dockerfile
-    image: ${ASSESSMENT_WORKER_PY_IMAGE:-stock-assessment-worker-py}:${IMAGE_TAG:-latest}
-    profiles: [assessment]
-    restart: unless-stopped
-    depends_on:
-      db:
-        condition: service_healthy
-    environment:
-      DB_HOST: db
-      DB_PORT: "5432"
-      DB_USERNAME: ${POSTGRES_USER}
-      DB_PASSWORD: ${POSTGRES_PASSWORD}
-      DB_DATABASE: ${POSTGRES_DB}
-      ASSESSMENT_ENABLED: ${ASSESSMENT_ENABLED:-false}
-      ASSESSMENT_WORKER_PYTHON_STAGES: ${ASSESSMENT_WORKER_PYTHON_STAGES:-}
-      ASSESSMENT_WORKER_DB_POOL: ${ASSESSMENT_WORKER_DB_POOL:-4}
-      ASSESSMENT_S3_ENDPOINT: ${ASSESSMENT_S3_ENDPOINT:-}
-      ASSESSMENT_S3_REGION: ${ASSESSMENT_S3_REGION:-}
-      ASSESSMENT_S3_BUCKET: ${ASSESSMENT_S3_BUCKET:-}
-      ASSESSMENT_S3_ACCESS_KEY_ID: ${ASSESSMENT_S3_ACCESS_KEY_ID:-}
-      ASSESSMENT_S3_SECRET_ACCESS_KEY: ${ASSESSMENT_S3_SECRET_ACCESS_KEY:-}
-      ASSESSMENT_S3_FORCE_PATH_STYLE: ${ASSESSMENT_S3_FORCE_PATH_STYLE:-false}
+      # Run provenance: processor.py records this as the grading run's
+      # codeRevision, so a run can be traced back to an image.
+      IMAGE_TAG: ${IMAGE_TAG:-latest}
     volumes:
       - assessment-workspace-py:/app/workspace
+      - ${ASSESSMENT_CONFIG_DIR:-./assessment-config}:/app/assessment-config:ro
     read_only: true
-    # Same contract as the Node worker: a small process temp, bulk work on
-    # the workspace volume (the image points TMPDIR there).
+    # Small process temp only; PDF/image work goes on the workspace volume,
+    # which the image also points TMPDIR at.
     tmpfs:
       - /tmp:size=64m,mode=1777
     mem_limit: 2g
@@ -358,6 +298,8 @@ services:
       start_period: 60s
     networks:
       - assessment-data-net
+      - assessment-inference-net
+      - assessment-external-grading-net
     logging:
       driver: json-file
       options:
@@ -383,5 +325,7 @@ networks:
 volumes:
   pgdata:
   assessment-redis-data:
+  # Declared although unused since the Python cutover: a rollback to a release
+  # that still runs the Node worker must find its workspace and queue again.
   assessment-workspace:
   assessment-workspace-py:

@@ -1,4 +1,4 @@
-import type { Template } from './grading';
+import type { Template } from './types';
 
 type Evidence = 'match' | 'incomplete' | 'conflict';
 
