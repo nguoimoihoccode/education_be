@@ -28,7 +28,6 @@ describe('assessment source grounding', () => {
           [0, 1],
         ],
         examCode: '102',
-        studentName: null,
         questionFragments: [],
         regions: [
           {

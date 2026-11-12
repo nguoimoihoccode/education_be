@@ -53,6 +53,9 @@ jobs:
       - name: Test VPS image retention policy
         run: python3 -m unittest discover -s scripts -p test_retain_docker_images.py
 
+      - name: Test assessment network isolation in Compose
+        run: python3 -m unittest discover -s scripts -p test_assessment_compose_privacy.py
+
       - name: Run backend quality gate
         run: npm run ci
 
@@ -67,4 +70,57 @@ jobs:
         with:
           context: .
           file: Dockerfile.assessment-worker
+          push: false
+      - name: Assessment inference Docker build and Python tests
+        uses: docker/build-push-action@v6
+        with:
+          context: ./assessment-inference
+          push: false
+
+  assessment-worker:
+    name: Assessment worker Python gate
+    runs-on: ubuntu-latest
+    services:
+      assessment-worker-postgres:
+        image: postgres:16-alpine
+        env:
+          POSTGRES_PASSWORD: assessment-test-only
+        ports:
+          - 5432:5432
+        options: >-
+          --health-cmd "pg_isready -U postgres"
+          --health-interval 5s
+          --health-timeout 5s
+          --health-retries 10
+    env:
+      ASSESSMENT_TEST_PG: "true"
+      ASSESSMENT_TEST_PG_USER: postgres
+      ASSESSMENT_TEST_PG_PASSWORD: assessment-test-only
+    defaults:
+      run:
+        working-directory: assessment-worker
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Setup Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+          cache: pip
+          cache-dependency-path: assessment-worker/requirements-dev.txt
+
+      - name: Install dependencies
+        run: pip install -r requirements-dev.txt
+
+      - name: Run pytest
+        run: pytest -q
+
+      - name: Assessment worker Docker build check
+        uses: docker/build-push-action@v6
+        with:
+          # Repo root: the image ships docs/assessment/contracts.
+          context: .
+          file: assessment-worker/Dockerfile
           push: false

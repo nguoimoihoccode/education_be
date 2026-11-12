@@ -22,6 +22,7 @@ services:
       start_period: 10s
     networks:
       - stockvn-network
+      - assessment-data-net
     logging:
       driver: json-file
       options:
@@ -80,6 +81,9 @@ services:
       DB_DATABASE: ${POSTGRES_DB}
       REDIS_URL: ${REDIS_URL:-redis://redis:6379}
       ASSESSMENT_ENABLED: ${ASSESSMENT_ENABLED:-false}
+      ASSESSMENT_EXTERNAL_GRADING_ENABLED: ${ASSESSMENT_EXTERNAL_GRADING_ENABLED:-false}
+      ASSESSMENT_EXTERNAL_GRADING_POLICY: ${ASSESSMENT_EXTERNAL_GRADING_POLICY:-}
+      ASSESSMENT_EXTERNAL_GRADING_ASSESSMENT_IDS: ${ASSESSMENT_EXTERNAL_GRADING_ASSESSMENT_IDS:-}
       ASSESSMENT_QUEUE_REDIS_URL: ${ASSESSMENT_QUEUE_REDIS_URL:-}
       ASSESSMENT_STORAGE_DRIVER: ${ASSESSMENT_STORAGE_DRIVER:-s3}
       ASSESSMENT_S3_ENDPOINT: ${ASSESSMENT_S3_ENDPOINT:-}
@@ -149,6 +153,73 @@ services:
       - no-new-privileges:true
     networks:
       - stockvn-network
+      - assessment-data-net
+    logging:
+      driver: json-file
+      options:
+        max-size: "10m"
+        max-file: "3"
+
+  assessment-inference:
+    build:
+      context: ./assessment-inference
+    image: ${ASSESSMENT_INFERENCE_IMAGE:-stock-assessment-inference}:${IMAGE_TAG:-latest}
+    profiles: [assessment]
+    restart: unless-stopped
+    env_file:
+      - path: ${ASSESSMENT_INFERENCE_ENV_FILE:-./.env.assessment-inference}
+        required: false
+    environment:
+      ASSESSMENT_INFERENCE_MODE: local
+    read_only: true
+    mem_limit: 512m
+    cpus: "0.50"
+    pids_limit: 64
+    init: true
+    stop_grace_period: 100s
+    security_opt:
+      - no-new-privileges:true
+    cap_drop: [ALL]
+    healthcheck:
+      test: [CMD, python, -c, "from urllib.request import urlopen; urlopen('http://127.0.0.1:8000/healthz', timeout=2).close()"]
+      interval: 15s
+      timeout: 4s
+      retries: 3
+    networks:
+      - assessment-inference-net
+    logging:
+      driver: json-file
+      options:
+        max-size: "10m"
+        max-file: "3"
+
+  # Manually activated after the approved outbound policy has been verified.
+  # The same image is published by CI. This entry point exposes text grading only.
+  assessment-external-grading:
+    image: ${ASSESSMENT_INFERENCE_IMAGE:-stock-assessment-inference}:${IMAGE_TAG:-latest}
+    profiles: [assessment-external]
+    restart: unless-stopped
+    command: [uvicorn, "external_grading:app", --host, "0.0.0.0", --port, "8000", --no-access-log, --no-proxy-headers, --limit-concurrency, "8"]
+    env_file:
+      - path: ${ASSESSMENT_EXTERNAL_GRADING_ENV_FILE:-./.env.assessment-external-grading}
+        required: false
+    read_only: true
+    mem_limit: 256m
+    cpus: "0.50"
+    pids_limit: 64
+    init: true
+    stop_grace_period: 100s
+    security_opt:
+      - no-new-privileges:true
+    cap_drop: [ALL]
+    healthcheck:
+      test: [CMD, python, -c, "from urllib.request import urlopen; urlopen('http://127.0.0.1:8000/healthz', timeout=2).close()"]
+      interval: 15s
+      timeout: 4s
+      retries: 3
+    networks:
+      - assessment-external-grading-net
+      - assessment-external-egress-net
     logging:
       driver: json-file
       options:
@@ -170,6 +241,8 @@ services:
         condition: service_healthy
       assessment-redis:
         condition: service_healthy
+      assessment-inference:
+        condition: service_healthy
     environment:
       NODE_ENV: production
       ALLOW_DB_SYNC: "false"
@@ -179,6 +252,9 @@ services:
       DB_PASSWORD: ${POSTGRES_PASSWORD}
       DB_DATABASE: ${POSTGRES_DB}
       ASSESSMENT_ENABLED: ${ASSESSMENT_ENABLED:-false}
+      ASSESSMENT_EXTERNAL_GRADING_ENABLED: ${ASSESSMENT_EXTERNAL_GRADING_ENABLED:-false}
+      ASSESSMENT_EXTERNAL_GRADING_POLICY: ${ASSESSMENT_EXTERNAL_GRADING_POLICY:-}
+      ASSESSMENT_EXTERNAL_GRADING_ASSESSMENT_IDS: ${ASSESSMENT_EXTERNAL_GRADING_ASSESSMENT_IDS:-}
       ASSESSMENT_QUEUE_REDIS_URL: ${ASSESSMENT_QUEUE_REDIS_URL:-}
       ASSESSMENT_STORAGE_DRIVER: ${ASSESSMENT_STORAGE_DRIVER:-s3}
       ASSESSMENT_S3_ENDPOINT: ${ASSESSMENT_S3_ENDPOINT:-}
@@ -188,8 +264,12 @@ services:
       ASSESSMENT_S3_SECRET_ACCESS_KEY: ${ASSESSMENT_S3_SECRET_ACCESS_KEY:-}
       ASSESSMENT_S3_FORCE_PATH_STYLE: ${ASSESSMENT_S3_FORCE_PATH_STYLE:-false}
       ASSESSMENT_ROUTING_CONFIG_PATH: ${ASSESSMENT_ROUTING_CONFIG_PATH:-}
+      ASSESSMENT_INFERENCE_URL: http://assessment-inference:8000
       ASSESSMENT_WORKSPACE_PATH: /app/workspace
       ASSESSMENT_WORKER_HEARTBEAT_PATH: /app/workspace/heartbeat
+      # Empty keeps the Node worker on every stage. A cutover narrows this to
+      # the stages the Python worker does not claim. Node always owns DOCX template jobs.
+      ASSESSMENT_WORKER_STAGES: ${ASSESSMENT_WORKER_STAGES:-}
       ASSESSMENT_JOB_CONCURRENCY: "1"
       ASSESSMENT_PROVIDER_CONCURRENCY: "2"
     volumes:
@@ -214,7 +294,70 @@ services:
       retries: 3
       start_period: 60s
     networks:
-      - stockvn-network
+      - assessment-data-net
+      - assessment-inference-net
+      - assessment-external-grading-net
+    logging:
+      driver: json-file
+      options:
+        max-size: "10m"
+        max-file: "3"
+
+  # Python worker. It claims only the stages named in
+  # ASSESSMENT_WORKER_PYTHON_STAGES (empty by default, so it claims nothing).
+  # A cutover sets that list here and removes the same stages from the Node
+  # worker's ASSESSMENT_WORKER_STAGES; the two never claim one stage, because
+  # both filter on school_assessment_jobs.stage.
+  # Its own workspace volume: the stale-directory sweep must never walk the
+  # other worker's job directories.
+  assessment-worker-py:
+    build:
+      context: .
+      dockerfile: assessment-worker/Dockerfile
+    image: ${ASSESSMENT_WORKER_PY_IMAGE:-stock-assessment-worker-py}:${IMAGE_TAG:-latest}
+    profiles: [assessment]
+    restart: unless-stopped
+    depends_on:
+      db:
+        condition: service_healthy
+    environment:
+      DB_HOST: db
+      DB_PORT: "5432"
+      DB_USERNAME: ${POSTGRES_USER}
+      DB_PASSWORD: ${POSTGRES_PASSWORD}
+      DB_DATABASE: ${POSTGRES_DB}
+      ASSESSMENT_ENABLED: ${ASSESSMENT_ENABLED:-false}
+      ASSESSMENT_WORKER_PYTHON_STAGES: ${ASSESSMENT_WORKER_PYTHON_STAGES:-}
+      ASSESSMENT_WORKER_DB_POOL: ${ASSESSMENT_WORKER_DB_POOL:-4}
+      ASSESSMENT_S3_ENDPOINT: ${ASSESSMENT_S3_ENDPOINT:-}
+      ASSESSMENT_S3_REGION: ${ASSESSMENT_S3_REGION:-}
+      ASSESSMENT_S3_BUCKET: ${ASSESSMENT_S3_BUCKET:-}
+      ASSESSMENT_S3_ACCESS_KEY_ID: ${ASSESSMENT_S3_ACCESS_KEY_ID:-}
+      ASSESSMENT_S3_SECRET_ACCESS_KEY: ${ASSESSMENT_S3_SECRET_ACCESS_KEY:-}
+      ASSESSMENT_S3_FORCE_PATH_STYLE: ${ASSESSMENT_S3_FORCE_PATH_STYLE:-false}
+    volumes:
+      - assessment-workspace-py:/app/workspace
+    read_only: true
+    # Same contract as the Node worker: a small process temp, bulk work on
+    # the workspace volume (the image points TMPDIR there).
+    tmpfs:
+      - /tmp:size=64m,mode=1777
+    mem_limit: 2g
+    cpus: "1.0"
+    pids_limit: 128
+    init: true
+    stop_grace_period: 120s
+    security_opt:
+      - no-new-privileges:true
+    cap_drop: [ALL]
+    healthcheck:
+      test: [CMD, python, -c, "import os,sys,time; p=os.environ['ASSESSMENT_WORKER_HEARTBEAT_PATH']; sys.exit(0 if time.time()-os.stat(p).st_mtime<120 else 1)"]
+      interval: 30s
+      timeout: 5s
+      retries: 3
+      start_period: 60s
+    networks:
+      - assessment-data-net
     logging:
       driver: json-file
       options:
@@ -224,8 +367,21 @@ services:
 networks:
   stockvn-network:
     driver: bridge
+  assessment-data-net:
+    driver: bridge
+    internal: true
+  assessment-inference-net:
+    driver: bridge
+    internal: true
+  assessment-external-grading-net:
+    driver: bridge
+    internal: true
+  # Apply the host egress policy to this bridge before enabling the profile.
+  assessment-external-egress-net:
+    driver: bridge
 
 volumes:
   pgdata:
   assessment-redis-data:
   assessment-workspace:
+  assessment-workspace-py:

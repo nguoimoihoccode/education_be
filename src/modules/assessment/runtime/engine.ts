@@ -25,24 +25,51 @@ export function retryDecision(
   if (['job_stale', 'job_lease_lost'].includes(code))
     return { state: 'cancelled', delayMs: 0 };
   if (
-    /budget|credentials|routing|profile_|workspace_|audit_seed|exam_code_conflict|exam_questions_not_found/.test(
+    /budget|credentials|routing|profile_|workspace_|audit_seed|exam_code_conflict|exam_questions_not_found|exam_version_confirmation_required|exam_import_pending|local_model_unavailable|privacy_layout_review_required/.test(
       code,
     )
   )
     return { state: 'paused', delayMs: 0 };
   if (
     attempt < 3 &&
-    /provider_http_(429|5\d\d)|fetch failed|timeout|ECONN|ETIMEDOUT|assets_not_ready/.test(
+    /provider_http_(429|5\d\d)|inference_(unavailable|busy)|provider_unavailable|fetch failed|timeout|ECONN|ETIMEDOUT|assets_not_ready/.test(
       code,
     )
   )
     return { state: 'retry_wait', delayMs: attempt === 1 ? 2000 : 10000 };
   return { state: 'failed', delayMs: 0 };
 }
+const ENGINE_STAGES = [
+  'seal',
+  'extract',
+  'grade',
+  'export',
+  'template',
+] as const;
+/**
+ * ``ASSESSMENT_WORKER_STAGES`` names the stages this Node worker still owns.
+ * Unset keeps pre-cutover behaviour (every stage). A stage handed to the Python
+ * worker is then never dispatched here, so it waits in ``pending`` for that
+ * worker's claim instead of being executed twice.
+ */
+export function workerStages(): string[] | null {
+  const raw = (process.env.ASSESSMENT_WORKER_STAGES ?? '')
+    .replace(/,/g, ' ')
+    .trim();
+  if (!raw) return null;
+  const stages = raw.split(/\s+/);
+  const unknown = stages.filter(
+    (stage) => !(ENGINE_STAGES as readonly string[]).includes(stage),
+  );
+  if (unknown.length)
+    throw new Error(`unsupported_worker_stages:${unknown.join(',')}`);
+  return stages;
+}
 export class AssessmentEngine {
   private readonly owner = randomUUID();
   private readonly redis: IORedis;
   private readonly queue: Queue;
+  private readonly stages: string[] | null;
   private worker?: Worker;
   private dispatching = false;
   private timer?: NodeJS.Timeout;
@@ -53,6 +80,10 @@ export class AssessmentEngine {
     private readonly workspace: string,
     private readonly storage = new AssessmentStorage(),
   ) {
+    const configuredStages = workerStages();
+    this.stages = configuredStages
+      ? [...new Set([...configuredStages, 'template'])]
+      : null;
     const url = process.env.ASSESSMENT_QUEUE_REDIS_URL;
     if (!url || url === process.env.REDIS_URL)
       throw new Error('dedicated_queue_required');
@@ -138,7 +169,8 @@ export class AssessmentEngine {
       const rows = await this.db.transaction(async (m) => {
         const pending = returningRows<{ id: string }>(
           await m.query(
-            `SELECT id FROM school_assessment_jobs WHERE execution_target='vps_colocated' AND attempt_count<3 AND next_attempt_at<=now() AND (state IN ('pending','dispatched','retry_wait') OR (state='running' AND lease_until<now())) ORDER BY created_at LIMIT 20 FOR UPDATE SKIP LOCKED`,
+            `SELECT id FROM school_assessment_jobs WHERE execution_target='vps_colocated' AND ($1::text[] IS NULL OR stage=ANY($1::text[])) AND attempt_count<3 AND next_attempt_at<=now() AND (state IN ('pending','dispatched','retry_wait') OR (state='running' AND lease_until<now())) ORDER BY created_at LIMIT 20 FOR UPDATE SKIP LOCKED`,
+            [this.stages],
           ),
         );
         const result: { id: string; generation: number }[] = [];
@@ -183,8 +215,8 @@ export class AssessmentEngine {
     const token = randomUUID();
     const rows = returningRows<{ id: string }>(
       await this.db.query(
-        `UPDATE school_assessment_jobs SET state='running',lease_token=$2,lease_owner=$3,lease_until=now()+interval '180 seconds',fencing_token=fencing_token+1,attempt_count=attempt_count+1 WHERE id=$1 AND state IN ('dispatched','pending','retry_wait') AND (state='dispatched' OR next_attempt_at<=now()) AND attempt_count<3 RETURNING id`,
-        [id, token, this.owner],
+        `UPDATE school_assessment_jobs SET state='running',lease_token=$2,lease_owner=$3,lease_until=now()+interval '180 seconds',fencing_token=fencing_token+1,attempt_count=attempt_count+1 WHERE id=$1 AND state IN ('dispatched','pending','retry_wait') AND (state='dispatched' OR next_attempt_at<=now()) AND attempt_count<3 AND ($4::text[] IS NULL OR stage=ANY($4::text[])) RETURNING id`,
+        [id, token, this.owner, this.stages],
       ),
     );
     if (!rows.length) return;
@@ -201,7 +233,10 @@ export class AssessmentEngine {
     }, 30000);
     try {
       let cfg = this.cfg;
-      if (['extract', 'grade', 'template', 'aggregate'].includes(job.stage)) {
+      if (
+        ['extract', 'grade', 'template', 'aggregate'].includes(job.stage) &&
+        job.data?.kind !== 'official_docx'
+      ) {
         const snapshot = (job.data as { routingSnapshot?: unknown })
           .routingSnapshot;
         if (!snapshot) throw new Error('routing_snapshot_required');
@@ -219,7 +254,7 @@ export class AssessmentEngine {
         this.workspace,
       ).process(job);
       await this.db.query(
-        `UPDATE school_assessment_jobs SET state='succeeded',lease_token=NULL,lease_owner=NULL,lease_until=NULL WHERE id=$1 AND lease_token=$2 AND state='running' AND lease_until>now()`,
+        `UPDATE school_assessment_jobs SET state='succeeded',last_error_code=NULL,lease_token=NULL,lease_owner=NULL,lease_until=NULL WHERE id=$1 AND lease_token=$2 AND state='running' AND lease_until>now()`,
         [id, token],
       );
     } catch (error) {

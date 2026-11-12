@@ -9,7 +9,11 @@ import {
 import { createPresignedPost } from '@aws-sdk/s3-presigned-post';
 import { getSignedUrl } from '@aws-sdk/s3-request-presigner';
 import { createHash, randomUUID, randomBytes } from 'node:crypto';
+import JSZip from 'jszip';
 import type { AssessmentStoragePort } from '../assessment.ports';
+export const DOCX_MIME =
+  'application/vnd.openxmlformats-officedocument.wordprocessingml.document';
+export const DOCX_LIMIT = 5 * 1024 * 1024;
 const uuid = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
 export function storageKey(
   school: string,
@@ -87,9 +91,9 @@ export class AssessmentStorage implements AssessmentStoragePort {
     );
     if (asset.stagingKey !== key) throw new Error('invalid_staging_key');
     const cap =
-      asset.declaredMime === 'application/pdf'
-        ? 50 * 1024 * 1024
-        : 20 * 1024 * 1024;
+      asset.declaredMime === DOCX_MIME
+        ? DOCX_LIMIT
+        : (asset.declaredMime === 'application/pdf' ? 50 : 20) * 1024 * 1024;
     if (
       !Number.isSafeInteger(asset.byteSize) ||
       asset.byteSize < 1 ||
@@ -162,6 +166,7 @@ export class AssessmentStorage implements AssessmentStoragePort {
     stagingKey: string;
     byteSize: number;
     declaredMime: string;
+    purpose?: string;
   }) {
     if (
       asset.stagingKey !==
@@ -171,7 +176,16 @@ export class AssessmentStorage implements AssessmentStoragePort {
     const bytes = await this.read(asset.stagingKey, asset.byteSize);
     if (bytes.length !== asset.byteSize)
       throw new Error('document_size_mismatch');
-    const verifiedMime = detectDocumentMime(bytes);
+    let verifiedMime: string;
+    if (asset.declaredMime === DOCX_MIME && asset.purpose === 'marking_guide') {
+      if (bytes.length > DOCX_LIMIT) throw new Error('document_size_invalid');
+      const zip = await JSZip.loadAsync(bytes).catch(() => null);
+      if (!zip?.file('[Content_Types].xml') || !zip.file('word/document.xml'))
+        throw new Error('unsupported_document');
+      verifiedMime = DOCX_MIME;
+    } else {
+      verifiedMime = detectDocumentMime(bytes);
+    }
     if (verifiedMime !== asset.declaredMime)
       throw new Error('document_mime_mismatch');
     const sha256 = createHash('sha256').update(bytes).digest('hex');

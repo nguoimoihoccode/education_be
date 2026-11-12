@@ -1,9 +1,9 @@
+import { AssessmentModels, parseProviderResponse } from './provider';
 import {
-  AssessmentModels,
-  parseProviderResponse,
-  providerRequest,
+  inferenceConfig,
   readBoundedResponse,
-} from './provider';
+  runInference,
+} from './inference';
 import type { Profile } from './routing';
 const profile = {
   provider: 'google',
@@ -13,18 +13,6 @@ const profile = {
   maxOutputTokens: 4096,
 } as Profile;
 describe('assessment model adapter', () => {
-  it('uses native image parts without disclosing the API key in URLs', () => {
-    const req = providerRequest(
-      profile,
-      'secret',
-      'instruction',
-      { task: 'read' },
-      [{ mime: 'image/jpeg', bytes: Buffer.from('x') }],
-    );
-    expect(req.url).not.toContain('secret');
-    expect(JSON.stringify(req.body)).toContain('inlineData');
-    expect(JSON.stringify(req.body)).not.toContain('secret');
-  });
   it('rejects truncated or refused model output rather than scoring it', () => {
     expect(() =>
       parseProviderResponse(profile, {
@@ -61,16 +49,16 @@ describe('assessment model adapter', () => {
 });
 
 describe('provider boundary regression', () => {
-  it('refuses provider/dialect mismatch before creating a credential-bearing request', () => {
-    expect(() =>
-      providerRequest(
+  it('rejects a provider/dialect mismatch before calling the internal service', async () => {
+    await expect(
+      runInference(
+        { url: 'http://assessment-inference:8000', token: 'x'.repeat(32) },
         { ...profile, apiDialect: 'openai_chat_completions' },
-        'google-secret',
         '',
         {},
         [],
       ),
-    ).toThrow('provider_dialect_invalid');
+    ).rejects.toThrow('provider_dialect_invalid');
   });
   it.each([undefined, -1, NaN, 1.5])(
     'keeps the reservation when completion usage is incomplete: %s',
@@ -148,7 +136,7 @@ it('retains an unknown actual cost when the paid response lacks completion usage
   const storage = { put: jest.fn().mockResolvedValue(null) };
   const configured = {
     ...profile,
-    credentialRef: 'ASSESSMENT_TEST_CREDENTIAL',
+    credentialRef: 'ASSESSMENT_GOOGLE_API_KEY',
     qualityGate: 'passed',
     maxInputTokens: 8192,
     allowThroughDate: null,
@@ -168,8 +156,10 @@ it('retains an unknown actual cost when the paid response lacks completion usage
       maxCostMicrosPerSubmissionRevision: 1000000,
     },
   };
-  const credential = process.env.ASSESSMENT_TEST_CREDENTIAL;
-  process.env.ASSESSMENT_TEST_CREDENTIAL = 'test-only';
+  const savedEnv = { ...process.env };
+  delete process.env.ASSESSMENT_GOOGLE_API_KEY;
+  process.env.ASSESSMENT_INFERENCE_URL = 'http://assessment-inference:8000';
+  process.env.ASSESSMENT_INFERENCE_TOKEN = 'x'.repeat(32);
   const fetchMock = jest.spyOn(globalThis, 'fetch').mockResolvedValue(
     new Response(
       JSON.stringify({
@@ -185,6 +175,7 @@ it('retains an unknown actual cost when the paid response lacks completion usage
       db as unknown,
       storage as unknown,
       cfg as unknown,
+      'synthetic',
     );
     await expect(
       models.json(job as unknown, 'text_grader', '', {}),
@@ -197,10 +188,64 @@ it('retains an unknown actual cost when the paid response lacks completion usage
         outputUsage: {},
       }),
     );
-    expect(fetchMock.mock.calls[0][1]).toMatchObject({ redirect: 'error' });
+    expect(fetchMock).toHaveBeenCalledWith(
+      'http://assessment-inference:8000/v1/generate',
+      expect.objectContaining({
+        redirect: 'error',
+        headers: {
+          Authorization: `Bearer ${'x'.repeat(32)}`,
+          'Content-Type': 'application/json',
+        },
+      }),
+    );
+    const body = fetchMock.mock.calls[0][1]?.body;
+    if (typeof body !== 'string') throw new Error('Expected a JSON request');
+    expect(JSON.parse(body)).toMatchObject({
+      provider: 'google',
+      dialect: 'google_generate_content',
+      credentialRef: 'ASSESSMENT_GOOGLE_API_KEY',
+      inputJson: '{}',
+    });
+    fetchMock.mockResolvedValueOnce(
+      new Response(JSON.stringify({ detail: 'inference_busy' }), {
+        status: 503,
+      }),
+    );
+    await expect(
+      models.json(job as unknown, 'text_grader', '', {}),
+    ).rejects.toThrow('inference_busy');
+    expect(update).toHaveBeenLastCalledWith(
+      'call',
+      expect.objectContaining({ state: 'not_sent', actualCostMicros: 0 }),
+    );
+    fetchMock.mockResolvedValueOnce(
+      new Response(JSON.stringify({ detail: 'provider_timeout' }), {
+        status: 504,
+      }),
+    );
+    await expect(
+      models.json(job as unknown, 'text_grader', '', {}),
+    ).rejects.toThrow('provider_timeout');
+    expect(update).toHaveBeenLastCalledWith(
+      'call',
+      expect.objectContaining({ state: 'unknown' }),
+    );
+    expect(update.mock.lastCall?.[1]).not.toHaveProperty('actualCostMicros');
   } finally {
     fetchMock.mockRestore();
-    if (credential === undefined) delete process.env.ASSESSMENT_TEST_CREDENTIAL;
-    else process.env.ASSESSMENT_TEST_CREDENTIAL = credential;
+    process.env = savedEnv;
+  }
+});
+
+it('rejects a public inference sidecar destination before reading student data', () => {
+  const env = jest.replaceProperty(process, 'env', {
+    ...process.env,
+    ASSESSMENT_INFERENCE_TOKEN: 'x'.repeat(32),
+    ASSESSMENT_INFERENCE_URL: 'https://public.example',
+  });
+  try {
+    expect(() => inferenceConfig()).toThrow('inference_configuration_required');
+  } finally {
+    env.restore();
   }
 });

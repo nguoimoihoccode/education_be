@@ -5,96 +5,15 @@ import {
   AssessmentJob,
 } from '../entities/assessment.entities';
 import { AssessmentStorage } from './storage';
-import {
-  assertProviderDialect,
-  reserveCostMicros,
-  selectProfile,
-} from './routing';
+import { reserveCostMicros, selectProfile } from './routing';
 import type { Profile, Routing } from './routing';
-export type ModelImage = { mime: string; bytes: Buffer };
-export function providerRequest(
-  profile: Profile,
-  key: string,
-  instruction: string,
-  input: unknown,
-  images: ModelImage[],
-): {
-  url: string;
-  headers: Record<string, string>;
-  body: Record<string, unknown>;
-} {
-  assertProviderDialect(profile);
-  if (profile.apiDialect === 'google_generate_content') {
-    const generationConfig: Record<string, unknown> = {
-      responseMimeType: 'application/json',
-      maxOutputTokens: profile.maxOutputTokens,
-    };
-    if (
-      profile.reasoningPolicy === 'disabled' &&
-      profile.model.startsWith('gemini-2.5-flash')
-    )
-      generationConfig.thinkingConfig = { thinkingBudget: 0 };
-    if (profile.reasoningPolicy === 'low') {
-      if (!profile.model.startsWith('gemini-3'))
-        throw new Error('reasoning_policy_unsupported');
-      generationConfig.thinkingConfig = { thinkingLevel: 'low' };
-    }
-    return {
-      url: `https://generativelanguage.googleapis.com/v1beta/models/${encodeURIComponent(profile.model)}:generateContent`,
-      headers: { 'Content-Type': 'application/json', 'x-goog-api-key': key },
-      body: {
-        systemInstruction: { parts: [{ text: instruction }] },
-        contents: [
-          {
-            role: 'user',
-            parts: [
-              { text: JSON.stringify(input) },
-              ...images.map((i) => ({
-                inlineData: {
-                  mimeType: i.mime,
-                  data: i.bytes.toString('base64'),
-                },
-              })),
-            ],
-          },
-        ],
-        generationConfig,
-      },
-    };
-  }
-  if (images.length && !profile.capabilities.includes('vision'))
-    throw new Error('vision_required');
-  const content = images.length
-    ? [
-        { type: 'text', text: JSON.stringify(input) },
-        ...images.map((i) => ({
-          type: 'image_url',
-          image_url: {
-            url: `data:${i.mime};base64,${i.bytes.toString('base64')}`,
-          },
-        })),
-      ]
-    : JSON.stringify(input);
-  const body: Record<string, unknown> = {
-    model: profile.model,
-    messages: [
-      { role: 'system', content: instruction },
-      { role: 'user', content },
-    ],
-    max_tokens: profile.maxOutputTokens,
-    response_format: { type: 'json_object' },
-  };
-  if (profile.reasoningPolicy === 'disabled')
-    body.thinking = { type: 'disabled' };
-  return {
-    url: 'https://api.deepseek.com/chat/completions',
-    headers: {
-      'Content-Type': 'application/json',
-      Authorization: `Bearer ${key}`,
-    },
-    body,
-  };
-}
+import {
+  inferenceConfig,
+  InferenceRejected,
+  runInference,
+  runLocalInference,
+} from './inference';
+import type { ModelImage } from './inference';
 interface GoogleOutput {
   modelVersion?: string;
   candidates?: {
@@ -119,27 +38,6 @@ function validUsage(value: unknown): number | null {
   return typeof value === 'number' && Number.isSafeInteger(value) && value >= 0
     ? value
     : null;
-}
-export async function readBoundedResponse(response: Response): Promise<string> {
-  if (!response.body) throw new Error('provider_response_empty');
-  const reader = response.body.getReader();
-  const chunks: Buffer[] = [];
-  let size = 0;
-  try {
-    while (true) {
-      const result = await reader.read();
-      if (result.done) break;
-      size += result.value.byteLength;
-      if (size > 2 * 1024 * 1024) {
-        await reader.cancel().catch(() => undefined);
-        throw new Error('provider_response_limit');
-      }
-      chunks.push(Buffer.from(result.value));
-    }
-    return Buffer.concat(chunks).toString('utf8');
-  } finally {
-    reader.releaseLock();
-  }
 }
 export function parseProviderResponse(profile: Profile, raw: unknown) {
   let text: string | undefined;
@@ -198,6 +96,7 @@ export class AssessmentModels {
     private readonly db: DataSource,
     private readonly storage: AssessmentStorage,
     private readonly cfg: Routing,
+    private readonly mode: 'local' | 'synthetic' = 'local',
   ) {}
   async json(
     job: AssessmentJob,
@@ -206,9 +105,10 @@ export class AssessmentModels {
     input: unknown,
     images: ModelImage[] = [],
   ): Promise<unknown> {
+    if (this.mode === 'local')
+      return runLocalInference(instruction, input, images);
     const { profile } = selectProfile(this.cfg, role, images.length > 0);
-    const key = process.env[profile.credentialRef];
-    if (!key) throw new Error('provider_credentials_required');
+    const inference = inferenceConfig();
     // Conservative text bound (bytes >= tokens) plus image allowance; split page jobs rather than silently truncating.
     const estimatedInput =
       Buffer.byteLength(instruction + JSON.stringify(input)) +
@@ -268,7 +168,7 @@ export class AssessmentModels {
       )
         throw new Error('daily_budget_exceeded');
       const scope = await m.query(
-        `SELECT count(*) AS calls,COALESCE(SUM(COALESCE(p.actual_cost_micros,p.reserved_cost_micros)),0) AS total FROM school_assessment_provider_calls p JOIN school_assessment_jobs j ON j.id=p.job_id AND j.school_id=p.school_id WHERE j.school_id=$1 AND j.submission_id IS NOT DISTINCT FROM $2 AND j.assessment_id=$3 AND j.data->>'inputRevision' IS NOT DISTINCT FROM $4`,
+        `SELECT count(*) AS calls,COALESCE(SUM(COALESCE(p.actual_cost_micros,p.reserved_cost_micros)),0) AS total FROM school_assessment_provider_calls p JOIN school_assessment_jobs j ON j.id=p.job_id AND j.school_id=p.school_id WHERE j.school_id=$1 AND j.submission_id IS NOT DISTINCT FROM $2 AND j.assessment_id=$3 AND j.data->>'inputRevision' IS NOT DISTINCT FROM $4 AND p.state <> 'not_sent'`,
         [
           job.schoolId,
           job.submissionId,
@@ -308,20 +208,14 @@ export class AssessmentModels {
     });
     const start = Date.now();
     try {
-      const request = providerRequest(profile, key, instruction, input, images);
-      const response = await fetch(request.url, {
-        method: 'POST',
-        redirect: 'error',
-        headers: request.headers,
-        body: JSON.stringify(request.body),
-        signal: AbortSignal.timeout(90000),
-      });
-      if (!response.ok) throw new Error(`provider_http_${response.status}`);
-      const text = await readBoundedResponse(response);
-      const result = parseProviderResponse(
+      const raw = await runInference(
+        inference,
         profile,
-        JSON.parse(text) as unknown,
+        instruction,
+        input,
+        images,
       );
+      const result = parseProviderResponse(profile, raw);
       const responseObjectKey = `assessment/${job.schoolId}/${job.assessmentId}/provider/${call.id}.json`;
       await this.storage.put(
         responseObjectKey,
@@ -355,8 +249,10 @@ export class AssessmentModels {
         .update(call.id, successUpdate);
       return result.output;
     } catch (error) {
+      const notSent = error instanceof InferenceRejected;
       await this.db.getRepository(AssessmentProviderCall).update(call.id, {
-        state: 'unknown',
+        state: notSent ? 'not_sent' : 'unknown',
+        ...(notSent ? { actualCostMicros: 0 } : {}),
         errorCode:
           error instanceof Error
             ? error.message.slice(0, 100)

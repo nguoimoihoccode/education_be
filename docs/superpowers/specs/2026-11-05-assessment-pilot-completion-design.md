@@ -2,7 +2,7 @@
 
 Ngày 2026-11-05 · Phụ lục v1.3 của [đặc tả chấm bài](2026-11-03-ai-assisted-assessment-design.md)
 
-Đây là đặc tả cho phần còn thiếu trước khi xử lý bài thật. Các mục dưới đây mô tả hành vi cần xây hoặc kiểm chứng. Giữ chế độ tắt cho tới khi có môi trường và bằng chứng nghiệm thu. Phạm vi đầu là Công nghệ 8, nhiều mã đề trong cùng đợt. Giáo viên tải chung đề và bài làm, duyệt một khung chấm cho mỗi phiên bản mã đề, xử lý ngoại lệ và chốt điểm.
+Đây là đặc tả cho phần còn thiếu trước khi xử lý bài thật. Các mục dưới đây mô tả hành vi cần xây hoặc kiểm chứng. Mục Chấm bài AI vẫn hiển thị cho giáo viên dưới dạng xem trước với dữ liệu minh họa. Chỉ mở các thao tác thật khi có môi trường và bằng chứng nghiệm thu. Phạm vi đầu là Công nghệ 8, nhiều mã đề trong cùng đợt. Giáo viên tải chung đề và bài làm, duyệt một khung chấm cho mỗi phiên bản mã đề, xử lý ngoại lệ và chốt điểm.
 
 ## 1. Khoảng cách giữa mã hiện tại và pilot
 
@@ -33,7 +33,7 @@ Các model cụ thể chọn qua [routing theo nhiệm vụ](../../assessment/mu
 
 ## 4. Mở có giới hạn và tạm dừng
 
-Giữ `ASSESSMENT_ENABLED` làm công tắc triển khai, mặc định `false`. Bổ sung cấu hình pilot lưu PostgreSQL theo `schoolId + classId + subjectId`, có revision và audit actor/thời điểm/lý do. Quản trị vận hành thay đổi qua thao tác có quyền. Khi chưa có cấu hình hoặc cấu hình lỗi, hệ thống không cấp quyền xử lý. Quyền lớp × môn và ParentLink vẫn kiểm tra riêng.
+Giữ `ASSESSMENT_ENABLED` làm công tắc vận hành backend, mặc định `false`. Giá trị này để frontend hiển thị bản xem trước tại `/teaching/assessments`, khóa các nút tạo đợt, tải bài, chấm và chốt. Bản xem trước dùng dữ liệu minh họa cục bộ, không tải danh sách bài thật. Bổ sung cấu hình pilot lưu PostgreSQL theo `schoolId + classId + subjectId`, có revision và audit actor/thời điểm/lý do. Quản trị vận hành thay đổi qua thao tác có quyền. Khi chưa có cấu hình hoặc cấu hình lỗi, hệ thống không cấp quyền xử lý. Quyền lớp × môn và ParentLink vẫn kiểm tra riêng.
 
 | Trạng thái lớp × môn | Hành vi |
 |---|---|

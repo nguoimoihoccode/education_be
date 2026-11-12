@@ -1,5 +1,6 @@
 export const ASSESSMENT_STORAGE = Symbol('ASSESSMENT_STORAGE');
 export interface AssessmentStoragePort {
+  read?(key: string, limit?: number): Promise<Buffer>;
   createUpload(asset: {
     id: string;
     schoolId: string;

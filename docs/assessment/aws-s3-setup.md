@@ -2,6 +2,8 @@
 
 Tài liệu hướng dẫn, chưa tạo tài khoản/bucket, chưa có secret và không bật tính năng. Giá trị tên bucket/domain bên dưới chỉ minh họa.
 
+Compose bảo vệ dữ liệu đặt worker trên mạng riêng. Ví dụ endpoint AWS công cộng chỉ dùng được sau khi có tuyến kết nối giới hạn riêng cho storage và xác minh nơi lưu trữ phù hợp với chính sách dữ liệu của trường. Xem [runbook VPS](operations-runbook.md) trước khi dùng bài thật.
+
 ## S3 làm gì trong dự án
 
 S3 giữ ảnh/PDF gốc, ảnh phân tích, kết quả provider và báo cáo ngoài ổ đĩa VPS. PostgreSQL giữ metadata, khóa file và điểm. VPS tải dữ liệu cần dùng vào thư mục tạm để xử lý. S3 không chạy model hoặc thay thế PostgreSQL.
@@ -48,7 +50,7 @@ ASSESSMENT_S3_SECRET_ACCESS_KEY=YOUR_IAM_SECRET_ACCESS_KEY
 
 Các biến S3 được Compose truyền cho cả API và worker. API dùng key ký quyền upload/download; worker dùng key đọc/ghi xử lý. Frontend không có biến VITE_* chứa S3 secret. Không cần thêm container S3 trên VPS.
 
-File .env.assessment-worker dành cho model API keys và audit seed, tách với cấu hình S3 trên. Điền S3 xong vẫn để tính năng tắt; việc mở pilot còn cần routing/model credentials và kiểm thử.
+File `.env.assessment-inference` cấu hình model đọc ảnh nội bộ. File `.env.assessment-worker` giữ audit seed. Hai file dùng cùng token nội bộ, tách với cấu hình S3. Khóa model công cộng chỉ nằm trong file riêng của cổng chấm văn bản nếu tuyến đó được duyệt. Điền S3 xong vẫn để tính năng tắt. Việc mở pilot còn cần kiểm thử mạng, model và quy trình chấm.
 
 ## 5. Kiểm tra trước khi bật
 

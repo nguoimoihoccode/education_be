@@ -41,6 +41,7 @@ export interface EffectiveResult {
   earnedUnits: number | null;
   maxUnits: number;
   source: 'rule' | 'ai' | 'teacher';
+  externalTextPolicy?: string;
   answerRevisionId: string;
   criteria?: CriterionGrade[];
   sourceRegionIds: string[];

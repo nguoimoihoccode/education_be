@@ -12,7 +12,9 @@ import {
   Headers,
   Header,
   HttpCode,
+  StreamableFile,
 } from '@nestjs/common';
+import { Throttle } from '@nestjs/throttler';
 import { Roles } from '../../common/decorators/roles.decorator';
 import { RolesGuard } from '../../common/guards/roles.guard';
 import { SCHOOL_ADMIN_ROLES, UserRole } from '../../common/enums/roles.enum';
@@ -147,6 +149,7 @@ export class AssessmentController {
     return this.service.identity(actor, assessmentId, submissionId, dto);
   }
   @Post(':assessmentId/uploads')
+  @Throttle({ default: { limit: 240, ttl: 60000 } })
   @Header('Cache-Control', 'private, no-store')
   @Roles(UserRole.TEACHER, ...SCHOOL_ADMIN_ROLES)
   upload(
@@ -158,6 +161,7 @@ export class AssessmentController {
     return this.service.upload(actor, assessmentId, dto);
   }
   @Post(':assessmentId/assets/:assetId/complete')
+  @Throttle({ default: { limit: 240, ttl: 60000 } })
   @Header('Cache-Control', 'private, no-store')
   @Roles(UserRole.TEACHER, ...SCHOOL_ADMIN_ROLES)
   @HttpCode(202)
@@ -170,6 +174,28 @@ export class AssessmentController {
     const actor = requireUserId(req);
     return this.service.complete(actor, assessmentId, assetId, key);
   }
+  @Get(':assessmentId/assets/:assetId/content')
+  @Header('Cache-Control', 'private, no-store')
+  @Header('Pragma', 'no-cache')
+  @Header('X-Content-Type-Options', 'nosniff')
+  @Header('Content-Security-Policy', "default-src 'none'; sandbox")
+  @Roles(UserRole.TEACHER, ...SCHOOL_ADMIN_ROLES)
+  async assetContent(
+    @Req() req: RequestWithUser,
+    @Param('assessmentId', ParseUUIDPipe) id: string,
+    @Param('assetId', ParseUUIDPipe) assetId: string,
+  ) {
+    const content = await this.service.assetContent(
+      requireUserId(req),
+      id,
+      assetId,
+    );
+    return new StreamableFile(content.bytes, {
+      type: content.mime,
+      disposition: content.disposition,
+      length: content.bytes.length,
+    });
+  }
   @Get(':assessmentId/assets/:assetId/access')
   @Header('Cache-Control', 'private, no-store')
   @Roles(UserRole.TEACHER, ...SCHOOL_ADMIN_ROLES)
@@ -180,6 +206,101 @@ export class AssessmentController {
   ) {
     const actor = requireUserId(req);
     return this.service.assetAccess(actor, assessmentId, assetId);
+  }
+  @Post(':assessmentId/submissions/:submissionId/manual-only')
+  @Header('Cache-Control', 'private, no-store')
+  @Roles(UserRole.TEACHER, ...SCHOOL_ADMIN_ROLES)
+  @HttpCode(200)
+  selectManualOnly(
+    @Req() req: RequestWithUser,
+    @Param('assessmentId', ParseUUIDPipe) id: string,
+    @Param('submissionId', ParseUUIDPipe) submissionId: string,
+    @Body() dto: D.ExternalTextRevokeDto,
+    @Headers('idempotency-key') key: string,
+  ) {
+    return this.service.selectManualOnly(
+      requireUserId(req),
+      id,
+      submissionId,
+      dto,
+      key,
+    );
+  }
+  @Get(':assessmentId/submissions/:submissionId/external-text')
+  @Header('Cache-Control', 'private, no-store')
+  @Roles(UserRole.TEACHER, ...SCHOOL_ADMIN_ROLES)
+  externalTextPreview(
+    @Req() req: RequestWithUser,
+    @Param('assessmentId', ParseUUIDPipe) id: string,
+    @Param('submissionId', ParseUUIDPipe) submissionId: string,
+  ) {
+    return this.service.externalTextPreview(
+      requireUserId(req),
+      id,
+      submissionId,
+    );
+  }
+  @Post(':assessmentId/submissions/:submissionId/external-text')
+  @Header('Cache-Control', 'private, no-store')
+  @Roles(UserRole.TEACHER, ...SCHOOL_ADMIN_ROLES)
+  @HttpCode(202)
+  releaseExternalText(
+    @Req() req: RequestWithUser,
+    @Param('assessmentId', ParseUUIDPipe) id: string,
+    @Param('submissionId', ParseUUIDPipe) submissionId: string,
+    @Body() dto: D.ExternalTextReleaseDto,
+    @Headers('idempotency-key') key: string,
+  ) {
+    return this.service.releaseExternalText(
+      requireUserId(req),
+      id,
+      submissionId,
+      dto,
+      key,
+    );
+  }
+  @Post(':assessmentId/submissions/:submissionId/external-text/revoke')
+  @Header('Cache-Control', 'private, no-store')
+  @Roles(UserRole.TEACHER, ...SCHOOL_ADMIN_ROLES)
+  @HttpCode(200)
+  revokeExternalText(
+    @Req() req: RequestWithUser,
+    @Param('assessmentId', ParseUUIDPipe) id: string,
+    @Param('submissionId', ParseUUIDPipe) submissionId: string,
+    @Body() dto: D.ExternalTextRevokeDto,
+    @Headers('idempotency-key') key: string,
+  ) {
+    return this.service.revokeExternalText(
+      requireUserId(req),
+      id,
+      submissionId,
+      dto,
+      key,
+    );
+  }
+  @Get(':assessmentId/pages/:pageId/content')
+  @Header('Cache-Control', 'private, no-store')
+  @Header('Pragma', 'no-cache')
+  @Header('X-Content-Type-Options', 'nosniff')
+  @Header('Content-Security-Policy', "default-src 'none'; sandbox")
+  @Roles(UserRole.TEACHER, ...SCHOOL_ADMIN_ROLES)
+  async pageContent(
+    @Req() req: RequestWithUser,
+    @Param('assessmentId', ParseUUIDPipe) id: string,
+    @Param('pageId', ParseUUIDPipe) pageId: string,
+    @Query('source') source?: string,
+  ) {
+    const content = await this.service.pageContent(
+      requireUserId(req),
+      id,
+      pageId,
+      source === 'original',
+    );
+    return new StreamableFile(content.bytes, {
+      type: content.mime,
+      disposition: content.disposition,
+      length: content.bytes.length,
+    });
   }
   @Get(':assessmentId/pages/:pageId/access')
   @Header('Cache-Control', 'private, no-store')
@@ -232,6 +353,57 @@ export class AssessmentController {
   ) {
     const actor = requireUserId(req);
     return this.service.progress(actor, assessmentId);
+  }
+  @Get(':assessmentId/assets/:assetId/status')
+  @Header('Cache-Control', 'private, no-store')
+  @Roles(UserRole.TEACHER, ...SCHOOL_ADMIN_ROLES)
+  assetStatus(
+    @Req() req: RequestWithUser,
+    @Param('assessmentId', ParseUUIDPipe) assessmentId: string,
+    @Param('assetId', ParseUUIDPipe) assetId: string,
+  ) {
+    return this.service.assetStatus(requireUserId(req), assessmentId, assetId);
+  }
+  @Post(':assessmentId/exam-imports')
+  @Header('Cache-Control', 'private, no-store')
+  @Roles(UserRole.TEACHER, ...SCHOOL_ADMIN_ROLES)
+  @HttpCode(202)
+  importExam(
+    @Req() req: RequestWithUser,
+    @Param('assessmentId', ParseUUIDPipe) assessmentId: string,
+    @Body() dto: D.ExamImportDto,
+    @Headers('idempotency-key') key: string,
+  ) {
+    return this.service.importExam(requireUserId(req), assessmentId, dto, key);
+  }
+  @Get(':assessmentId/exam-imports/:jobId')
+  @Header('Cache-Control', 'private, no-store')
+  @Roles(UserRole.TEACHER, ...SCHOOL_ADMIN_ROLES)
+  getExamImport(
+    @Req() req: RequestWithUser,
+    @Param('assessmentId', ParseUUIDPipe) assessmentId: string,
+    @Param('jobId', ParseUUIDPipe) jobId: string,
+  ) {
+    return this.service.getExamImport(requireUserId(req), assessmentId, jobId);
+  }
+  @Post(':assessmentId/submissions/:submissionId/exam-version')
+  @Header('Cache-Control', 'private, no-store')
+  @Roles(UserRole.TEACHER, ...SCHOOL_ADMIN_ROLES)
+  @HttpCode(202)
+  assignExamVersion(
+    @Req() req: RequestWithUser,
+    @Param('assessmentId', ParseUUIDPipe) assessmentId: string,
+    @Param('submissionId', ParseUUIDPipe) submissionId: string,
+    @Body() dto: D.AssignExamVersionDto,
+    @Headers('idempotency-key') key: string,
+  ) {
+    return this.service.assignExamVersion(
+      requireUserId(req),
+      assessmentId,
+      submissionId,
+      dto,
+      key,
+    );
   }
   @Post(':assessmentId/exam-versions')
   @Header('Cache-Control', 'private, no-store')
@@ -317,6 +489,38 @@ export class AssessmentController {
     const actor = requireUserId(req);
     return this.service.review(actor, assessmentId, submissionId, dto);
   }
+  @Post(':assessmentId/submissions/:submissionId/manual-review')
+  @Header('Cache-Control', 'private, no-store')
+  @Roles(UserRole.TEACHER, ...SCHOOL_ADMIN_ROLES)
+  manualReview(
+    @Req() req: RequestWithUser,
+    @Param('assessmentId', ParseUUIDPipe) assessmentId: string,
+    @Param('submissionId', ParseUUIDPipe) submissionId: string,
+    @Body() dto: D.ManualReviewDto,
+  ) {
+    return this.service.manualReview(
+      requireUserId(req),
+      assessmentId,
+      submissionId,
+      dto,
+    );
+  }
+  @Post(':assessmentId/submissions/:submissionId/review-approval')
+  @Header('Cache-Control', 'private, no-store')
+  @Roles(UserRole.TEACHER, ...SCHOOL_ADMIN_ROLES)
+  approveReview(
+    @Req() req: RequestWithUser,
+    @Param('assessmentId', ParseUUIDPipe) assessmentId: string,
+    @Param('submissionId', ParseUUIDPipe) submissionId: string,
+    @Body() dto: D.ApproveReviewDto,
+  ) {
+    return this.service.approveReview(
+      requireUserId(req),
+      assessmentId,
+      submissionId,
+      dto,
+    );
+  }
   @Post(':assessmentId/finalizations')
   @Header('Cache-Control', 'private, no-store')
   @Roles(UserRole.TEACHER, ...SCHOOL_ADMIN_ROLES)
@@ -380,6 +584,28 @@ export class AssessmentController {
   ) {
     const actor = requireUserId(req);
     return this.service.exportDetail(actor, assessmentId, exportId);
+  }
+  @Get(':assessmentId/exports/:exportId/content')
+  @Header('Cache-Control', 'private, no-store')
+  @Header('Pragma', 'no-cache')
+  @Header('X-Content-Type-Options', 'nosniff')
+  @Header('Content-Security-Policy', "default-src 'none'; sandbox")
+  @Roles(UserRole.TEACHER, ...SCHOOL_ADMIN_ROLES)
+  async exportContent(
+    @Req() req: RequestWithUser,
+    @Param('assessmentId', ParseUUIDPipe) id: string,
+    @Param('exportId', ParseUUIDPipe) exportId: string,
+  ) {
+    const content = await this.service.exportContent(
+      requireUserId(req),
+      id,
+      exportId,
+    );
+    return new StreamableFile(content.bytes, {
+      type: content.mime,
+      disposition: content.disposition,
+      length: content.bytes.length,
+    });
   }
   @Get(':assessmentId/exports/:exportId/access')
   @Header('Cache-Control', 'private, no-store')

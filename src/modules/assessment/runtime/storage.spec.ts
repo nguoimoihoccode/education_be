@@ -1,3 +1,5 @@
+import JSZip from 'jszip';
+
 import { AssessmentStorage, detectDocumentMime, storageKey } from './storage';
 describe('private assessment storage', () => {
   it('detects the bytes, not a claimed extension', () => {
@@ -106,4 +108,48 @@ describe('fail-closed private storage readiness', () => {
       ).toBe(true);
     },
   );
+});
+
+describe('official marking guide uploads', () => {
+  const mime =
+    'application/vnd.openxmlformats-officedocument.wordprocessingml.document';
+  const id = 'aaaa0000-aaaa-4aaa-aaaa-aaaaaaaaaaaa';
+  const guide = {
+    id,
+    schoolId: id,
+    assessmentId: id,
+    declaredMime: mime,
+    stagingKey: storageKey(id, id, id, 'staging'),
+    purpose: 'marking_guide',
+  };
+
+  it('seals a DOCX package only as a marking guide', async () => {
+    const zip = new JSZip();
+    zip.file('[Content_Types].xml', '<Types/>');
+    zip.file('word/document.xml', '<document/>');
+    const bytes = await zip.generateAsync({ type: 'nodebuffer' });
+    const storage = new AssessmentStorage();
+    jest.spyOn(storage, 'read').mockResolvedValue(bytes);
+    jest.spyOn(storage, 'put').mockResolvedValue(null);
+    const asset = { ...guide, byteSize: bytes.length };
+    await expect(storage.seal(asset)).resolves.toMatchObject({
+      verifiedMime: mime,
+    });
+    await expect(
+      storage.seal({ ...asset, purpose: 'student_work' }),
+    ).rejects.toThrow('unsupported_document');
+  });
+
+  it('rejects a ZIP lacking the DOCX document parts', async () => {
+    const zip = new JSZip();
+    zip.file('arbitrary.txt', 'content');
+    const bytes = await zip.generateAsync({ type: 'nodebuffer' });
+    const storage = new AssessmentStorage();
+    jest.spyOn(storage, 'read').mockResolvedValue(bytes);
+    const put = jest.spyOn(storage, 'put').mockResolvedValue(null);
+    await expect(
+      storage.seal({ ...guide, byteSize: bytes.length }),
+    ).rejects.toThrow('unsupported_document');
+    expect(put).not.toHaveBeenCalled();
+  });
 });

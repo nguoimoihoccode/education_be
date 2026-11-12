@@ -4,6 +4,7 @@ import { resolve, join } from 'node:path';
 import db from '../database/data-source';
 import { loadRouting } from '../modules/assessment/runtime/routing';
 import { AssessmentEngine } from '../modules/assessment/runtime/engine';
+import { checkInference } from '../modules/assessment/runtime/inference';
 
 async function main() {
   if (process.env.ASSESSMENT_ENABLED !== 'true')
@@ -34,15 +35,7 @@ async function main() {
   const cfg = loadRouting();
   if (!process.env[cfg.policy.auditSeedRef])
     throw new Error('audit_seed_required');
-  for (const agent of Object.values(cfg.agents))
-    for (const id of [
-      agent.primaryProfileId,
-      agent.fallbackProfileId,
-      agent.escalationProfileId,
-      agent.visionProfileId,
-    ])
-      if (id && !process.env[cfg.profiles[id].credentialRef])
-        throw new Error('provider_credentials_required');
+  await checkInference();
   if (
     !process.env.ASSESSMENT_QUEUE_REDIS_URL ||
     process.env.ASSESSMENT_QUEUE_REDIS_URL === process.env.REDIS_URL
@@ -74,7 +67,7 @@ async function main() {
     await engine.start();
     const health = async () => {
       try {
-        await engine.health();
+        await Promise.all([engine.health(), checkInference()]);
         await writeFile(heartbeat, new Date().toISOString(), { mode: 0o600 });
       } catch {
         await rm(heartbeat, { force: true });

@@ -2,6 +2,8 @@
 
 Quyết định 2026-11-04: chạy worker trên VPS hiện có; Mac chỉ dùng phát triển và truy cập web. Đã có mã nguồn và cấu hình Compose/CI trong workspace; chưa deploy lên máy chủ. Xem [trạng thái triển khai](implementation-status.md).
 
+Topology v1.2 bên dưới là phương án trước khi tách luồng dữ liệu học sinh. Với cấu hình hiện tại, làm theo [runbook VPS](operations-runbook.md), nơi mô tả mạng riêng cho worker, model nội bộ và cổng văn bản tùy chọn.
+
 ## 1. Topology
 
 ~~~mermaid
