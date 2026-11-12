@@ -9,6 +9,18 @@ on:
     branches:
       - phuc_v2026
   workflow_dispatch:
+    # A push deploy never touches the feature flag. This input exists so that
+    # turning assessment on or off is a reviewed, logged deploy instead of a
+    # hand edit of the private env file on the VPS.
+    inputs:
+      assessment_enabled:
+        description: 'Write ASSESSMENT_ENABLED into .env.prod before deploying'
+        type: choice
+        options:
+          - unchanged
+          - "true"
+          - "false"
+        default: unchanged
 
 concurrency:
   group: production-deploy-backend
@@ -177,15 +189,31 @@ jobs:
           DB_IMAGE: ${{ env.DB_IMAGE }}
           DB_IMAGE_TAG: ${{ env.DB_IMAGE_TAG }}
           IMAGE_TAG: ${{ github.sha }}
+          ASSESSMENT_ENABLED_INPUT: ${{ inputs.assessment_enabled }}
         with:
           host: ${{ secrets.VPS_HOST }}
           username: ${{ secrets.VPS_USER }}
           key: ${{ secrets.VPS_SSH_KEY }}
-          envs: GHCR_USERNAME,GHCR_TOKEN,BACKEND_IMAGE,ASSESSMENT_WORKER_IMAGE,ASSESSMENT_INFERENCE_IMAGE,DB_IMAGE,DB_IMAGE_TAG,IMAGE_TAG
+          envs: GHCR_USERNAME,GHCR_TOKEN,BACKEND_IMAGE,ASSESSMENT_WORKER_IMAGE,ASSESSMENT_INFERENCE_IMAGE,DB_IMAGE,DB_IMAGE_TAG,IMAGE_TAG,ASSESSMENT_ENABLED_INPUT
           script: |
             set -euo pipefail
             cd "${{ secrets.VPS_APP_DIR }}"
             test -f .env.prod
+
+            # Only a workflow_dispatch changes the flag; a push leaves the file
+            # alone. The backup is what the preflight below restores if enabling
+            # would only start containers that cannot do their job.
+            env_toggled=""
+            if [ "${ASSESSMENT_ENABLED_INPUT:-unchanged}" != "unchanged" ]; then
+              cp -p .env.prod .env.prod.bak
+              if grep -q '^ASSESSMENT_ENABLED=' .env.prod; then
+                sed -i "s/^ASSESSMENT_ENABLED=.*/ASSESSMENT_ENABLED=${ASSESSMENT_ENABLED_INPUT}/" .env.prod
+              else
+                printf '\nASSESSMENT_ENABLED=%s\n' "$ASSESSMENT_ENABLED_INPUT" >> .env.prod
+              fi
+              env_toggled=1
+              echo "ASSESSMENT_ENABLED=${ASSESSMENT_ENABLED_INPUT} written to .env.prod."
+            fi
 
             previous_tag=""
             if [ -f .last-backend-tag ]; then
@@ -199,6 +227,25 @@ jobs:
             docker compose -f docker-compose.prod.yml --env-file .env.prod \
               --profile assessment-external stop assessment-external-grading
             assessment_enabled=$(docker compose -f docker-compose.prod.yml --env-file .env.prod config --format json | python3 -c 'import json,sys; print(str(json.load(sys.stdin)["services"]["backend"]["environment"].get("ASSESSMENT_ENABLED", "false")).lower())')
+            # Starting the profile on a host that is not provisioned produces
+            # healthy-looking containers that cannot process one job: the probes
+            # only prove liveness. Refuse before touching a running service, and
+            # put the flag back so the next deploy is not surprised by it.
+            if [ "$assessment_enabled" = "true" ]; then
+              config_dir="$(grep -E '^ASSESSMENT_CONFIG_DIR=' .env.prod | tail -n1 | cut -d= -f2- || true)"
+              missing=""
+              for required in .env.assessment-worker .env.assessment-inference "${config_dir:-./assessment-config}/routing.json"; do
+                [ -f "$required" ] || missing="$missing $required"
+              done
+              if [ -n "$missing" ]; then
+                echo "::error::ASSESSMENT_ENABLED=true but the VPS is missing:$missing"
+                if [ -n "$env_toggled" ]; then
+                  cp -p .env.prod.bak .env.prod
+                  echo "Restored .env.prod from .env.prod.bak; nothing was started."
+                fi
+                exit 1
+              fi
+            fi
             if [ "$assessment_enabled" = "true" ]; then
               export COMPOSE_PROFILES=assessment
               docker compose -f docker-compose.prod.yml --env-file .env.prod pull assessment-worker assessment-inference
