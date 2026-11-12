@@ -7,6 +7,11 @@ import {
   MaxLength,
   MinLength,
 } from 'class-validator';
+import {
+  IsNotCommonPassword,
+  MAX_PASSWORD_LENGTH,
+  MIN_PASSWORD_LENGTH,
+} from '../../../common/validators/password.validator';
 
 export class UpdateAuthProfileDto {
   @ApiProperty({
@@ -39,12 +44,17 @@ export class ChangePasswordDto {
 
   @ApiProperty({
     description: 'New password',
-    minLength: 6,
-    maxLength: 50,
+    minLength: MIN_PASSWORD_LENGTH,
+    maxLength: MAX_PASSWORD_LENGTH,
   })
   @IsString()
   @IsNotEmpty()
-  @MinLength(6)
-  @MaxLength(50)
+  @MinLength(MIN_PASSWORD_LENGTH, {
+    message: `Password must be at least ${MIN_PASSWORD_LENGTH} characters`,
+  })
+  @MaxLength(MAX_PASSWORD_LENGTH, {
+    message: `Password must not exceed ${MAX_PASSWORD_LENGTH} characters`,
+  })
+  @IsNotCommonPassword()
   newPassword: string;
 }

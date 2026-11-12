@@ -62,13 +62,13 @@ describe('UsersService', () => {
     repository.findOne.mockResolvedValue(null);
 
     const user = await service.create({
-      email: 'Learner@example.com',
+      email: 'Learner@Example.com',
       password: 'secret123',
     });
 
     expect(repository.create).toHaveBeenCalledWith(
       expect.objectContaining({
-        email: 'Learner@example.com',
+        email: 'learner@example.com',
         passwordHash: 'hashed-password',
         username: 'learner',
         provider: 'email',
@@ -76,10 +76,20 @@ describe('UsersService', () => {
       }),
     );
     expect(user).toMatchObject({
-      email: 'Learner@example.com',
+      email: 'learner@example.com',
       roles: [UserRole.USER, UserRole.STUDENT],
     });
     expect(user).not.toHaveProperty('passwordHash');
+  });
+
+  it('looks emails up case-insensitively', async () => {
+    repository.findOne.mockResolvedValue(null);
+
+    await service.findByEmail('  Learner@Example.COM ');
+
+    expect(repository.findOne).toHaveBeenCalledWith({
+      where: { email: expect.objectContaining({ _type: 'raw' }) },
+    });
   });
 
   it('rejects duplicate email addresses', async () => {

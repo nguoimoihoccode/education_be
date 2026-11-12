@@ -31,19 +31,15 @@ export function extractDeviceInfo(req: Request): DeviceInfo {
 }
 
 /**
- * Get client IP address from request
+ * Get client IP address from request.
+ *
+ * `req.ip` resolves X-Forwarded-For through Express's `trust proxy` setting
+ * (TRUST_PROXY_HOPS in main.ts), which is one hop in production because nginx
+ * sits in front. Reading the raw header here instead used the *first* entry --
+ * and nginx's `$proxy_add_x_forwarded_for` copies whatever the client sent into
+ * that first slot -- so a caller could pick its own identity per request. The
+ * login lockout is keyed on this value, so that was a free way to never trip it.
  */
 function getClientIp(req: Request): string {
-  // Check for forwarded IP (when behind proxy/load balancer)
-  const forwarded = req.get('x-forwarded-for');
-  if (forwarded) {
-    return forwarded.split(',')[0].trim();
-  }
-
-  const realIp = req.get('x-real-ip');
-  if (realIp) {
-    return realIp;
-  }
-
-  return req.ip || req.socket.remoteAddress || 'unknown';
+  return req.ip || req.socket?.remoteAddress || 'unknown';
 }

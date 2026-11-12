@@ -38,7 +38,7 @@ describe('AuthThrottleService', () => {
     const rows = new Map<string, AuthLoginAttempt>();
     return {
       findOne: jest.fn(
-        async ({ where }: any) => rows.get(where.ipAddress) || null,
+        async ({ where }: any) => rows.get(where.identifier) || null,
       ),
       create: jest.fn((partial: Partial<AuthLoginAttempt>) => ({
         attempts: 0,
@@ -47,14 +47,14 @@ describe('AuthThrottleService', () => {
         ...partial,
       })),
       save: jest.fn(async (row: AuthLoginAttempt) => {
-        rows.set(row.ipAddress, row);
+        rows.set(row.identifier, row);
         return row;
       }),
-      delete: jest.fn(async () => {
-        rows.delete(ipAddress);
+      delete: jest.fn(async ({ identifier }: any) => {
+        rows.delete(identifier);
         return { affected: 1, raw: [] };
       }),
-      _peek: () => rows.get(ipAddress),
+      _peek: () => rows.get(identifier),
     };
   };
 
@@ -115,8 +115,33 @@ describe('AuthThrottleService', () => {
     expect(await service.getLockRemainingMs(identifier, ipAddress)).toBe(0);
   });
 
-  it('keying is independent per ip address', async () => {
-    await service.recordFailure(identifier, '9.9.9.9');
-    expect(await service.getLockRemainingMs(identifier, ipAddress)).toBe(0);
+  it('keeps counting across IP addresses', async () => {
+    for (let i = 0; i < 5; i++) {
+      await service.recordFailure(identifier, `10.0.0.${i}`);
+    }
+    // The whole point of keying on the identifier: a new address must not hand
+    // the attacker a fresh counter.
+    expect(
+      await service.getLockRemainingMs(identifier, '203.0.113.9'),
+    ).toBeGreaterThan(0);
+  });
+
+  it('records the last failing address for review', async () => {
+    await service.recordFailure(identifier, '10.0.0.1');
+    await service.recordFailure(identifier, '10.0.0.2');
+    expect(repo._peek()?.ipAddress).toBe('10.0.0.2');
+    expect(repo._peek()?.attempts).toBe(2);
+  });
+
+  it('forgets old failures after a day of silence', async () => {
+    jest.useFakeTimers().setSystemTime(new Date('2026-01-01T00:00:00Z'));
+    for (let i = 0; i < 4; i++) {
+      await service.recordFailure(identifier, ipAddress);
+    }
+    jest.setSystemTime(new Date('2026-01-03T00:00:00Z'));
+    await service.recordFailure(identifier, ipAddress);
+    // One slip today, not the fifth of a stale run: no lock, counter at 1.
+    expect(repo._peek()?.attempts).toBe(1);
+    expect(repo._peek()?.lockedUntil).toBeNull();
   });
 });

@@ -9,15 +9,18 @@ import {
 } from 'typeorm';
 
 @Entity('auth_login_attempts')
-@Unique(['identifier', 'ipAddress'])
+// One row per identifier. Including the IP here used to let a caller start a
+// fresh counter by presenting a new address, which is exactly what an attacker
+// rotating X-Forwarded-For wants.
+@Unique(['identifier'])
 export class AuthLoginAttempt {
   @PrimaryGeneratedColumn()
   id: number;
 
-  @Index()
   @Column()
   identifier: string;
 
+  // The last address that failed, kept for review only -- never part of the key.
   @Column({ name: 'ip_address' })
   @Index()
   ipAddress: string;

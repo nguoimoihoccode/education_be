@@ -4,12 +4,13 @@ import {
   NotFoundException,
 } from '@nestjs/common';
 import { InjectRepository } from '@nestjs/typeorm';
-import { Repository } from 'typeorm';
+import { Raw, Repository } from 'typeorm';
 import * as bcrypt from 'bcryptjs';
 import { CreateUserDto } from './dto/create-user.dto';
 import { UserDto } from './dto/user.dto';
 import { User } from './entities/user.entity';
 import { UserRole } from '../../common/enums/roles.enum';
+import { normalizeEmail } from '../../common/utils/email.util';
 
 @Injectable()
 export class UsersService {
@@ -23,15 +24,16 @@ export class UsersService {
     provider?: string,
     providerId?: string,
   ): Promise<UserDto> {
-    const existing = await this.findByEmail(createUserDto.email);
+    const email = normalizeEmail(createUserDto.email);
+    const existing = await this.findByEmail(email);
     if (existing) {
       throw new ConflictException('User with this email already exists');
     }
 
-    const username = await this.generateUniqueUsername(createUserDto.email);
+    const username = await this.generateUniqueUsername(email);
     const passwordHash = await bcrypt.hash(createUserDto.password, 10);
     const user = this.userRepository.create({
-      email: createUserDto.email,
+      email,
       passwordHash,
       username,
       provider: provider || 'email',
@@ -49,7 +51,20 @@ export class UsersService {
   }
 
   async findByEmail(email: string): Promise<User | null> {
-    return this.userRepository.findOne({ where: { email } });
+    const normalized = normalizeEmail(email);
+    if (!normalized) {
+      return null;
+    }
+    // LOWER() on purpose: rows created before emails were normalized still
+    // carry their original casing. IDX_users_email_lower backs the expression,
+    // and ILIKE would treat `_` and `%` in the address as wildcards.
+    return this.userRepository.findOne({
+      where: {
+        email: Raw((alias) => `LOWER(${alias}) = :email`, {
+          email: normalized,
+        }),
+      },
+    });
   }
 
   async findByUsername(username: string): Promise<User | null> {
