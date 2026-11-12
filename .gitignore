@@ -61,6 +61,15 @@ tmp/
 temp/
 
 # Private Assessment runtime configuration (samples remain tracked)
+.env.assessment-worker
+.env.assessment-inference
+.env.assessment-external-grading
+assessment-inference/__pycache__/
+# Python worker: local interpreter state, never committed.
+assessment-worker/.venv/
+assessment-worker/.pytest_cache/
+assessment-worker/**/__pycache__/
+assessment-worker/**/*.pyc
 assessment-config/*
 !assessment-config/README.md
 !assessment-config/*.example.json

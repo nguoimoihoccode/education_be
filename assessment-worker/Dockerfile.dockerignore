@@ -1,0 +1,19 @@
+# Restrict the build context to the worker's explicit build inputs; the repo
+# root also holds node_modules and the Node worker's sources.
+**
+!assessment-worker/
+!assessment-worker/requirements.txt
+!assessment-worker/src/
+!assessment-worker/src/**
+!docs/
+!docs/assessment/
+!docs/assessment/contracts/
+!docs/assessment/contracts/**
+# Never include local secrets or interpreter state, even under an allowed path.
+**/.env*
+**/*.pem
+**/__pycache__
+**/.venv
+**/*.pyc
+**/.pytest_cache
+**/.DS_Store

@@ -1,0 +1,32 @@
+{
+  "hash": [
+    { "b": 1, "a": { "z": null, "y": [1, 2, { "k": "v" }] } },
+    {
+      "title": "Đề kiểm tra giữa kỳ",
+      "score": 8.5,
+      "ratio": 0.05,
+      "zero": 0.0,
+      "neg": -0.0,
+      "tiny": 1e-7,
+      "sixteenth": 1e-6,
+      "huge": 1e21,
+      "plain": 100.0
+    },
+    { "🦊": "astral", "�": "replacement", "": "private-use" },
+    {
+      "pricing": { "inputMicrosPerMillion": 250000, "outputMicrosPerMillion": 1000000 },
+      "maxInputTokens": 1048576,
+      "allowThroughDate": null
+    },
+    [1, 2.5, -3, "x", null, true, false],
+    { "unicode": "Nguyễn Thị Ánh — ½ ≤ ≥", "emoji": "🦊" },
+    { "big": 12345678901234567890 },
+    { "nested": [[1, [2, [3]]]], "empty": {}, "list": [] },
+    { "answer": { "text": "Học sinh chọn đáp án B.", "regions": ["r1", "r2"] } }
+  ],
+  "digest": [
+    { "z": 1, "a": 2 },
+    { "b": { "y": 1, "x": 2 }, "a": 3 },
+    { "role": "text_grader", "instruction": "Chấm", "input": { "q": 1 } }
+  ]
+}

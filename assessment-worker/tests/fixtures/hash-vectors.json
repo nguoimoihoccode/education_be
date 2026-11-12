@@ -1,0 +1,137 @@
+{
+  "hash": [
+    {
+      "input": {
+        "b": 1,
+        "a": {
+          "z": null,
+          "y": [
+            1,
+            2,
+            {
+              "k": "v"
+            }
+          ]
+        }
+      },
+      "expected": "7cd453935e4e56efa6ab3497c9bfc2a6e55afe0043b37d8546ec7ffd44c8dd6d"
+    },
+    {
+      "input": {
+        "title": "Đề kiểm tra giữa kỳ",
+        "score": 8.5,
+        "ratio": 0.05,
+        "zero": 0,
+        "neg": 0,
+        "tiny": 1e-7,
+        "sixteenth": 0.000001,
+        "huge": 1e+21,
+        "plain": 100
+      },
+      "expected": "9a3054314f958825354162e47ce0269e6debb4153606bae56c2a72d8384c2919"
+    },
+    {
+      "input": {
+        "🦊": "astral",
+        "�": "replacement",
+        "": "private-use"
+      },
+      "expected": "659886ed0c4201e00dbe903353cd1282529bdfcd095bbb0ac93344e8292b08d6"
+    },
+    {
+      "input": {
+        "pricing": {
+          "inputMicrosPerMillion": 250000,
+          "outputMicrosPerMillion": 1000000
+        },
+        "maxInputTokens": 1048576,
+        "allowThroughDate": null
+      },
+      "expected": "c3f9c771e8f4a22ec03ab813ff955358a25994f65d222d947fd451b46553e7ba"
+    },
+    {
+      "input": [
+        1,
+        2.5,
+        -3,
+        "x",
+        null,
+        true,
+        false
+      ],
+      "expected": "0e5a81adda32b525ec205c43a9b1fe178c1f2ae3c80e3057e6de88bf09bc6d84"
+    },
+    {
+      "input": {
+        "unicode": "Nguyễn Thị Ánh — ½ ≤ ≥",
+        "emoji": "🦊"
+      },
+      "expected": "efbb8a218a6507087b9ca71184b7e48d49dcfe1e0e529375c78f31a458077520"
+    },
+    {
+      "input": {
+        "big": 12345678901234567000
+      },
+      "expected": "683f9d4070d2e83f349123beb9cc87f4303b3471b76d9557cd103ec9febb428d"
+    },
+    {
+      "input": {
+        "nested": [
+          [
+            1,
+            [
+              2,
+              [
+                3
+              ]
+            ]
+          ]
+        ],
+        "empty": {},
+        "list": []
+      },
+      "expected": "ea445c14a19654526463383ad693464111655699f3b07213bff36e06d8e6bd15"
+    },
+    {
+      "input": {
+        "answer": {
+          "text": "Học sinh chọn đáp án B.",
+          "regions": [
+            "r1",
+            "r2"
+          ]
+        }
+      },
+      "expected": "14c724d25bfd7446ad38a8859962da24ef8d4c27335552c6f35281db5dea854b"
+    }
+  ],
+  "digest": [
+    {
+      "input": {
+        "z": 1,
+        "a": 2
+      },
+      "expected": "c5c2b1fdd0d4a83cda3ff79c9c74f2c72e2a92920afda20bcafc90c1a72f86a9"
+    },
+    {
+      "input": {
+        "b": {
+          "y": 1,
+          "x": 2
+        },
+        "a": 3
+      },
+      "expected": "f4d891eed185e5ec731673fc6925d774111965a36e4cdde48dcbfbe17fe65cdf"
+    },
+    {
+      "input": {
+        "role": "text_grader",
+        "instruction": "Chấm",
+        "input": {
+          "q": 1
+        }
+      },
+      "expected": "90a55a92875b534692290c69fa94fde3ab2f322e7cbf6a5f627b873c8d9a8d8a"
+    }
+  ]
+}
