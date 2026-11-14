@@ -27,4 +27,5 @@ export interface CriterionGrade {
   pointsUnits: number | null;
   reason: string;
   evidenceRegionIds: string[];
+  confidence?: 'high' | 'medium' | 'low';
 }

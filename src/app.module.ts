@@ -5,7 +5,8 @@ import { APP_GUARD, APP_FILTER, APP_INTERCEPTOR } from '@nestjs/core';
 import { ConfigModule, ConfigService } from '@nestjs/config';
 import { TypeOrmModule } from '@nestjs/typeorm';
 import { ScheduleModule } from '@nestjs/schedule';
-import { ThrottlerModule, ThrottlerGuard } from '@nestjs/throttler';
+import { ThrottlerModule } from '@nestjs/throttler';
+import { UserThrottlerGuard } from './common/guards/user-throttler.guard';
 import type Redis from 'ioredis';
 import { CacheModule, CACHE_REDIS_CLIENT } from './common/cache/cache.module';
 import { RedisThrottlerStorage } from './common/cache/throttler-redis.storage';
@@ -229,7 +230,7 @@ import {
     // Global Rate Limiting Guard
     {
       provide: APP_GUARD,
-      useClass: ThrottlerGuard,
+      useClass: UserThrottlerGuard,
     },
   ],
 })

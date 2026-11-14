@@ -20,6 +20,11 @@ OPTION = re.compile(r"(?<!\S)([A-H])\.\s+")
 PART = re.compile(r"^([a-j])\s*\.\s*(?:\(([^()]*)\)\s*[:.]?\s*)?(.*)$", re.I)
 
 
+# "mỗi ý đúng 0,25 điểm" inside one criterion's answer text: partial credit the
+# guide itself grants, read accent-insensitively.
+EACH_POINT = re.compile(r"moi y(?: dung)?(?: duoc)?\s*:?\s*(\d+(?:[.,]\d{1,3})?)\s*(?:diem|d\b)")
+
+
 class ExamImportError(ValueError):
     pass
 
@@ -249,11 +254,25 @@ def _rubric_criteria(answer, points, max_units):
         groups = [lines[start:end] for start, end in zip(starts, starts[1:] + [len(lines)])]
     return [
         {"id": f"c{index}", "description": "\n".join(group).lstrip("*- "),
-         "maxUnits": score, "levels": [
-             {"pointsUnits": 0, "description": "Không đạt tiêu chí"},
-             {"pointsUnits": score, "description": "Đạt tiêu chí theo hướng dẫn chấm"},
-         ]}
+         "maxUnits": score, "levels": _levels("\n".join(group), score)}
         for index, (group, score) in enumerate(zip(groups, scores), 1)
+    ]
+
+
+def _levels(text, score):
+    """Two levels unless the guide states a per-point value that divides the
+    criterion evenly into 2–12 steps; never invents an intermediate level."""
+    match = EACH_POINT.search(_fold(text))
+    step = _units(match[1]) if match else 0
+    if step and score % step == 0 and 2 <= score // step <= 12:
+        return [
+            {"pointsUnits": count * step,
+             "description": "Không đạt ý nào" if count == 0 else f"Đạt {count} ý theo hướng dẫn chấm"}
+            for count in range(score // step + 1)
+        ]
+    return [
+        {"pointsUnits": 0, "description": "Không đạt tiêu chí"},
+        {"pointsUnits": score, "description": "Đạt tiêu chí theo hướng dẫn chấm"},
     ]
 
 
@@ -300,9 +319,11 @@ def parse_exam(encoded, exam_code, expected_units):
             warnings.append(f"Câu {key}: chưa ghép được các tiêu chí và điểm. Hãy nhập tiêu chí trước khi duyệt.")
         folded = _fold(text)
         drawing = re.search(r"\bve\s+(?:\d+\s+)?(?:hinh|ban ve)", folded) is not None
-        table = not drawing and "so sanh" in folded
-        forms = ["drawing"] if drawing else (["text", "table"] if table else ["text"])
-        kind = "rubric_drawing" if drawing else ("rubric_table" if table else "rubric_text")
+        # Câu "so sánh" học sinh có thể trả lời bằng đoạn văn hoặc bảng; vẫn chấm theo
+        # tiêu chí văn bản (rubric_text) nên AI được phép chấm, chỉ mở rộng dạng trả lời.
+        compare = not drawing and "so sanh" in folded
+        forms = ["drawing"] if drawing else (["text", "table"] if compare else ["text"])
+        kind = "rubric_drawing" if drawing else "rubric_text"
         append(key, text, max_units, f"{text}\n{answer}\n{points}".strip(),
                kind=kind, criteria=criteria, acceptedAnswerForms=forms)
 

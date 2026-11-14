@@ -10,6 +10,7 @@ import {
 import type { Question } from './runtime/types';
 import { DOCX_LIMIT, DOCX_MIME } from './runtime/storage';
 import { examEvidence } from './runtime/exam-match';
+import { compareAiToTeacher, type AgreementPair } from './domain/ai-agreement';
 import { loadRouting } from './runtime/routing';
 import { Inject, Injectable, Optional, HttpException } from '@nestjs/common';
 import { DataSource, EntityManager, In, IsNull, Raw } from 'typeorm';
@@ -1261,6 +1262,68 @@ export class AssessmentService {
       return { jobIds, ...(d.readyOnly ? { skipped } : {}) };
     });
   }
+  /** Measures the AI against the teacher on reviews the teacher approved or published, before anyone trusts bulk approval. */
+  async aiAgreement(actor: number, id: string) {
+    const a = await this.getAssessment(actor, id);
+    const m = this.db.manager;
+    const submissions = await m.find(E.AssessmentSubmission, {
+      where: { schoolId: a.schoolId, assessmentId: id, deletedAt: IsNull() },
+    });
+    const reviewed = submissions.filter((s) => !!s.currentReviewRevisionId);
+    if (!reviewed.length) return compareAiToTeacher([]);
+    const submissionIds = reviewed.map((s) => s.id);
+    // Three batched reads instead of several queries per submission.
+    const [decidedRows, proposalRows, publications] = await Promise.all([
+      m.find(E.AssessmentReviewRevision, {
+        where: {
+          schoolId: a.schoolId,
+          id: In(reviewed.map((s) => s.currentReviewRevisionId!)),
+        },
+      }),
+      m.find(E.AssessmentReviewRevision, {
+        where: {
+          schoolId: a.schoolId,
+          submissionId: In(submissionIds),
+          createdBy: IsNull(),
+        },
+        order: { revisionNumber: 'ASC' },
+      }),
+      m.find(E.AssessmentPublication, {
+        where: {
+          schoolId: a.schoolId,
+          submissionId: In(submissionIds),
+          state: 'active',
+        },
+        select: { id: true, submissionId: true },
+      }),
+    ]);
+    const decidedById = new Map(decidedRows.map((r) => [r.id, r]));
+    const published = new Set(publications.map((p) => p.submissionId));
+    const pairs: AgreementPair[] = [];
+    for (const s of reviewed) {
+      const decided = decidedById.get(s.currentReviewRevisionId!);
+      if (!decided || decided.submissionId !== s.id) continue;
+      // Only unpublished submissions still need the per-submission approval lookup.
+      if (
+        !published.has(s.id) &&
+        !(await this.hasReviewApproval(m, a, s, decided))
+      )
+        continue;
+      const proposed = proposalRows.find(
+        (r) =>
+          r.submissionId === s.id &&
+          r.inputManifest?.inputRevision ===
+            decided.inputManifest?.inputRevision,
+      );
+      if (proposed)
+        pairs.push({
+          proposed: proposed.effectiveResults,
+          decided: decided.effectiveResults,
+          approvedAsProposed: proposed.id === decided.id,
+        });
+    }
+    return compareAiToTeacher(pairs);
+  }
   async progress(actor: number, id: string) {
     const a = await this.getAssessment(actor, id);
     const jobs = await this.db.manager.find(E.AssessmentJob, {
@@ -2271,6 +2334,8 @@ export class AssessmentService {
               [
                 'grading_disagreement',
                 'insufficient_evidence',
+                'low_confidence',
+                'short_answer_unclear',
                 'unreadable_evidence',
               ].includes(f?.code))
           ) ||

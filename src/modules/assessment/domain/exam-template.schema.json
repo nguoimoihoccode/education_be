@@ -489,6 +489,84 @@
                 }
               }
             }
+          },
+          {
+            "type": "object",
+            "additionalProperties": false,
+            "required": [
+              "questionKey",
+              "kind",
+              "text",
+              "maxUnits",
+              "sourceRegionIds",
+              "acceptedAnswers",
+              "matching"
+            ],
+            "properties": {
+              "questionKey": {
+                "type": "string",
+                "pattern": "^[A-Za-z0-9]+(?:[._-][A-Za-z0-9]+)*$"
+              },
+              "kind": {
+                "const": "short_answer"
+              },
+              "text": {
+                "type": "string",
+                "minLength": 1
+              },
+              "maxUnits": {
+                "type": "integer",
+                "minimum": 1,
+                "maximum": 1000000
+              },
+              "sourceRegionIds": {
+                "type": "array",
+                "items": {
+                  "type": "string",
+                  "minLength": 1
+                },
+                "uniqueItems": true
+              },
+              "acceptedAnswers": {
+                "type": "array",
+                "minItems": 1,
+                "maxItems": 20,
+                "items": {
+                  "type": "string",
+                  "minLength": 1,
+                  "maxLength": 200
+                }
+              },
+              "matching": {
+                "oneOf": [
+                  {
+                    "type": "object",
+                    "additionalProperties": false,
+                    "required": ["mode"],
+                    "properties": {
+                      "mode": {
+                        "const": "text"
+                      }
+                    }
+                  },
+                  {
+                    "type": "object",
+                    "additionalProperties": false,
+                    "required": ["mode", "tolerance"],
+                    "properties": {
+                      "mode": {
+                        "const": "number"
+                      },
+                      "tolerance": {
+                        "type": "number",
+                        "minimum": 0,
+                        "maximum": 1000000000
+                      }
+                    }
+                  }
+                ]
+              }
+            }
           }
         ]
       }

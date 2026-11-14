@@ -54,6 +54,33 @@ class ExamImportTest(unittest.TestCase):
         self.assertEqual(essay["criteria"][0]["maxUnits"], 1000)
         self.assertTrue(all(source_id in result["source"] for q in doc["questions"] for source_id in q["sourceRegionIds"]))
 
+    def test_compare_question_is_text_rubric_with_table_form(self):
+        import base64 as b64, io as _io, zipfile as zf
+        raw = b64.b64decode(fixture())
+        with zf.ZipFile(_io.BytesIO(raw)) as z:
+            xml = z.read("word/document.xml").decode("utf-8").replace("Nêu công dụng.", "So sánh hai bộ truyền.")
+        out = _io.BytesIO()
+        with zf.ZipFile(out, "w") as z:
+            z.writestr("[Content_Types].xml", '<Types xmlns="http://schemas.openxmlformats.org/package/2006/content-types"><Override PartName="/word/document.xml" ContentType="application/vnd.openxmlformats-officedocument.wordprocessingml.document.main+xml"/></Types>')
+            z.writestr("word/document.xml", xml)
+        essay = parse_exam(b64.b64encode(out.getvalue()).decode("ascii"), "102", 2250)["document"]["questions"][2]
+        self.assertEqual(essay["kind"], "rubric_text")
+        self.assertEqual(essay["acceptedAnswerForms"], ["text", "table"])
+
+    def test_partial_credit_only_when_the_guide_states_it(self):
+        import base64 as b64, io as _io, zipfile as zf
+        with zf.ZipFile(_io.BytesIO(b64.b64decode(fixture()))) as z:
+            xml = z.read("word/document.xml").decode("utf-8").replace(
+                "* Công dụng: Chế tạo.", "* Công dụng: Chế tạo, kiểm tra (mỗi ý đúng 0,5 điểm).")
+        out = _io.BytesIO()
+        with zf.ZipFile(out, "w") as z:
+            z.writestr("[Content_Types].xml", '<Types xmlns="http://schemas.openxmlformats.org/package/2006/content-types"><Override PartName="/word/document.xml" ContentType="application/vnd.openxmlformats-officedocument.wordprocessingml.document.main+xml"/></Types>')
+            z.writestr("word/document.xml", xml)
+        essay = parse_exam(b64.b64encode(out.getvalue()).decode("ascii"), "102", 2250)["document"]["questions"][2]
+        self.assertEqual([level["pointsUnits"] for level in essay["criteria"][0]["levels"]], [0, 500, 1000])
+        plain = parse_exam(fixture(), "102", 2250)["document"]["questions"][2]
+        self.assertEqual([level["pointsUnits"] for level in plain["criteria"][0]["levels"]], [0, 1000])
+
     def test_refuses_mismatched_total(self):
         with self.assertRaisesRegex(ExamImportError, "exam_import_score_mismatch"):
             parse_exam(fixture(), "102", 10000)

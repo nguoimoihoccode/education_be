@@ -8,6 +8,8 @@ math, never a float.
 
 from __future__ import annotations
 
+import re
+import unicodedata
 from typing import Any, Mapping, Sequence
 
 from ..canonical import hash_value
@@ -16,6 +18,9 @@ from ..db.jobs import JobError
 __all__ = [
     "hash",
     "normalize_score",
+    "near_short_answer",
+    "normalize_short_answer",
+    "parse_short_number",
     "score_objective",
     "summarize_results",
 ]
@@ -46,6 +51,88 @@ def normalize_score(earned: int, maximum: int) -> int:
     ):
         raise JobError("assessment_invalid_input")
     return (2 * earned * 100 + maximum) // (2 * maximum)
+
+
+# ASCII digits only, like JavaScript's \d in ``parseShortNumber``.
+_NUMBER = re.compile(r"[-+]?[0-9]+(?:[.,][0-9]+)?")
+_THOUSANDS = re.compile(r"[-+]?[0-9]+\.[0-9]{3}")
+_TRAILING = re.compile(r"[\s.,;:!?]+$")
+
+
+def normalize_short_answer(value: str) -> str:
+    """Mirror of ``normalizeShortAnswer``: case, spacing and trailing
+    punctuation do not matter; Vietnamese accents do."""
+    text = " ".join(unicodedata.normalize("NFC", value).lower().split())
+    return _TRAILING.sub("", text).strip()
+
+
+def _fold_short_answer(value: str) -> str:
+    return "".join(
+        char
+        for char in unicodedata.normalize("NFD", value)
+        if not unicodedata.category(char).startswith("M")
+    ).replace("đ", "d")
+
+
+def _within_one_edit(a: str, b: str) -> bool:
+    if abs(len(a) - len(b)) > 1:
+        return False
+    i = 0
+    while i < len(a) and i < len(b) and a[i] == b[i]:
+        i += 1
+    j = 0
+    while j < len(a) - i and j < len(b) - i and a[-1 - j] == b[-1 - j]:
+        j += 1
+    return max(len(a), len(b)) - i - j <= 1
+
+
+def near_short_answer(key: str, given: str) -> bool:
+    """Mirror of ``nearShortAnswer``: differing from a key only by accents or
+    one character is a likely misread, left ungraded instead of zero."""
+    a, b = _fold_short_answer(key), _fold_short_answer(given)
+    if a == b:
+        return True
+    return min(len(a), len(b)) >= 4 and _within_one_edit(a, b)
+
+
+def parse_short_number(value: str) -> float | None:
+    """Mirror of ``parseShortNumber``: exactly one number, comma or dot as the
+    decimal mark, and ``1.000`` left ambiguous."""
+    found = _NUMBER.findall(value)
+    if len(found) != 1 or _THOUSANDS.fullmatch(found[0]):
+        return None
+    try:
+        return float(found[0].replace(",", "."))
+    except ValueError:
+        return None
+
+
+def _score_short_answer(
+    question: Mapping[str, Any], content: Mapping[str, Any]
+) -> int | None:
+    text = content.get("text") if isinstance(content, Mapping) else None
+    if not isinstance(text, str) or not text.strip():
+        return None
+    accepted = [
+        item for item in question.get("acceptedAnswers") or [] if isinstance(item, str)
+    ]
+    matching = question.get("matching") or {}
+    if matching.get("mode") == "number":
+        given = parse_short_number(text)
+        if given is None:
+            return None
+        tolerance = float(matching.get("tolerance") or 0) + 1e-9
+        keys = [parse_short_number(item) for item in accepted]
+        return (
+            question["maxUnits"]
+            if any(key is not None and abs(key - given) <= tolerance for key in keys)
+            else 0
+        )
+    given_text = normalize_short_answer(text)
+    keys = [normalize_short_answer(item) for item in accepted]
+    if given_text in keys:
+        return question["maxUnits"]
+    return None if any(near_short_answer(key, given_text) for key in keys) else 0
 
 
 def _boolean(value: Any) -> bool:
@@ -99,6 +186,8 @@ def score_objective(
         if not _safe_integer(per):
             raise JobError("assessment_invalid_input")
         return correct * per
+    if question["kind"] == "short_answer":
+        return _score_short_answer(question, content)
     return None
 
 

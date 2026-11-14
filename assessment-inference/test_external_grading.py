@@ -130,6 +130,16 @@ class ExternalGradingTest(unittest.TestCase):
         self.assertEqual(self.client.post("/v1/generate", content=body, headers=headers).status_code, 404)
         self.assertEqual(self.calls, [])
 
+    def test_confidence_is_passed_through_and_unknown_values_rejected(self):
+        body = json.dumps(BODY).encode()
+        self.output = {"criteria": [{**OUTPUT["criteria"][0], "confidence": "low"}]}
+        res = self.client.post("/v1/grade-text", content=body, headers=self.signed(body))
+        self.assertEqual(res.status_code, 200, res.text)
+        self.assertEqual(res.json()["criteria"][0]["confidence"], "low")
+        self.output = {"criteria": [{**OUTPUT["criteria"][0], "confidence": "sure"}]}
+        res = self.client.post("/v1/grade-text", content=body, headers=self.signed(body))
+        self.assertEqual(res.status_code, 502)
+
     def test_invalid_provider_output_is_sanitized(self):
         body = json.dumps(BODY).encode()
         self.output = {"criteria": [{"id": "c1", "earnedUnits": 999, "reason": "Secret raw text"}]}

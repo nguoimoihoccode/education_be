@@ -132,3 +132,43 @@ def test_summarize_results_requires_the_exact_maximum():
 def test_summarize_results_validates_each_earned_value():
     with pytest.raises(JobError):
         summarize_results([{"earnedUnits": 300, "maxUnits": 250}], 250)
+
+
+from assessment_worker.domain.policy import score_objective as _score  # noqa: E402
+
+_TEXT = {"kind": "short_answer", "maxUnits": 1000, "acceptedAnswers": ["Hình chiếu đứng"], "matching": {"mode": "text"}}
+_NUMBER = {"kind": "short_answer", "maxUnits": 1000, "acceptedAnswers": ["2,5"], "matching": {"mode": "number", "tolerance": 0.05}}
+
+
+def _read(text, state="readable"):
+    return {"observation_state": state, "content": {"text": text}}
+
+
+def test_short_text_answer_ignores_case_spacing_and_full_stop_not_accents():
+    assert _score(_TEXT, _read("  hình CHIẾU   đứng. ")) == 1000
+    assert _score(_TEXT, _read("Hình chiếu bằng")) == 0
+
+
+def test_short_text_misread_stays_ungraded_like_the_api():
+    assert _score(_TEXT, _read("hinh chieu dung")) is None
+    assert _score(_TEXT, _read("Hình chiếu đúng")) is None
+    assert _score(_TEXT, _read("Hình chiêu đứng")) is None
+    assert _score(_TEXT, _read("Hình chiếu đứngg")) is None
+    short = {**_TEXT, "acceptedAnswers": ["ab"]}
+    assert _score(short, _read("ac")) == 0
+
+
+def test_short_number_ignores_non_ascii_digits():
+    assert _score(_NUMBER, _read("٢,٥")) is None
+
+
+def test_short_number_answer_matches_the_api_rules():
+    assert _score(_NUMBER, _read("x = 2,52 cm")) == 1000
+    assert _score(_NUMBER, _read("2.5")) == 1000
+    assert _score(_NUMBER, _read("2,6")) == 0
+    assert _score(_NUMBER, _read("")) is None
+    assert _score(_NUMBER, _read("2,5 hoặc 3")) is None
+    thousand = {**_NUMBER, "acceptedAnswers": ["1000"], "matching": {"mode": "number", "tolerance": 0}}
+    assert _score(thousand, _read("1.000")) is None
+    assert _score(_NUMBER, _read("", "unreadable")) is None
+    assert _score(_NUMBER, _read("", "confirmed_blank")) == 0

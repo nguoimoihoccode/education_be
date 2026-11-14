@@ -151,6 +151,19 @@ export function assertExamDocument(
         new Set(criteria.map((c: any) => c.id)).size !== criteria.length
       )
         assessmentError('ASSESSMENT_INVALID_INPUT', 'Invalid rubric criteria');
+    } else if (q.kind === 'short_answer') {
+      const accepted = q.acceptedAnswers ?? [];
+      if (
+        !accepted.length ||
+        accepted.some((x: unknown) => typeof x !== 'string' || !x.trim()) ||
+        (q.matching?.mode === 'number' &&
+          (!Number.isFinite(q.matching.tolerance) ||
+            q.matching.tolerance < 0 ||
+            accepted.some((x: string) => parseShortNumber(x) === null))) ||
+        (q.matching?.mode === 'text' &&
+          accepted.some((x: string) => !normalizeShortAnswer(x)))
+      )
+        assessmentError('ASSESSMENT_INVALID_INPUT', 'Invalid short answer key');
     } else
       assessmentError('ASSESSMENT_INVALID_INPUT', 'Unsupported question kind');
   }
@@ -181,6 +194,57 @@ export function assertReviewPublishable(
   assertRevision(review.inputManifest?.inputRevision, submission.inputRevision);
   assertRevision(review.inputManifest?.examVersionId, submission.examVersionId);
   normalizeScore(review.earnedUnits, max);
+}
+/** Case, spacing and trailing punctuation do not change a short answer; Vietnamese accents do. */
+export function normalizeShortAnswer(value: string): string {
+  return value
+    .normalize('NFC')
+    .toLowerCase()
+    .replace(/\s+/g, ' ')
+    .trim()
+    .replace(/[\s.,;:!?]+$/u, '')
+    .trim();
+}
+/** Drops Vietnamese accents (and đ→d) from an already normalized answer. */
+function foldShortAnswer(value: string): string {
+  return value.normalize('NFD').replace(/\p{M}/gu, '').replace(/đ/g, 'd');
+}
+/** True when one character inserted, deleted or replaced turns a into b. */
+function withinOneEdit(a: string, b: string): boolean {
+  if (Math.abs(a.length - b.length) > 1) return false;
+  let i = 0;
+  while (i < a.length && i < b.length && a[i] === b[i]) i += 1;
+  let j = 0;
+  while (
+    j < a.length - i &&
+    j < b.length - i &&
+    a[a.length - 1 - j] === b[b.length - 1 - j]
+  )
+    j += 1;
+  return Math.max(a.length, b.length) - i - j <= 1;
+}
+/**
+ * A wrong short answer that differs from a key only by accents or one
+ * character is more likely a misread (OCR, handwriting) than a wrong answer:
+ * it stays ungraded for the teacher instead of becoming a silent zero.
+ */
+export function nearShortAnswer(key: string, given: string): boolean {
+  const a = foldShortAnswer(key);
+  const b = foldShortAnswer(given);
+  if (a === b) return true;
+  return Math.min(a.length, b.length) >= 4 && withinOneEdit(a, b);
+}
+/**
+ * The single number written in a short answer. A comma is the decimal mark;
+ * "1.000" is ambiguous (one or one thousand) and so is several numbers, both
+ * stay ungraded for the teacher.
+ */
+export function parseShortNumber(value: string): number | null {
+  const found = value.match(/[-+]?\d+(?:[.,]\d+)?/g);
+  if (!found || found.length !== 1) return null;
+  if (/^[-+]?\d+\.\d{3}$/.test(found[0])) return null;
+  const n = Number(found[0].replace(',', '.'));
+  return Number.isFinite(n) ? n : null;
 }
 /** Rule-only score. Unknown observations remain ungraded rather than silently becoming zero. */
 export function scoreObjective(question: any, answer: any): number | null {
@@ -213,6 +277,26 @@ export function scoreObjective(question: any, answer: any): number | null {
         'Per statement units must be integral',
       );
     return correct * per;
+  }
+  if (question.kind === 'short_answer') {
+    const text = typeof content?.text === 'string' ? content.text : '';
+    if (!text.trim()) return null;
+    const accepted: string[] = question.acceptedAnswers ?? [];
+    if (question.matching?.mode === 'number') {
+      const n = parseShortNumber(text);
+      if (n === null) return null;
+      const tolerance = question.matching.tolerance + 1e-9;
+      return accepted.some((x) => {
+        const key = parseShortNumber(x);
+        return key !== null && Math.abs(key - n) <= tolerance;
+      })
+        ? question.maxUnits
+        : 0;
+    }
+    const given = normalizeShortAnswer(text);
+    const keys = accepted.map(normalizeShortAnswer);
+    if (keys.includes(given)) return question.maxUnits;
+    return keys.some((key) => nearShortAnswer(key, given)) ? null : 0;
   }
   return null;
 }

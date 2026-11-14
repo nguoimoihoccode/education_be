@@ -45,6 +45,7 @@ export class AssessmentController {
     return this.service.roster(actor, classId, subjectId);
   }
   @Get('published/:publicationId')
+  @Throttle({ default: { limit: 60, ttl: 60000 } })
   @Header('Cache-Control', 'private, no-store')
   published(
     @Req() req: RequestWithUser,
@@ -115,6 +116,7 @@ export class AssessmentController {
     return this.service.createSubmission(actor, assessmentId, dto);
   }
   @Get(':assessmentId/submissions')
+  @Throttle({ default: { limit: 120, ttl: 60000 } })
   @Header('Cache-Control', 'private, no-store')
   @Roles(UserRole.TEACHER, ...SCHOOL_ADMIN_ROLES)
   submissions(
@@ -126,6 +128,7 @@ export class AssessmentController {
     return this.service.submissions(actor, assessmentId, query);
   }
   @Get(':assessmentId/submissions/:submissionId')
+  @Throttle({ default: { limit: 120, ttl: 60000 } })
   @Header('Cache-Control', 'private, no-store')
   @Roles(UserRole.TEACHER, ...SCHOOL_ADMIN_ROLES)
   submissionDetail(
@@ -175,6 +178,7 @@ export class AssessmentController {
     return this.service.complete(actor, assessmentId, assetId, key);
   }
   @Get(':assessmentId/assets/:assetId/content')
+  @Throttle({ default: { limit: 120, ttl: 60000 } })
   @Header('Cache-Control', 'private, no-store')
   @Header('Pragma', 'no-cache')
   @Header('X-Content-Type-Options', 'nosniff')
@@ -197,6 +201,7 @@ export class AssessmentController {
     });
   }
   @Get(':assessmentId/assets/:assetId/access')
+  @Throttle({ default: { limit: 120, ttl: 60000 } })
   @Header('Cache-Control', 'private, no-store')
   @Roles(UserRole.TEACHER, ...SCHOOL_ADMIN_ROLES)
   assetAccess(
@@ -279,6 +284,7 @@ export class AssessmentController {
     );
   }
   @Get(':assessmentId/pages/:pageId/content')
+  @Throttle({ default: { limit: 120, ttl: 60000 } })
   @Header('Cache-Control', 'private, no-store')
   @Header('Pragma', 'no-cache')
   @Header('X-Content-Type-Options', 'nosniff')
@@ -303,6 +309,7 @@ export class AssessmentController {
     });
   }
   @Get(':assessmentId/pages/:pageId/access')
+  @Throttle({ default: { limit: 120, ttl: 60000 } })
   @Header('Cache-Control', 'private, no-store')
   @Roles(UserRole.TEACHER, ...SCHOOL_ADMIN_ROLES)
   pageAccess(
@@ -343,6 +350,16 @@ export class AssessmentController {
   ) {
     const actor = requireUserId(req);
     return this.service.process(actor, assessmentId, dto, key);
+  }
+  @Get(':assessmentId/ai-agreement')
+  @Throttle({ default: { limit: 30, ttl: 60000 } })
+  @Header('Cache-Control', 'private, no-store')
+  @Roles(UserRole.TEACHER, ...SCHOOL_ADMIN_ROLES)
+  aiAgreement(
+    @Req() req: RequestWithUser,
+    @Param('assessmentId', ParseUUIDPipe) assessmentId: string,
+  ) {
+    return this.service.aiAgreement(requireUserId(req), assessmentId);
   }
   @Get(':assessmentId/progress')
   @Header('Cache-Control', 'private, no-store')
@@ -586,6 +603,7 @@ export class AssessmentController {
     return this.service.exportDetail(actor, assessmentId, exportId);
   }
   @Get(':assessmentId/exports/:exportId/content')
+  @Throttle({ default: { limit: 20, ttl: 60000 } })
   @Header('Cache-Control', 'private, no-store')
   @Header('Pragma', 'no-cache')
   @Header('X-Content-Type-Options', 'nosniff')
@@ -608,6 +626,7 @@ export class AssessmentController {
     });
   }
   @Get(':assessmentId/exports/:exportId/access')
+  @Throttle({ default: { limit: 20, ttl: 60000 } })
   @Header('Cache-Control', 'private, no-store')
   @Roles(UserRole.TEACHER, ...SCHOOL_ADMIN_ROLES)
   exportAccess(

@@ -138,3 +138,22 @@ async def test_does_not_open_a_connection_when_the_policy_is_disabled(monkeypatc
             text_payload(QUESTION, {"text": "Answer"}), "pilot-v1"
         )
     assert str(error.value) == "external_grading_unavailable"
+
+
+def test_keeps_a_valid_confidence_and_rejects_an_unknown_one():
+    payload = text_payload(QUESTION, {"text": "Answer"})
+    row = {"id": "c1", "earnedUnits": 1000, "reason": "Correct"}
+    grades = validate_external_grades(
+        {"criteria": [{**row, "confidence": "low"}]}, payload, QUESTION, ["r"]
+    )
+    assert grades[0]["confidence"] == "low"
+    assert "confidence" not in validate_external_grades(
+        {"criteria": [row]}, payload, QUESTION, ["r"]
+    )[0]
+    with pytest.raises(JobError):
+        validate_external_grades(
+            {"criteria": [{**row, "confidence": "certain"}]},
+            payload,
+            QUESTION,
+            ["r"],
+        )

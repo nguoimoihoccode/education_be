@@ -169,7 +169,8 @@ export function validateExternalGrades(
       !item.allowedUnits.includes(grade.earnedUnits) ||
       typeof grade.reason !== 'string' ||
       !grade.reason.trim() ||
-      grade.reason.length > 350
+      grade.reason.length > 350 ||
+      ![undefined, 'high', 'medium', 'low'].includes(grade.confidence)
     )
       throw new Error('external_grading_response_invalid');
     return {
@@ -177,6 +178,7 @@ export function validateExternalGrades(
       pointsUnits: grade.earnedUnits as number,
       reason: grade.reason,
       evidenceRegionIds: regionIds,
+      ...(grade.confidence ? { confidence: grade.confidence } : {}),
     };
   });
 }

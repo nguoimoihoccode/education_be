@@ -193,6 +193,7 @@ def validate_external_grades(
         grade = matches[0] if matches else None
         earned = grade.get("earnedUnits") if grade is not None else None
         reason = grade.get("reason") if grade is not None else None
+        confidence = grade.get("confidence") if grade is not None else None
         points = _integer_value(earned)
         allowed = points is not None and points in item["allowedUnits"]
         if (
@@ -201,16 +202,18 @@ def validate_external_grades(
             or not isinstance(reason, str)
             or not reason.strip()
             or len(reason) > 350
+            or confidence not in (None, "high", "medium", "low")
         ):
             raise JobError("external_grading_response_invalid")
-        grades.append(
-            {
-                "criterionId": question["criteria"][index]["id"],
-                "pointsUnits": points,
-                "reason": reason,
-                "evidenceRegionIds": list(region_ids),
-            }
-        )
+        entry = {
+            "criterionId": question["criteria"][index]["id"],
+            "pointsUnits": points,
+            "reason": reason,
+            "evidenceRegionIds": list(region_ids),
+        }
+        if confidence is not None:
+            entry["confidence"] = confidence
+        grades.append(entry)
     return grades
 
 

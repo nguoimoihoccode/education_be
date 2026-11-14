@@ -79,6 +79,8 @@ MESSAGES = {
     "drawing_review_required": "Cần giáo viên kiểm tra hình vẽ và xác nhận điểm.",
     "grading_disagreement": "Hai lượt chấm có kết quả khác nhau; cần giáo viên xác nhận.",
     "insufficient_evidence": "Chưa đủ bằng chứng để đánh giá.",
+    "short_answer_unclear": "Chưa xác định được câu trả lời ngắn (trống, nhiều số, số dễ nhầm hoặc gần khớp đáp án — có thể đọc sai dấu/chữ); cần giáo viên đối chiếu ảnh.",
+    "low_confidence": "AI chưa chắc chắn về điểm câu này; cần giáo viên xác nhận.",
     "unreadable_evidence": "Bằng chứng chưa đọc rõ.",
 }
 
@@ -1189,7 +1191,7 @@ async def extract_or_grade(
                 }
             )
             continue
-        if question["kind"] in ("single_choice", "true_false_group"):
+        if question["kind"] in ("single_choice", "true_false_group", "short_answer"):
             earned = score_objective(question, answer)
             results.append(
                 {
@@ -1202,7 +1204,14 @@ async def extract_or_grade(
                 }
             )
             if earned is None:
-                flags.append(flag("choice_ambiguous", question["questionKey"]))
+                flags.append(
+                    flag(
+                        "short_answer_unclear"
+                        if question["kind"] == "short_answer"
+                        else "choice_ambiguous",
+                        question["questionKey"],
+                    )
+                )
             continue
         if answer["observation_state"] == "confirmed_blank":
             results.append(
@@ -1241,6 +1250,8 @@ async def extract_or_grade(
             value["sourceRegionIds"] = region_ids
             value["criteria"] = criteria
             results.append(value)
+            if any(item.get("confidence") == "low" for item in criteria):
+                flags.append(flag("low_confidence", question["questionKey"]))
         else:
             results.append(
                 {
