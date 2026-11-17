@@ -123,6 +123,16 @@ export const configValidationSchema = Joi.object({
     .max(2)
     .default(0.4)
     .description('AI tutor response temperature'),
+  AI_INPUT_PRICE_USD_PER_MILLION: Joi.number()
+    .min(0)
+    .optional()
+    .description(
+      'USD per million prompt tokens for AI cost accounting (admin DB setting wins)',
+    ),
+  AI_OUTPUT_PRICE_USD_PER_MILLION: Joi.number()
+    .min(0)
+    .optional()
+    .description('USD per million completion tokens for AI cost accounting'),
   AI_SETTINGS_ENCRYPTION_KEY: Joi.string()
     .optional()
     .description(

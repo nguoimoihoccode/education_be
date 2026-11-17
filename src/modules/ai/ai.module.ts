@@ -14,6 +14,7 @@ import { AiKnowledgeChunk } from './entities/ai-knowledge-chunk.entity';
 import { AiMessage } from './entities/ai-message.entity';
 import { AiProviderSettings } from './entities/ai-provider-settings.entity';
 import { AiRetrievalLog } from './entities/ai-retrieval-log.entity';
+import { AiUsageLog } from './entities/ai-usage-log.entity';
 import { KnowledgeContextService } from './knowledge-context.service';
 import { KnowledgeIndexService } from './knowledge-index.service';
 import { KnowledgeRetrievalService } from './knowledge-retrieval.service';
@@ -32,6 +33,7 @@ import { KnowledgeReindexTask } from './tasks/knowledge-reindex.task';
       AiEmbeddingSettings,
       AiKnowledgeChunk,
       AiRetrievalLog,
+      AiUsageLog,
       // Read-only: the tutor grounds replies in lesson content, and indexing
       // reads it to embed. Registered here (rather than importing
       // EducationModule) so there is no module cycle.

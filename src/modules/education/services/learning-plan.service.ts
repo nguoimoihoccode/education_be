@@ -329,20 +329,26 @@ export class LearningPlanService {
       const narrative = await this.aiService.completeJson<{
         headline?: string;
         focusArea?: string;
-      }>({
-        system:
-          'You are a concise learning coach. Return JSON {"headline","focusArea"} in Vietnamese. Max 120 chars each. No markdown. Be encouraging and specific.',
-        user: JSON.stringify({
-          completedTasks: todayPlan.completedTasks,
-          totalTasks: todayPlan.totalTasks,
-          planCompletion,
-          minuteCompletion,
-          streak: learningPlan.streak,
-          weakQuizzes: learningPlan.weakQuizzes.slice(0, 3),
-          dueReviews: learningPlan.dueReviews.count,
-          nextLesson: learningPlan.nextLesson?.title,
-        }),
-      });
+      }>(
+        {
+          system:
+            'You are a concise learning coach. Return JSON {"headline","focusArea"} in Vietnamese. Max 120 chars each. No markdown. Be encouraging and specific.',
+          user: JSON.stringify({
+            completedTasks: todayPlan.completedTasks,
+            totalTasks: todayPlan.totalTasks,
+            planCompletion,
+            minuteCompletion,
+            streak: learningPlan.streak,
+            weakQuizzes: learningPlan.weakQuizzes.slice(0, 3),
+            dueReviews: learningPlan.dueReviews.count,
+            nextLesson: learningPlan.nextLesson?.title,
+          }),
+        },
+        {
+          feature: 'coach_summary',
+          userId: Number.isSafeInteger(Number(userId)) ? Number(userId) : null,
+        },
+      );
 
       if (
         typeof narrative?.headline === 'string' &&

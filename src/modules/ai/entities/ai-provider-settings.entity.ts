@@ -36,6 +36,22 @@ export class AiProviderSettings {
   @Column({ name: 'system_rules', type: 'text', nullable: true })
   systemRules?: string | null;
 
+  /** USD per million prompt tokens; with the output price it turns usage into money. */
+  @Column({
+    name: 'input_price_usd_per_million',
+    type: 'double precision',
+    nullable: true,
+  })
+  inputPriceUsdPerMillion?: number | null;
+
+  /** USD per million completion tokens. */
+  @Column({
+    name: 'output_price_usd_per_million',
+    type: 'double precision',
+    nullable: true,
+  })
+  outputPriceUsdPerMillion?: number | null;
+
   @Column({ name: 'updated_by_user_id', type: 'integer', nullable: true })
   updatedByUserId?: number | null;
 

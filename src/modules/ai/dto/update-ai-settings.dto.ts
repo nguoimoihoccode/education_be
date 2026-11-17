@@ -47,6 +47,24 @@ export class UpdateAiSettingsDto {
   @MaxLength(8000)
   systemRules?: string;
 
+  /** USD per million prompt tokens, e.g. 0.59. */
+  @IsOptional()
+  @IsNumber()
+  @Min(0)
+  @Max(1000)
+  inputPriceUsdPerMillion?: number;
+
+  /** USD per million completion tokens, e.g. 0.79. */
+  @IsOptional()
+  @IsNumber()
+  @Min(0)
+  @Max(1000)
+  outputPriceUsdPerMillion?: number;
+
+  @IsOptional()
+  @IsBoolean()
+  clearPricing?: boolean;
+
   @IsOptional()
   @IsBoolean()
   clearApiKey?: boolean;

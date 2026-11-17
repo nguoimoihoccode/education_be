@@ -123,6 +123,14 @@ export class AiController {
     return this.aiService.testSettings();
   }
 
+  /** Tokens and USD spent on AI calls, ?from=YYYY-MM-DD&to=YYYY-MM-DD. */
+  @Get('usage')
+  @UseGuards(RolesGuard)
+  @Roles(UserRole.ADMIN, UserRole.EDUCATION_ADMIN)
+  getUsage(@Query('from') from: string, @Query('to') to: string) {
+    return this.aiService.getUsage(from, to);
+  }
+
   @Get('knowledge/status')
   @UseGuards(RolesGuard)
   @Roles(UserRole.ADMIN, UserRole.EDUCATION_ADMIN)

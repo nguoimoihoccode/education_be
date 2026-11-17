@@ -64,10 +64,10 @@ export class AiVocabEnricherService {
     ].join('\n');
 
     try {
-      const data = await this.aiService.completeJson<AiCardsResponse>({
-        system,
-        user,
-      });
+      const data = await this.aiService.completeJson<AiCardsResponse>(
+        { system, user },
+        { feature: 'vocab_enrich' },
+      );
 
       const cards = Array.isArray(data?.cards) ? data.cards : [];
       return cards

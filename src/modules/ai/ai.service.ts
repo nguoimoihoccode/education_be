@@ -1,6 +1,8 @@
 import {
+  BadRequestException,
   Inject,
   Injectable,
+  Logger,
   NotFoundException,
   Optional,
   ServiceUnavailableException,
@@ -15,7 +17,19 @@ import { UpdateAiSettingsDto } from './dto/update-ai-settings.dto';
 import { AiConversation } from './entities/ai-conversation.entity';
 import { AiMessage, AiMessageRole } from './entities/ai-message.entity';
 import { AiProviderSettings } from './entities/ai-provider-settings.entity';
+import { AiUsageLog } from './entities/ai-usage-log.entity';
+import {
+  costMicros,
+  readUsage,
+  type AiUsageFeature,
+  type ChatPricing,
+  type ChatUsage,
+} from './domain/ai-usage.policy';
 import { EmbeddingService } from './embedding.service';
+import {
+  isValidIsoDayRange,
+  vnDayRangeWhere,
+} from '../../common/utils/date-range.util';
 import { KnowledgeSourceType } from './domain/knowledge-chunking.policy';
 import { renderReferenceBlock } from './domain/knowledge-prompt.policy';
 import { KnowledgeContextService } from './knowledge-context.service';
@@ -24,6 +38,12 @@ import { KnowledgeRetrievalService } from './knowledge-retrieval.service';
 type FetchLike = typeof fetch;
 
 export const AI_FETCH_CLIENT = 'AI_FETCH_CLIENT';
+
+/** Who a completion is for and which feature asked, for `ai_usage_logs`. */
+export interface AiUsageContext {
+  feature: AiUsageFeature;
+  userId?: number | null;
+}
 
 interface GroqChatResponse {
   choices?: Array<{
@@ -59,6 +79,7 @@ interface ProviderConfig {
   model: string;
   maxTokens: number;
   temperature: number;
+  pricing: ChatPricing & { source: ConfigSource };
   source: {
     baseUrl: ConfigSource;
     apiKey: ConfigSource;
@@ -95,6 +116,7 @@ export const GROUNDING_INSTRUCTION = [
 export class AiService {
   private static readonly HISTORY_WINDOW = 20;
   private static readonly DEFAULT_TITLE = 'New Chat';
+  private readonly logger = new Logger(AiService.name);
 
   constructor(
     private readonly configService: ConfigService,
@@ -110,6 +132,9 @@ export class AiService {
     @Optional()
     @Inject(AI_FETCH_CLIENT)
     private readonly fetchClient: FetchLike = fetch,
+    @Optional()
+    @InjectRepository(AiUsageLog)
+    private readonly usageRepo?: Repository<AiUsageLog>,
   ) {}
 
   private isUnset(value: unknown): boolean {
@@ -208,6 +233,7 @@ export class AiService {
       model,
       maxTokens,
       temperature,
+      pricing: this.pricingFromRow(row),
       source: {
         baseUrl: baseUrlSource,
         apiKey: apiKeySource,
@@ -433,8 +459,12 @@ export class AiService {
     ];
 
     let reply: string;
+    let usage: ChatUsage | null;
     try {
-      reply = await this.completeChat(chatMessages);
+      ({ reply, usage } = await this.completeChat(chatMessages, {
+        feature: 'tutor_chat',
+        userId,
+      }));
     } catch (err) {
       if (err instanceof ServiceUnavailableException) {
         throw err;
@@ -447,6 +477,7 @@ export class AiService {
         conversationId,
         role: AiMessageRole.ASSISTANT,
         content: reply,
+        tokenCount: usage?.completionTokens ?? null,
       }),
     );
 
@@ -527,6 +558,8 @@ export class AiService {
         systemRules: systemRulesResolved.source,
       },
       updatedAt: row?.updatedAt ?? null,
+      // Both prices are needed to turn tokens into money; one alone stays unknown.
+      pricing: effective.pricing,
       // The two providers are configured independently, so the settings view
       // reports them side by side rather than pretending they are one provider.
       embedding: await this.embedding.getConfigView(),
@@ -558,6 +591,16 @@ export class AiService {
     }
     if (dto.clearSystemRules) {
       row.systemRules = null;
+    }
+    if (dto.clearPricing) {
+      row.inputPriceUsdPerMillion = null;
+      row.outputPriceUsdPerMillion = null;
+    }
+    if (dto.inputPriceUsdPerMillion !== undefined) {
+      row.inputPriceUsdPerMillion = dto.inputPriceUsdPerMillion;
+    }
+    if (dto.outputPriceUsdPerMillion !== undefined) {
+      row.outputPriceUsdPerMillion = dto.outputPriceUsdPerMillion;
     }
 
     if (dto.baseUrl !== undefined) {
@@ -612,10 +655,13 @@ export class AiService {
 
     const started = Date.now();
     try {
-      await this.completeChat([
-        { role: 'system', content: 'Reply with pong only.' },
-        { role: 'user', content: 'ping' },
-      ]);
+      await this.completeChat(
+        [
+          { role: 'system', content: 'Reply with pong only.' },
+          { role: 'user', content: 'ping' },
+        ],
+        { feature: 'other' },
+      );
     } catch {
       throw new ServiceUnavailableException('AI tutor service unavailable');
     }
@@ -652,18 +698,31 @@ export class AiService {
     }
   }
 
-  async completeText(input: { system: string; user: string }): Promise<string> {
-    return this.completeChat([
-      { role: 'system', content: input.system },
-      { role: 'user', content: input.user },
-    ]);
+  async completeText(
+    input: { system: string; user: string },
+    usage: AiUsageContext = { feature: 'other' },
+  ): Promise<string> {
+    const { reply } = await this.completeChat(
+      [
+        { role: 'system', content: input.system },
+        { role: 'user', content: input.user },
+      ],
+      usage,
+    );
+    return reply;
   }
 
-  async completeJson<T>(input: { system: string; user: string }): Promise<T> {
-    const raw = await this.completeText({
-      system: `${input.system}\nRespond with a single JSON object only. No markdown.`,
-      user: input.user,
-    });
+  async completeJson<T>(
+    input: { system: string; user: string },
+    usage: AiUsageContext = { feature: 'other' },
+  ): Promise<T> {
+    const raw = await this.completeText(
+      {
+        system: `${input.system}\nRespond with a single JSON object only. No markdown.`,
+        user: input.user,
+      },
+      usage,
+    );
     const cleaned = raw
       .replace(/^```(?:json)?\s*/i, '')
       .replace(/\s*```$/i, '')
@@ -677,12 +736,19 @@ export class AiService {
 
   private async completeChat(
     messages: { role: string; content: string }[],
-  ): Promise<string> {
+    context: AiUsageContext,
+  ): Promise<{ reply: string; usage: ChatUsage | null }> {
     const config = await this.resolveProviderConfig();
     if (!config.apiKey) {
       throw new ServiceUnavailableException('AI tutor is not configured');
     }
 
+    const started = Date.now();
+    let logged = false;
+    const log = async (status: 'ok' | 'error', usage: ChatUsage | null) => {
+      logged = true;
+      await this.recordUsage(config, context, status, usage, started);
+    };
     try {
       const response = await this.fetchClient(
         `${config.baseUrl}/chat/completions`,
@@ -702,21 +768,180 @@ export class AiService {
       );
 
       if (!response.ok) {
+        // A rejected request may still be billed by some providers; it is
+        // counted as a call with unknown usage rather than silently dropped.
+        await log('error', null);
         throw new Error(`Groq request failed with status ${response.status}`);
       }
 
       const data = (await response.json()) as GroqChatResponse;
+      const usage = readUsage(data);
+      // Tokens were spent even when the reply turns out empty.
+      await log('ok', usage);
       const reply = data.choices?.[0]?.message?.content?.trim();
       if (!reply) {
         throw new Error('Groq returned an empty tutor response');
       }
 
-      return reply;
+      return { reply, usage };
     } catch (err) {
+      if (!logged) await log('error', null);
       if (err instanceof ServiceUnavailableException) {
         throw err;
       }
       throw new ServiceUnavailableException('AI tutor service unavailable');
     }
+  }
+
+  /** Admin pricing (DB) over env; a missing side leaves cost unknown. */
+  private pricingFromRow(
+    row?: AiProviderSettings,
+  ): ChatPricing & { source: ConfigSource } {
+    if (
+      row &&
+      row.inputPriceUsdPerMillion !== null &&
+      row.inputPriceUsdPerMillion !== undefined &&
+      row.outputPriceUsdPerMillion !== null &&
+      row.outputPriceUsdPerMillion !== undefined
+    )
+      return {
+        inputUsdPerMillion: row.inputPriceUsdPerMillion,
+        outputUsdPerMillion: row.outputPriceUsdPerMillion,
+        source: 'db',
+      };
+    const env = (key: string) => {
+      const v = this.configService.get<number | string>(key);
+      return v === undefined || v === null || v === '' ? null : Number(v);
+    };
+    const input = env('AI_INPUT_PRICE_USD_PER_MILLION');
+    const output = env('AI_OUTPUT_PRICE_USD_PER_MILLION');
+    if (input !== null && output !== null)
+      return {
+        inputUsdPerMillion: input,
+        outputUsdPerMillion: output,
+        source: 'env',
+      };
+    return {
+      inputUsdPerMillion: null,
+      outputUsdPerMillion: null,
+      source: 'default',
+    };
+  }
+
+  private async resolvePricing(): Promise<
+    ChatPricing & { source: ConfigSource }
+  > {
+    const row = (await this.settingsRepo.find({ take: 1 }))[0];
+    return this.pricingFromRow(row);
+  }
+
+  /** Best effort: accounting must never break a learner's request. */
+  private async recordUsage(
+    config: ProviderConfig,
+    context: AiUsageContext,
+    status: 'ok' | 'error',
+    usage: ChatUsage | null,
+    started: number,
+  ): Promise<void> {
+    if (!this.usageRepo) return;
+    try {
+      let host = 'unknown';
+      try {
+        host = new URL(config.baseUrl).host.slice(0, 255);
+      } catch {
+        /* keep 'unknown' */
+      }
+      await this.usageRepo.insert({
+        userId: context.userId ?? null,
+        feature: context.feature,
+        model: config.model.slice(0, 128),
+        providerHost: host,
+        status,
+        promptTokens: usage?.promptTokens ?? null,
+        completionTokens: usage?.completionTokens ?? null,
+        totalTokens: usage?.totalTokens ?? null,
+        costMicros: status === 'ok' ? costMicros(usage, config.pricing) : null,
+        latencyMs: Date.now() - started,
+      });
+    } catch (err) {
+      this.logger.warn(
+        `AI usage not recorded: ${err instanceof Error ? err.message : err}`,
+      );
+    }
+  }
+
+  /**
+   * Tokens and micro-USD over a date range (Asia/Ho_Chi_Minh days), split by
+   * day, feature, model and the heaviest users. Calls with no price or no
+   * usage are counted apart as unknown cost, never priced at zero.
+   */
+  async getUsage(from: string, to: string) {
+    if (!isValidIsoDayRange(from, to, 366))
+      throw new BadRequestException(
+        'from/to must be valid YYYY-MM-DD calendar dates at most 366 days apart',
+      );
+    if (!this.usageRepo)
+      throw new ServiceUnavailableException('AI usage log is not available');
+    const local = `(created_at AT TIME ZONE 'Asia/Ho_Chi_Minh')::date`;
+    const where = vnDayRangeWhere('created_at', '$1', '$2');
+    const columns = `count(*)::int AS calls,
+      count(*) FILTER (WHERE status='error')::int AS "errorCalls",
+      COALESCE(sum(prompt_tokens),0)::bigint AS "promptTokens",
+      COALESCE(sum(completion_tokens),0)::bigint AS "completionTokens",
+      COALESCE(sum(total_tokens),0)::bigint AS "totalTokens",
+      COALESCE(sum(cost_micros),0)::bigint AS "knownCostMicros",
+      count(*) FILTER (WHERE status='ok' AND cost_micros IS NULL)::int AS "unknownCostCalls"`;
+    const q = (select: string, group = '', order = '', limit = '') =>
+      this.usageRepo!.query(
+        `SELECT ${select}${select ? ',' : ''}${columns} FROM ai_usage_logs
+          WHERE ${where} ${group} ${order} ${limit}`,
+        [from, to],
+      );
+    const norm = (r: any) => {
+      const out: any = { ...r };
+      for (const k of [
+        'promptTokens',
+        'completionTokens',
+        'totalTokens',
+        'knownCostMicros',
+      ])
+        out[k] = Number(r[k]);
+      out.knownCostUsd = out.knownCostMicros / 1_000_000;
+      return out;
+    };
+    const [[total], byDay, byFeature, byModel, topUsers, pricing] =
+      await Promise.all([
+        q(''),
+        q(`to_char(${local},'YYYY-MM-DD') AS day`, 'GROUP BY 1', 'ORDER BY 1'),
+        q(
+          'feature',
+          'GROUP BY 1',
+          'ORDER BY "knownCostMicros" DESC, calls DESC',
+        ),
+        q(
+          'model, provider_host AS "providerHost"',
+          'GROUP BY 1,2',
+          'ORDER BY "knownCostMicros" DESC, calls DESC',
+        ),
+        q(
+          'user_id AS "userId"',
+          'AND user_id IS NOT NULL GROUP BY 1',
+          'ORDER BY "totalTokens" DESC',
+          'LIMIT 20',
+        ),
+        this.resolvePricing(),
+      ]);
+    return {
+      from,
+      to,
+      timeZone: 'Asia/Ho_Chi_Minh',
+      currency: 'USD' as const,
+      pricing,
+      ...norm(total),
+      byDay: byDay.map(norm),
+      byFeature: byFeature.map(norm),
+      byModel: byModel.map(norm),
+      topUsers: topUsers.map(norm),
+    };
   }
 }

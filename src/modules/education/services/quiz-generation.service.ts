@@ -131,15 +131,18 @@ export class QuizGenerationService {
       const data = await this.aiService.completeJson<{
         distractors: string[];
         explanation: string;
-      }>({
-        system:
-          'You write multiple-choice language quiz items. Return JSON {"distractors":[string,string,string],"explanation":string}. Distractors must be plausible wrong answers of similar type/length, not the correct answer.',
-        user: JSON.stringify({
-          term: flashcard.front,
-          correctMeaning: flashcard.back,
-          example: flashcard.example,
-        }),
-      });
+      }>(
+        {
+          system:
+            'You write multiple-choice language quiz items. Return JSON {"distractors":[string,string,string],"explanation":string}. Distractors must be plausible wrong answers of similar type/length, not the correct answer.',
+          user: JSON.stringify({
+            term: flashcard.front,
+            correctMeaning: flashcard.back,
+            example: flashcard.example,
+          }),
+        },
+        { feature: 'quiz_generate' },
+      );
 
       const correct = (flashcard.back || '').trim().toLowerCase();
       const distractors = (

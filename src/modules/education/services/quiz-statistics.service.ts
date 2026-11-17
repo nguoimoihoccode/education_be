@@ -206,15 +206,18 @@ export class QuizStatisticsService {
     await Promise.all(
       needsExplanation.map(async (item) => {
         try {
-          const text = await this.aiService.completeText({
-            system:
-              'Write a short, clear quiz explanation (1-2 sentences) for a wrong answer. No markdown.',
-            user: JSON.stringify({
-              question: item.question,
-              userAnswer: item.userAnswer,
-              correctAnswer: item.correctAnswer,
-            }),
-          });
+          const text = await this.aiService.completeText(
+            {
+              system:
+                'Write a short, clear quiz explanation (1-2 sentences) for a wrong answer. No markdown.',
+              user: JSON.stringify({
+                question: item.question,
+                userAnswer: item.userAnswer,
+                correctAnswer: item.correctAnswer,
+              }),
+            },
+            { feature: 'quiz_explain' },
+          );
           const explanation = (text || '').trim();
           if (explanation) {
             item.explanation = explanation;
