@@ -38,6 +38,7 @@ from .exam_match import exam_evidence
 from .export import PDF_MIME, XLSX_MIME, render_report
 from .external_text import MANUAL_ONLY_EVENT, external_text_policy
 from .external_text_worker import grade_released_text
+from .pilot import assert_pilot_active
 from .extraction import READER_INSTRUCTION, validate_page_read
 from .preparation import prepare_document
 from .private_layout import LAYOUT_INSTRUCTION, private_page
@@ -284,7 +285,8 @@ def _normalize(text: str) -> str:
 
 
 async def fenced(connection: asyncpg.Connection, job: Mapping[str, Any]) -> None:
-    """processor.ts:66 — the lease must still be ours inside the transaction."""
+    """processor.ts:66 — the lease must still be ours, and the pilot scope still
+    active, inside the transaction that writes the result."""
     current = await connection.fetchrow(
         FENCED, job["id"], job["school_id"]
     )
@@ -296,6 +298,8 @@ async def fenced(connection: asyncpg.Connection, job: Mapping[str, Any]) -> None
         or current["lease_until"] < datetime.now(timezone.utc)
     ):
         raise JobError("job_lease_lost")
+    # A pause after the claim must not let this result land in a review.
+    await assert_pilot_active(connection, job)
 
 
 async def process(

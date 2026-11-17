@@ -19,6 +19,7 @@ import asyncpg
 
 from .canonical import stringify
 from .db import write
+from .db.jobs import JobError
 from .domain.policy import hash as policy_hash
 from .external_text import (
     TEXT_RELEASE_EVENT,
@@ -30,6 +31,7 @@ from .external_text import (
     text_payload_hash,
     validate_external_grades,
 )
+from .pilot import assert_pilot_active
 from .storage import AssessmentStorage
 
 CALL_PURPOSE = "external_text_grading"
@@ -265,6 +267,7 @@ async def grade_released_text(
                         else None
                     )
                 else:
+                    await assert_pilot_active(connection, job)
                     reservation = await _reserve(
                         connection, job, policy, request_hash
                     )
@@ -287,6 +290,7 @@ async def grade_released_text(
     try:
         async with pool.acquire() as connection:
             async with connection.transaction():
+                await assert_pilot_active(connection, job)
                 if await _has_permission(
                     connection, job, answer, question, payload, payload_hash,
                     policy, release_id,
@@ -303,6 +307,7 @@ async def grade_released_text(
                     "school_assessment_provider_calls",
                     {
                         "state": "not_sent",
+                        "actualCostMicros": 0,
                         "errorCode": "external_grading_revoked",
                     },
                     update,
@@ -337,6 +342,19 @@ async def grade_released_text(
                 update,
             )
         return criteria
+    except JobError as error:
+        async with pool.acquire() as connection:
+            await write.update(
+                connection,
+                "school_assessment_provider_calls",
+                {
+                    "state": "not_sent",
+                    "actualCostMicros": 0,
+                    "errorCode": str(error)[:100],
+                },
+                update,
+            )
+        raise
     except Exception:
         # An uncertain delivery is counted and never retried automatically for
         # the same answer.

@@ -185,3 +185,11 @@ export class ExternalTextReleaseDto {
 export class ExternalTextRevokeDto {
   @IsInt() @Min(1) expectedInputRevision: number;
 }
+export class PilotScopeDto {
+  @IsUUID() classId: string;
+  @IsUUID() subjectId: string;
+  @IsIn(['closed', 'active', 'paused']) state: 'closed' | 'active' | 'paused';
+  @IsString() @Length(3, 500) reason: string;
+  /** Required once the scope exists; omitted only to create it. */
+  @IsOptional() @IsInt() @Min(1) expectedRevision?: number;
+}

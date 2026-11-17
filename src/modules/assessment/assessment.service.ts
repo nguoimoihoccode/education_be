@@ -11,6 +11,7 @@ import type { Question } from './runtime/types';
 import { DOCX_LIMIT, DOCX_MIME } from './runtime/storage';
 import { examEvidence } from './runtime/exam-match';
 import { compareAiToTeacher, type AgreementPair } from './domain/ai-agreement';
+import { summarizeCost, type CostCall } from './domain/cost-report';
 import { loadRouting } from './runtime/routing';
 import { Inject, Injectable, Optional, HttpException } from '@nestjs/common';
 import { DataSource, EntityManager, In, IsNull, Raw } from 'typeorm';
@@ -19,6 +20,11 @@ import * as E from './entities/assessment.entities';
 import { SchoolClassSubjectAccessService } from '../school/school-class-subject-access.service';
 import { SchoolService } from '../school/school.service';
 import {
+  isValidIsoDayRange,
+  vnDayRangeWhere,
+} from '../../common/utils/date-range.util';
+import {
+  School,
   SchoolClass,
   Subject,
   ClassMembership,
@@ -40,6 +46,24 @@ import {
 } from './domain/assessment.policy';
 import * as D from './dto/assessment.dto';
 
+/** Raw provider-call row (snake_case, bigint as string) to the cost policy shape. */
+function costCall(r: any): CostCall {
+  const num = (v: unknown) =>
+    v === null || v === undefined ? null : Number(v);
+  return {
+    ...(r.calls !== undefined ? { count: Number(r.calls) } : {}),
+    state: r.state,
+    purpose: r.purpose,
+    provider: r.provider,
+    modelRequested: r.model_requested,
+    attemptNumber: Number(r.attempt_number),
+    inputUsage: r.input_usage,
+    outputUsage: r.output_usage,
+    reservedCostMicros: num(r.reserved_cost_micros) ?? 0,
+    actualCostMicros: num(r.actual_cost_micros),
+  };
+}
+
 @Injectable()
 export class AssessmentService {
   constructor(
@@ -56,6 +80,55 @@ export class AssessmentService {
   private ready() {
     if (!this.enabled())
       assessmentError('ASSESSMENT_NOT_READY', 'Assessment is disabled', 503);
+  }
+  /**
+   * Pilot gate per school × class × subject (design §4). A missing row is
+   * closed. Inside a transaction the row is read FOR SHARE, so a concurrent
+   * pause waits for the business change instead of racing it.
+   */
+  private async pilotState(
+    m: EntityManager,
+    scope: { schoolId: string; classId: string; subjectId: string },
+  ): Promise<E.PilotState> {
+    const row = await m.findOne(E.AssessmentPilotScope, {
+      where: {
+        schoolId: scope.schoolId,
+        classId: scope.classId,
+        subjectId: scope.subjectId,
+      },
+      ...(m.queryRunner?.isTransactionActive
+        ? { lock: { mode: 'pessimistic_read' as const } }
+        : {}),
+    });
+    return row?.state ?? 'closed';
+  }
+  private async assertPilotActive(
+    m: EntityManager,
+    scope: { schoolId: string; classId: string; subjectId: string },
+  ) {
+    const state = await this.pilotState(m, scope);
+    if (state === 'active') return;
+    if (state === 'paused')
+      assessmentError(
+        'ASSESSMENT_PILOT_PAUSED',
+        'Assessment processing is paused for this class and subject',
+        409,
+      );
+    assessmentError(
+      'ASSESSMENT_PILOT_CLOSED',
+      'Assessment is not open for this class and subject',
+      409,
+    );
+  }
+  /** Paused keeps review open (no model call, no new job) but stops intake and finalization. */
+  private pilotCapabilities(state: E.PilotState, archived = false) {
+    const active = state === 'active' && !archived;
+    return {
+      canCreate: active,
+      canProcess: active,
+      canReview: state !== 'closed' && !archived,
+      canFinalize: active,
+    };
   }
   private notFound(): never {
     return assessmentError(
@@ -260,12 +333,7 @@ export class AssessmentService {
     if (!this.enabled())
       return {
         enabled: false,
-        capabilities: {
-          canCreate: false,
-          canProcess: false,
-          canReview: false,
-          canFinalize: false,
-        },
+        capabilities: this.pilotCapabilities('closed'),
         classes: [],
       };
     const schoolId = await this.schools.resolveSchoolIdForUser(actor);
@@ -275,13 +343,27 @@ export class AssessmentService {
     const subjects = await this.db.manager.find(Subject, {
       where: { schoolId },
     });
+    const scopes = await this.db.manager.find(E.AssessmentPilotScope, {
+      where: { schoolId },
+    });
+    const stateOf = new Map(
+      scopes.map((x) => [`${x.classId}:${x.subjectId}`, x.state]),
+    );
     const visible = [];
+    const seen = new Set<E.PilotState>();
     for (const cls of classes) {
       const allowed = [];
       for (const subject of subjects) {
         try {
           await this.access.assertAccess(actor, cls.id, subject.id);
-          allowed.push({ id: subject.id, name: subject.name });
+          const pilotState = stateOf.get(`${cls.id}:${subject.id}`) ?? 'closed';
+          seen.add(pilotState);
+          allowed.push({
+            id: subject.id,
+            name: subject.name,
+            pilotState,
+            capabilities: this.pilotCapabilities(pilotState),
+          });
         } catch (e) {
           if (!(e instanceof HttpException) || e.getStatus() !== 404) throw e;
         }
@@ -294,16 +376,205 @@ export class AssessmentService {
           subjects: allowed,
         });
     }
+    // Top level answers "can I do this anywhere?"; per subject is authoritative.
+    const best: E.PilotState = seen.has('active')
+      ? 'active'
+      : seen.has('paused')
+        ? 'paused'
+        : 'closed';
     return {
       enabled: true,
-      capabilities: {
-        canCreate: true,
-        canProcess: true,
-        canReview: true,
-        canFinalize: true,
-      },
+      capabilities: this.pilotCapabilities(best),
       classes: visible,
     };
+  }
+  /** Operations view of every pilot scope, newest change first. Works with the global flag off. */
+  async pilotScopes(schoolId?: string) {
+    const [rows, allSchools, allClasses, allSubjects] = await Promise.all([
+      this.db.manager.find(E.AssessmentPilotScope, {
+        where: schoolId ? { schoolId } : {},
+        order: { updatedAt: 'DESC' },
+      }),
+      this.db.manager.find(School, {
+        where: schoolId ? { id: schoolId } : {},
+        order: { name: 'ASC' },
+      }),
+      this.db.manager.find(SchoolClass, {
+        where: schoolId ? { schoolId } : {},
+        order: { name: 'ASC' },
+      }),
+      this.db.manager.find(Subject, {
+        where: schoolId ? { schoolId } : {},
+        order: { name: 'ASC' },
+      }),
+    ]);
+    const schoolName = new Map(allSchools.map((x) => [x.id, x.name]));
+    const className = new Map(allClasses.map((x) => [x.id, x.name]));
+    const subjectName = new Map(allSubjects.map((x) => [x.id, x.name]));
+    return {
+      items: rows.map((x) => ({
+        id: x.id,
+        schoolId: x.schoolId,
+        schoolName: schoolName.get(x.schoolId) ?? null,
+        classId: x.classId,
+        className: className.get(x.classId) ?? null,
+        subjectId: x.subjectId,
+        subjectName: subjectName.get(x.subjectId) ?? null,
+        state: x.state,
+        revision: x.revision,
+        reason: x.reason,
+        updatedBy: x.updatedBy,
+        updatedAt: x.updatedAt,
+      })),
+      schools: allSchools.map((s) => ({
+        id: s.id,
+        name: s.name,
+        classes: allClasses
+          .filter((c) => c.schoolId === s.id)
+          .map((c) => ({ id: c.id, name: c.name })),
+        subjects: allSubjects
+          .filter((sub) => sub.schoolId === s.id)
+          .map((sub) => ({ id: sub.id, name: sub.name })),
+      })),
+    };
+  }
+  /**
+   * Open, pause or close one class × subject. The row lock makes the change
+   * wait for any in-flight business transaction that read the scope FOR SHARE,
+   * and the worker re-reads the state before every model call and result write.
+   * Pausing/closing parks waiting jobs; reopening re-queues only jobs the gate
+   * itself stopped.
+   */
+  async setPilotScope(actor: number, d: D.PilotScopeDto) {
+    const reason = d.reason.trim();
+    if (reason.length < 3 || reason.length > 500)
+      assessmentError(
+        'ASSESSMENT_INVALID_INPUT',
+        'A reason of 3 to 500 characters is required',
+      );
+    return this.db.transaction(async (m) => {
+      // Lock the parent class row so two concurrent first-time opens on the
+      // same class serialize cleanly instead of racing into unique 23505.
+      const cls = await m.findOne(SchoolClass, {
+        select: { id: true, schoolId: true },
+        where: { id: d.classId },
+        lock: { mode: 'pessimistic_write' },
+      });
+      const subject = cls
+        ? await m.findOne(Subject, {
+            select: { id: true },
+            where: { id: d.subjectId, schoolId: cls.schoolId },
+          })
+        : null;
+      if (!cls || !subject) this.notFound();
+      const schoolId = cls.schoolId;
+      let row = await m.findOne(E.AssessmentPilotScope, {
+        where: { schoolId, classId: d.classId, subjectId: d.subjectId },
+        lock: { mode: 'pessimistic_write' },
+      });
+      const fromState = row?.state ?? null;
+      if (row) {
+        assertRevision(row.revision, d.expectedRevision);
+        row.state = d.state;
+        row.reason = reason;
+        row.updatedBy = actor;
+        row.revision++;
+      } else {
+        if (d.expectedRevision !== undefined)
+          assertRevision(null, d.expectedRevision);
+        row = m.create(E.AssessmentPilotScope, {
+          schoolId,
+          classId: d.classId,
+          subjectId: d.subjectId,
+          state: d.state,
+          reason,
+          updatedBy: actor,
+        });
+      }
+      row = await m.save(E.AssessmentPilotScope, row);
+      await m.save(
+        E.AssessmentPilotScopeEvent,
+        m.create(E.AssessmentPilotScopeEvent, {
+          schoolId,
+          scopeId: row.id,
+          fromState,
+          toState: row.state,
+          scopeRevision: row.revision,
+          actorId: actor,
+          reason,
+        }),
+      );
+      let requeuedJobs = 0;
+      let parkedJobs = 0;
+      if (row.state === 'active' && fromState !== 'active') {
+        const [{ n }] = await m.query(
+          `WITH requeued AS (
+             UPDATE school_assessment_jobs j
+                SET state='pending',next_attempt_at=now(),last_error_code=NULL,
+                    attempt_count=GREATEST(j.attempt_count-1,0),
+                    dispatch_generation=j.dispatch_generation+1,updated_at=now()
+               FROM school_assessments a
+              WHERE a.id=j.assessment_id AND a.school_id=j.school_id
+                AND a.school_id=$1 AND a.class_id=$2 AND a.subject_id=$3
+                AND j.state='paused' AND j.last_error_code LIKE 'pilot\\_%'
+             RETURNING j.submission_id,j.school_id,j.data
+           ), touched AS (
+             UPDATE school_assessment_submissions s
+                SET processing_state='queued',updated_at=now()
+               FROM requeued r
+              WHERE r.submission_id IS NOT NULL
+                AND s.id=r.submission_id AND s.school_id=r.school_id
+                AND (r.data->>'inputRevision') ~ '^[0-9]+$'
+                AND s.input_revision=(r.data->>'inputRevision')::int
+                AND s.processing_state='paused'
+             RETURNING s.id
+           )
+           SELECT count(*)::int AS n FROM requeued`,
+          [schoolId, d.classId, d.subjectId],
+        );
+        requeuedJobs = n;
+      } else if (row.state !== 'active') {
+        const code = row.state === 'paused' ? 'pilot_paused' : 'pilot_closed';
+        const [{ n }] = await m.query(
+          `WITH parked AS (
+             UPDATE school_assessment_jobs j
+                SET state='paused',last_error_code=$4,
+                    lease_token=NULL,lease_owner=NULL,lease_until=NULL,updated_at=now()
+               FROM school_assessments a
+              WHERE a.id=j.assessment_id AND a.school_id=j.school_id
+                AND a.school_id=$1 AND a.class_id=$2 AND a.subject_id=$3
+                AND j.state IN ('pending','dispatched','retry_wait')
+             RETURNING j.submission_id,j.school_id,j.data
+           ), touched AS (
+             UPDATE school_assessment_submissions s
+                SET processing_state='paused',updated_at=now()
+               FROM parked p
+              WHERE p.submission_id IS NOT NULL
+                AND s.id=p.submission_id AND s.school_id=p.school_id
+                AND (p.data->>'inputRevision') ~ '^[0-9]+$'
+                AND s.input_revision=(p.data->>'inputRevision')::int
+                AND s.processing_state='queued'
+             RETURNING s.id
+           )
+           SELECT count(*)::int AS n FROM parked`,
+          [schoolId, d.classId, d.subjectId, code],
+        );
+        parkedJobs = n;
+      }
+      return {
+        id: row.id,
+        schoolId,
+        classId: row.classId,
+        subjectId: row.subjectId,
+        state: row.state,
+        revision: row.revision,
+        reason: row.reason,
+        updatedBy: row.updatedBy,
+        updatedAt: row.updatedAt,
+        requeuedJobs,
+        parkedJobs,
+      };
+    });
   }
   async roster(actor: number, classId: string, subjectId: string) {
     this.ready();
@@ -338,6 +609,11 @@ export class AssessmentService {
         d.subjectId,
         m,
       );
+      await this.assertPilotActive(m, {
+        schoolId,
+        classId: d.classId,
+        subjectId: d.subjectId,
+      });
       const requestHash = hash(d);
       const routeScope = 'assessments:create';
       await m.query('SELECT pg_advisory_xact_lock(hashtextextended($1,0))', [
@@ -436,6 +712,7 @@ export class AssessmentService {
   }
   async detail(actor: number, id: string) {
     const a = await this.getAssessment(actor, id);
+    const pilotState = await this.pilotState(this.db.manager, a);
     const examVersions = await this.db.manager.find(E.AssessmentExamVersion, {
       where: { schoolId: a.schoolId, assessmentId: a.id },
       order: { examCode: 'ASC', versionNumber: 'DESC' },
@@ -487,6 +764,18 @@ export class AssessmentService {
       schoolId: a.schoolId,
       assessmentId: id,
     });
+    const nowMs = Date.now();
+    const exports = (
+      await this.db.manager.find(E.AssessmentExport, {
+        where: {
+          schoolId: a.schoolId,
+          assessmentId: id,
+          state: 'completed',
+        },
+        select: { id: true, format: true, createdAt: true, expiresAt: true },
+        order: { createdAt: 'DESC' },
+      })
+    ).filter((exp) => exp.expiresAt.getTime() > nowMs);
     return {
       roster: roster
         .map((student) => ({
@@ -506,11 +795,9 @@ export class AssessmentService {
         sourceImportJobId: imported.get(version.id),
       })),
       examImports,
-      capabilities: {
-        canProcess: !a.archivedAt,
-        canReview: !a.archivedAt,
-        canFinalize: !a.archivedAt,
-      },
+      exports,
+      pilotState,
+      capabilities: this.pilotCapabilities(pilotState, !!a.archivedAt),
     };
   }
   async patch(actor: number, id: string, d: D.AssessmentPatchDto) {
@@ -964,6 +1251,7 @@ export class AssessmentService {
     return this.db.transaction(async (m) => {
       const a = await this.getAssessment(actor, id, m, true);
       this.mutable(a);
+      await this.assertPilotActive(m, a);
       const storage = this.storage;
       if (!storage)
         assessmentError(
@@ -1059,6 +1347,7 @@ export class AssessmentService {
       {},
       async (m, a) => {
         this.mutable(a);
+        await this.assertPilotActive(m, a);
         const asset = await m.findOne(E.AssessmentAsset, {
           where: { id: assetId, schoolId: a.schoolId, assessmentId: id },
           lock: { mode: 'pessimistic_write' },
@@ -1143,6 +1432,8 @@ export class AssessmentService {
 
   private async accessibleAsset(actor: number, id: string, assetId: string) {
     const a = await this.getAssessment(actor, id);
+    // Staff evidence links exist only while the scope is active (design §4).
+    await this.assertPilotActive(this.db.manager, a);
     const asset = await this.db.manager.findOne(E.AssessmentAsset, {
       where: {
         id: assetId,
@@ -1195,6 +1486,7 @@ export class AssessmentService {
   async process(actor: number, id: string, d: D.ProcessDto, key?: string) {
     return this.command(actor, id, key, 'process', d, async (m, a) => {
       this.mutable(a);
+      await this.assertPilotActive(m, a);
       const rows = await m.find(E.AssessmentSubmission, {
         where: {
           schoolId: a.schoolId,
@@ -1324,6 +1616,154 @@ export class AssessmentService {
     }
     return compareAiToTeacher(pairs);
   }
+  /** Tokens and micro-USD spent on this assessment, retries included (design §3). */
+  async costReport(actor: number, id: string) {
+    const a = await this.getAssessment(actor, id);
+    const rows: any[] = await this.db.manager.query(
+      `SELECT c.state,c.purpose,c.provider,c.model_requested,c.attempt_number,
+              c.input_usage,c.output_usage,c.reserved_cost_micros,
+              c.actual_cost_micros,j.stage
+         FROM school_assessment_provider_calls c
+         JOIN school_assessment_jobs j
+           ON j.id=c.job_id AND j.school_id=c.school_id
+        WHERE j.school_id=$1 AND j.assessment_id=$2`,
+      [a.schoolId, a.id],
+    );
+    const finalized = await this.db.manager.count(E.AssessmentPublication, {
+      where: { schoolId: a.schoolId, assessmentId: a.id, state: 'active' },
+    });
+    const calls = rows.map(costCall);
+    const byStage = new Map<string, CostCall[]>();
+    rows.forEach((r, i) => {
+      if (!byStage.has(r.stage)) byStage.set(r.stage, []);
+      byStage.get(r.stage)!.push(calls[i]);
+    });
+    const { byPurpose, byModel, retries, byState, ...total } = summarizeCost(
+      calls,
+      finalized,
+    );
+    return {
+      assessmentId: a.id,
+      ...total,
+      retries,
+      byState,
+      byPurpose,
+      byModel,
+      byStage: [...byStage].map(([stage, list]) => {
+        const t = summarizeCost(list);
+        return {
+          stage,
+          calls: t.calls,
+          inputTokens: t.inputTokens,
+          outputTokens: t.outputTokens,
+          knownCostMicros: t.knownCostMicros,
+          unknownCostCalls: t.unknownCostCalls,
+        };
+      }),
+    };
+  }
+  /**
+   * School-wide spend per local day (Asia/Ho_Chi_Minh, the budget window the
+   * worker enforces) and per assessment, for principals and operations.
+   */
+  async schoolCostSummary(actor: number, from: string, to: string) {
+    if (!isValidIsoDayRange(from, to, 92))
+      assessmentError(
+        'ASSESSMENT_INVALID_INPUT',
+        'from/to must be valid YYYY-MM-DD calendar dates at most 92 days apart',
+      );
+    const schoolId = await this.schools.resolveSchoolIdForUser(actor);
+    const tok = (col: string) =>
+      `jsonb_build_object('tokens', COALESCE(sum(CASE WHEN jsonb_typeof(${col}->'tokens')='number'
+        AND (${col}->>'tokens')::numeric > 0 THEN (${col}->>'tokens')::bigint END),0)::bigint)`;
+    const rows: any[] = await this.db.manager.query(
+      `SELECT count(*)::int AS calls,
+              c.state,c.purpose,c.provider,c.model_requested,
+              CASE WHEN c.attempt_number > 1 THEN 2 ELSE 1 END AS attempt_number,
+              ${tok('c.input_usage')} AS input_usage,
+              ${tok('c.output_usage')} AS output_usage,
+              COALESCE(sum(c.reserved_cost_micros),0)::bigint AS reserved_cost_micros,
+              sum(c.actual_cost_micros)::bigint AS actual_cost_micros,
+              j.assessment_id,
+              to_char((c.created_at AT TIME ZONE 'Asia/Ho_Chi_Minh')::date,'YYYY-MM-DD') AS day
+         FROM school_assessment_provider_calls c
+         JOIN school_assessment_jobs j
+           ON j.id=c.job_id AND j.school_id=c.school_id
+        WHERE c.school_id=$1
+          AND ${vnDayRangeWhere('c.created_at', '$2', '$3')}
+        GROUP BY 2, 3, 4, 5, 6, 11, 12, (c.actual_cost_micros IS NOT NULL)`,
+      [schoolId, from, to],
+    );
+    const group = (key: (r: any) => string) => {
+      const out = new Map<string, CostCall[]>();
+      for (const r of rows) {
+        const k = key(r);
+        if (!out.has(k)) out.set(k, []);
+        out.get(k)!.push(costCall(r));
+      }
+      return out;
+    };
+    const brief = (calls: CostCall[], finalized = 0) => {
+      const t = summarizeCost(calls, finalized);
+      return {
+        calls: t.calls,
+        inputTokens: t.inputTokens,
+        outputTokens: t.outputTokens,
+        knownCostMicros: t.knownCostMicros,
+        knownCostUsd: t.knownCostUsd,
+        unknownCostCalls: t.unknownCostCalls,
+        upperBoundCostMicros: t.upperBoundCostMicros,
+        knownCostPerFinalizedMicros: t.knownCostPerFinalizedMicros,
+      };
+    };
+    const perAssessment = group((r) => r.assessment_id);
+    const ids = [...perAssessment.keys()];
+    const assessments = ids.length
+      ? await this.db.manager.find(E.Assessment, {
+          select: { id: true, title: true, classId: true, subjectId: true },
+          where: { schoolId, id: In(ids) },
+        })
+      : [];
+    const finalized: { assessment_id: string; n: number }[] = ids.length
+      ? await this.db.manager.query(
+          `SELECT assessment_id,count(*)::int AS n
+             FROM school_assessment_publications
+            WHERE school_id=$1 AND state='active' AND assessment_id=ANY($2::uuid[])
+              AND ${vnDayRangeWhere('finalized_at', '$3', '$4')}
+            GROUP BY assessment_id`,
+          [schoolId, ids, from, to],
+        )
+      : [];
+    const done = new Map(finalized.map((x) => [x.assessment_id, x.n]));
+    const meta = new Map(assessments.map((x) => [x.id, x]));
+    const { byPurpose, byModel, retries, byState, ...total } = summarizeCost(
+      rows.map(costCall),
+      [...done.values()].reduce((n, x) => n + x, 0),
+    );
+    return {
+      from,
+      to,
+      timeZone: 'Asia/Ho_Chi_Minh',
+      ...total,
+      retries,
+      byState,
+      byPurpose,
+      byModel,
+      byDay: [...group((r) => r.day)]
+        .sort(([x], [y]) => x.localeCompare(y))
+        .map(([d, calls]) => ({ day: d, ...brief(calls) })),
+      byAssessment: [...perAssessment]
+        .map(([assessmentId, calls]) => ({
+          assessmentId,
+          title: meta.get(assessmentId)?.title ?? null,
+          classId: meta.get(assessmentId)?.classId ?? null,
+          subjectId: meta.get(assessmentId)?.subjectId ?? null,
+          finalizedSubmissions: done.get(assessmentId) ?? 0,
+          ...brief(calls, done.get(assessmentId) ?? 0),
+        }))
+        .sort((x, y) => y.knownCostMicros - x.knownCostMicros),
+    };
+  }
   async progress(actor: number, id: string) {
     const a = await this.getAssessment(actor, id);
     const jobs = await this.db.manager.find(E.AssessmentJob, {
@@ -1403,6 +1843,7 @@ export class AssessmentService {
   ) {
     return this.command(actor, id, key, 'exam-imports', dto, async (m, a) => {
       this.mutable(a);
+      await this.assertPilotActive(m, a);
       const asset = await m.findOneBy(E.AssessmentAsset, {
         id: dto.assetId,
         schoolId: a.schoolId,
@@ -1455,6 +1896,7 @@ export class AssessmentService {
       dto,
       async (m, a) => {
         this.mutable(a);
+        await this.assertPilotActive(m, a);
         const s = await this.submission(a, submissionId, m, true);
         assertRevision(s.inputRevision, dto.expectedInputRevision);
         const version = await m.findOneBy(E.AssessmentExamVersion, {
@@ -1603,6 +2045,7 @@ export class AssessmentService {
       d,
       async (m, a) => {
         this.mutable(a);
+        await this.assertPilotActive(m, a);
         const v = await m.findOne(E.AssessmentExamVersion, {
           where: { id: vId, schoolId: a.schoolId, assessmentId: id },
         });
@@ -1714,6 +2157,7 @@ export class AssessmentService {
     return this.db.transaction(async (m) => {
       const a = await this.getAssessment(actor, id, m, true);
       this.mutable(a);
+      await this.assertPilotActive(m, a);
       const s = await this.submission(a, sId, m, true);
       assertRevision(s.inputRevision, d.expectedInputRevision);
       assertRevision(
@@ -1980,6 +2424,7 @@ export class AssessmentService {
       d,
       async (m, a) => {
         this.mutable(a);
+        await this.assertPilotActive(m, a);
         const s = await this.submission(a, sId, m, true);
         assertRevision(s.inputRevision, d.expectedInputRevision);
         if (['queued', 'running'].includes(s.processingState))
@@ -2106,6 +2551,7 @@ export class AssessmentService {
     original: boolean,
   ) {
     const a = await this.getAssessment(actor, id);
+    await this.assertPilotActive(this.db.manager, a);
     const page = await this.db.manager.findOne(E.AssessmentPage, {
       where: { id: pageId, schoolId: a.schoolId, assessmentId: id },
     });
@@ -2178,6 +2624,7 @@ export class AssessmentService {
     return this.db.transaction(async (m) => {
       const a = await this.getAssessment(actor, id, m, true);
       this.mutable(a);
+      await this.assertPilotActive(m, a);
       const p = await m.findOne(E.AssessmentPage, {
         where: { id: pageId, schoolId: a.schoolId, assessmentId: id },
       });
@@ -2615,6 +3062,7 @@ export class AssessmentService {
           item,
           async (m, a) => {
             this.mutable(a);
+            await this.assertPilotActive(m, a);
             assertRevision(a.contextRevision, item.expectedContextRevision);
             const s = await this.submission(a, item.submissionId, m, true);
             assertRevision(s.inputRevision, item.expectedInputRevision);
@@ -2950,6 +3398,7 @@ export class AssessmentService {
   async retry(actor: number, id: string, jobId: string, key?: string) {
     return this.command(actor, id, key, `retry:${jobId}`, {}, async (m, a) => {
       this.mutable(a);
+      await this.assertPilotActive(m, a);
       const job = await m.findOne(E.AssessmentJob, {
         where: { id: jobId, schoolId: a.schoolId, assessmentId: id },
         lock: { mode: 'pessimistic_write' },
@@ -2993,6 +3442,7 @@ export class AssessmentService {
   }
   async export(actor: number, id: string, d: D.ExportDto, key?: string) {
     return this.command(actor, id, key, 'exports', d, async (m, a) => {
+      await this.assertPilotActive(m, a);
       const pubs = await m.find(E.AssessmentPublication, {
         where: {
           schoolId: a.schoolId,
@@ -3147,8 +3597,8 @@ export class AssessmentService {
       return a;
     });
   }
+  /** Readable by its student, approved parents and staff even while the global flag is off or the scope is paused. */
   async published(actor: number, pubId: string) {
-    this.ready();
     const pub = await this.db.manager.findOne(E.AssessmentPublication, {
       where: { id: pubId, state: 'active' },
     });
@@ -3168,7 +3618,11 @@ export class AssessmentService {
         await this.getAssessment(actor, pub.assessmentId);
         allowed = true;
       } catch (e) {
-        if (!(e instanceof HttpException) || e.getStatus() !== 404) throw e;
+        if (
+          !(e instanceof HttpException) ||
+          ![404, 503].includes(e.getStatus())
+        )
+          throw e;
       }
     }
     if (!allowed) this.notFound();

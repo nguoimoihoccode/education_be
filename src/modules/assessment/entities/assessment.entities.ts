@@ -591,6 +591,35 @@ export class AssessmentIdempotency extends AssessmentTenantRow {
   @Column({ name: 'expires_at', type: 'timestamptz' }) expiresAt: Date;
 }
 
+export const PILOT_STATES = ['closed', 'active', 'paused'] as const;
+export type PilotState = (typeof PILOT_STATES)[number];
+
+/** One row per school × class × subject; a missing row reads as closed. */
+@Entity('school_assessment_pilot_scopes')
+@Index(
+  'school_assessment_pilot_scopes_business_unique',
+  ['schoolId', 'classId', 'subjectId'],
+  { unique: true },
+)
+export class AssessmentPilotScope extends AssessmentTenantRow {
+  @Column({ name: 'class_id', type: 'uuid' }) classId: string;
+  @Column({ name: 'subject_id', type: 'uuid' }) subjectId: string;
+  @Column({ name: 'state', type: 'text', default: 'closed' }) state: PilotState;
+  @Column({ name: 'reason', type: 'text' }) reason: string;
+  @Column({ name: 'updated_by', type: 'integer' }) updatedBy: number;
+}
+
+@Entity('school_assessment_pilot_scope_events')
+export class AssessmentPilotScopeEvent extends AssessmentTenantRow {
+  @Column({ name: 'scope_id', type: 'uuid' }) scopeId: string;
+  @Column({ name: 'from_state', type: 'text', nullable: true })
+  fromState: PilotState | null;
+  @Column({ name: 'to_state', type: 'text' }) toState: PilotState;
+  @Column({ name: 'scope_revision', type: 'integer' }) scopeRevision: number;
+  @Column({ name: 'actor_id', type: 'integer' }) actorId: number;
+  @Column({ name: 'reason', type: 'text' }) reason: string;
+}
+
 export const ASSESSMENT_ENTITIES = [
   Assessment,
   AssessmentRoster,
@@ -608,4 +637,6 @@ export const ASSESSMENT_ENTITIES = [
   AssessmentPublication,
   AssessmentExport,
   AssessmentIdempotency,
+  AssessmentPilotScope,
+  AssessmentPilotScopeEvent,
 ];

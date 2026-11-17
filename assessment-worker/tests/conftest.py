@@ -70,6 +70,34 @@ CREATE TABLE school_assessment_assets (
   created_at timestamptz NOT NULL DEFAULT now(),
   updated_at timestamptz NOT NULL DEFAULT now()
 );
+CREATE TABLE school_assessments (
+  id uuid PRIMARY KEY,
+  school_id uuid NOT NULL,
+  class_id uuid NOT NULL DEFAULT gen_random_uuid(),
+  subject_id uuid NOT NULL DEFAULT gen_random_uuid()
+);
+CREATE TABLE school_assessment_pilot_scopes (
+  id uuid PRIMARY KEY DEFAULT gen_random_uuid(),
+  school_id uuid NOT NULL,
+  class_id uuid NOT NULL,
+  subject_id uuid NOT NULL,
+  state text NOT NULL,
+  UNIQUE (school_id, class_id, subject_id)
+);
+-- Every job a test inserts belongs to an assessment whose pilot scope is
+-- active, unless the test changes that row; pilot tests close it explicitly.
+CREATE FUNCTION open_pilot_for_job() RETURNS trigger AS $$
+BEGIN
+  INSERT INTO school_assessments(id, school_id)
+       VALUES (NEW.assessment_id, NEW.school_id) ON CONFLICT DO NOTHING;
+  INSERT INTO school_assessment_pilot_scopes(school_id, class_id, subject_id, state)
+       SELECT a.school_id, a.class_id, a.subject_id, 'active'
+         FROM school_assessments a WHERE a.id = NEW.assessment_id
+       ON CONFLICT DO NOTHING;
+  RETURN NEW;
+END $$ LANGUAGE plpgsql;
+CREATE TRIGGER open_pilot_for_job BEFORE INSERT ON school_assessment_jobs
+  FOR EACH ROW EXECUTE FUNCTION open_pilot_for_job();
 CREATE TABLE school_assessment_exports (
   id uuid PRIMARY KEY DEFAULT gen_random_uuid(),
   school_id uuid NOT NULL,

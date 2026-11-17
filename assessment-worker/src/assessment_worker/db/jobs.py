@@ -5,11 +5,12 @@ share ``school_assessment_jobs``. Two deliberate differences:
 
 * the claim carries a stage filter, so a stage can be moved to this worker
   without the Node worker racing it;
-* the lease length is a parameter instead of a literal ``180 seconds``.
+* the lease length is a parameter instead of a literal ``180 seconds``;
+* only jobs whose class × subject pilot scope is ``active`` are claimed
+  (``pilot.py``); a closed or paused scope leaves its jobs waiting.
 
-PostgreSQL is the queue. The Node side polls the same table every 3 seconds and
-also hands jobs to BullMQ; Python claims rows directly, including rows left in
-``dispatched`` by that dispatcher.
+PostgreSQL is the queue: Python claims rows directly from
+``school_assessment_jobs`` (including any legacy ``dispatched`` rows).
 """
 
 from __future__ import annotations
@@ -28,7 +29,7 @@ HEARTBEAT_SECONDS = 30
 # engine.ts:21-41 — same codes, same order, same case sensitivity.
 _CANCELLED = frozenset({"job_stale", "job_lease_lost"})
 _PAUSED = re.compile(
-    r"budget|credentials|routing|profile_|workspace_|audit_seed|"
+    r"budget|credentials|routing|profile_|workspace_|audit_seed|pilot_|"
     r"exam_code_conflict|exam_questions_not_found"
 )
 _RETRYABLE = re.compile(
@@ -50,6 +51,15 @@ UPDATE school_assessment_jobs
            OR (state IN ('pending','retry_wait','running')
                AND next_attempt_at<=now()))
       AND (state<>'running' OR lease_until<now())
+      AND EXISTS (
+        SELECT 1
+          FROM school_assessments a
+          JOIN school_assessment_pilot_scopes p
+            ON p.school_id=a.school_id AND p.class_id=a.class_id
+           AND p.subject_id=a.subject_id
+         WHERE a.id=school_assessment_jobs.assessment_id
+           AND a.school_id=school_assessment_jobs.school_id
+           AND p.state='active')
     ORDER BY created_at
     LIMIT 1
     FOR UPDATE SKIP LOCKED)

@@ -4,6 +4,7 @@ import {
   Get,
   Post,
   Patch,
+  Put,
   Param,
   Query,
   Req,
@@ -53,6 +54,35 @@ export class AssessmentController {
   ) {
     const actor = requireUserId(req);
     return this.service.published(actor, publicationId);
+  }
+  /** School-wide model spend per local day and per assessment. */
+  @Get('cost-summary')
+  @Throttle({ default: { limit: 30, ttl: 60000 } })
+  @Header('Cache-Control', 'private, no-store')
+  @Roles(...SCHOOL_ADMIN_ROLES)
+  costSummary(
+    @Req() req: RequestWithUser,
+    @Query('from') from: string,
+    @Query('to') to: string,
+  ) {
+    return this.service.schoolCostSummary(requireUserId(req), from, to);
+  }
+  /** Operations only: which class × subject scopes are open, paused or closed. */
+  @Get('pilot-scopes')
+  @Header('Cache-Control', 'private, no-store')
+  @Roles(UserRole.ADMIN)
+  pilotScopes(
+    @Query('schoolId', new ParseUUIDPipe({ optional: true }))
+    schoolId?: string,
+  ) {
+    return this.service.pilotScopes(schoolId);
+  }
+  @Put('pilot-scopes')
+  @Header('Cache-Control', 'private, no-store')
+  @Roles(UserRole.ADMIN)
+  setPilotScope(@Req() req: RequestWithUser, @Body() dto: D.PilotScopeDto) {
+    const actor = requireUserId(req);
+    return this.service.setPilotScope(actor, dto);
   }
   @Post('')
   @Header('Cache-Control', 'private, no-store')
@@ -360,6 +390,16 @@ export class AssessmentController {
     @Param('assessmentId', ParseUUIDPipe) assessmentId: string,
   ) {
     return this.service.aiAgreement(requireUserId(req), assessmentId);
+  }
+  @Get(':assessmentId/costs')
+  @Throttle({ default: { limit: 30, ttl: 60000 } })
+  @Header('Cache-Control', 'private, no-store')
+  @Roles(UserRole.TEACHER, ...SCHOOL_ADMIN_ROLES)
+  costReport(
+    @Req() req: RequestWithUser,
+    @Param('assessmentId', ParseUUIDPipe) assessmentId: string,
+  ) {
+    return this.service.costReport(requireUserId(req), assessmentId);
   }
   @Get(':assessmentId/progress')
   @Header('Cache-Control', 'private, no-store')

@@ -7,6 +7,7 @@ import baseline from '../../database/data-source';
 import { AddAssessmentFoundation1910000000000 } from '../../database/migrations/1910000000000-AddAssessmentFoundation';
 import { AddAssessmentProcessing1910000000001 } from '../../database/migrations/1910000000001-AddAssessmentProcessing';
 import { AddAssessmentPublications1910000000002 } from '../../database/migrations/1910000000002-AddAssessmentPublications';
+import { AddAssessmentPilotScopes1920000000000 } from '../../database/migrations/1920000000000-AddAssessmentPilotScopes';
 import * as E from './entities/assessment.entities';
 import { GradeEntry } from '../school/entities';
 import { AssessmentService } from './assessment.service';
@@ -47,6 +48,7 @@ suite(
       await new AddAssessmentFoundation1910000000000().up(runner);
       await new AddAssessmentProcessing1910000000001().up(runner);
       await new AddAssessmentPublications1910000000002().up(runner);
+      await new AddAssessmentPilotScopes1920000000000().up(runner);
       scoped = {
         manager: runner.manager,
         transaction: (fn: any) => runner.manager.transaction(fn),
@@ -97,6 +99,18 @@ suite(
           schoolId,
         ]);
       const m = runner.manager;
+      // The class × subject is an open pilot scope unless a test changes it.
+      await m.save(
+        E.AssessmentPilotScope,
+        m.create(E.AssessmentPilotScope, {
+          schoolId,
+          classId,
+          subjectId,
+          state: 'active',
+          reason: 'synthetic pilot',
+          updatedBy: 7,
+        }),
+      );
       const assessment = await m.save(
         E.Assessment,
         m.create(E.Assessment, {
@@ -344,6 +358,371 @@ suite(
           where: { eventType: 'finalized' },
         }),
       ).toBe(1);
+    });
+    it('reports tokens and money per assessment and per school day, keeping unknown cost apart', async () => {
+      const f = await fixture();
+      const m = runner.manager;
+      const job = await m.save(
+        E.AssessmentJob,
+        m.create(E.AssessmentJob, {
+          schoolId: f.schoolId,
+          assessmentId: f.assessment.id,
+          submissionId: f.submission.id,
+          stage: 'extract',
+          scopeKey: 'cost',
+          inputHash: 'cost',
+          data: { inputRevision: 1 },
+          state: 'succeeded',
+          nextAttemptAt: new Date(),
+          resultRef: {},
+          routingPolicyHash: 'h',
+          routingVersion: '1',
+          executionTarget: 'vps_colocated',
+          producerAgent: 'assessment-api',
+        }),
+      );
+      const call = (
+        attemptNumber: number,
+        over: Partial<E.AssessmentProviderCall>,
+      ) =>
+        m.save(
+          E.AssessmentProviderCall,
+          m.create(E.AssessmentProviderCall, {
+            schoolId: f.schoolId,
+            jobId: job.id,
+            attemptNumber,
+            profileHash: 'p',
+            provider: 'google',
+            modelRequested: 'gemini',
+            purpose: 'image_reader',
+            requestHash: `r${attemptNumber}`,
+            state: 'succeeded',
+            inputUsage: { tokens: 1000 },
+            outputUsage: { tokens: 100 },
+            reservedCostMicros: 4000,
+            actualCostMicros: 1100,
+            ...over,
+          }),
+        );
+      await call(1, {
+        state: 'unknown',
+        actualCostMicros: null,
+        inputUsage: {},
+        outputUsage: {},
+      });
+      await call(2, {});
+      const report = await f.service.costReport(7, f.assessment.id);
+      expect(report).toMatchObject({
+        calls: 2,
+        inputTokens: 1000,
+        outputTokens: 100,
+        knownCostMicros: 1100,
+        unknownCostCalls: 1,
+        unknownReservedMicros: 4000,
+        upperBoundCostMicros: 5100,
+        finalizedSubmissions: 0,
+        knownCostPerFinalizedMicros: null,
+        retries: { calls: 1, knownCostMicros: 1100 },
+        byStage: [{ stage: 'extract', calls: 2 }],
+      });
+      const [today] = (
+        await runner.query(
+          "SELECT to_char((now() AT TIME ZONE 'Asia/Ho_Chi_Minh')::date,'YYYY-MM-DD') AS d",
+        )
+      ).map((r: any) => r.d);
+      const school = await f.service.schoolCostSummary(7, today, today);
+      expect(school).toMatchObject({
+        knownCostMicros: 1100,
+        byDay: [{ day: today, calls: 2, knownCostMicros: 1100 }],
+        byAssessment: [
+          { assessmentId: f.assessment.id, title: 'Exam', calls: 2 },
+        ],
+      });
+      await expect(
+        f.service.schoolCostSummary(7, '2026-01-01', '2026-12-31'),
+      ).rejects.toMatchObject({
+        response: { error: 'ASSESSMENT_INVALID_INPUT' },
+      });
+      await expect(
+        f.service.schoolCostSummary(7, '2026-02-01', '2026-02-31'),
+      ).rejects.toMatchObject({
+        response: { error: 'ASSESSMENT_INVALID_INPUT' },
+      });
+    });
+    describe('pilot gate per class × subject', () => {
+      const gate = (f: {
+        assessment: E.Assessment;
+        service: AssessmentService;
+      }) =>
+        ({
+          classId: f.assessment.classId,
+          subjectId: f.assessment.subjectId,
+        }) as const;
+      async function pause(f: Awaited<ReturnType<typeof fixture>>) {
+        const current = await runner.manager.findOneByOrFail(
+          E.AssessmentPilotScope,
+          { schoolId: f.schoolId, ...gate(f) },
+        );
+        return f.service.setPilotScope(9, {
+          ...gate(f),
+          state: 'paused',
+          reason: 'ghép sai mã đề',
+          expectedRevision: current.revision,
+        });
+      }
+
+      it('a paused scope stops intake, processing and finalization but keeps review open', async () => {
+        const f = await reviewFixture();
+        await pause(f);
+        await expect(
+          f.service.process(7, f.assessment.id, {}, 'paused-process'),
+        ).rejects.toMatchObject({
+          response: { error: 'ASSESSMENT_PILOT_PAUSED' },
+        });
+        await expect(
+          f.service.upload(7, f.assessment.id, {
+            purpose: 'student_work',
+            submissionId: f.submission.id,
+            originalName: 'p1.jpg',
+            mimeType: 'image/jpeg',
+            byteSize: 10,
+          } as any),
+        ).rejects.toMatchObject({
+          response: { error: 'ASSESSMENT_PILOT_PAUSED' },
+        });
+        const result = await f.service.finalize(
+          7,
+          f.assessment.id,
+          { items: [f.item] },
+          'paused-finalize',
+        );
+        expect(result.items[0]).toMatchObject({
+          errorCode: 'ASSESSMENT_PILOT_PAUSED',
+        });
+        expect(await runner.manager.count(GradeEntry)).toBe(0);
+        expect(await f.service.detail(7, f.assessment.id)).toMatchObject({
+          pilotState: 'paused',
+          capabilities: {
+            canCreate: false,
+            canProcess: false,
+            canReview: true,
+            canFinalize: false,
+          },
+        });
+        await expect(
+          f.service.approveReview(
+            7,
+            f.assessment.id,
+            f.submission.id,
+            approvalRequest(f.item),
+          ),
+        ).resolves.toBeDefined();
+      });
+
+      it('a class × subject with no pilot row is closed: nothing can be created', async () => {
+        const f = await fixture();
+        await runner.manager.delete(E.AssessmentPilotScope, {
+          schoolId: f.schoolId,
+        });
+        const service = new AssessmentService(
+          scoped,
+          {
+            assertAccess: async () => ({
+              cls: { id: f.assessment.classId },
+              schoolId: f.schoolId,
+            }),
+          } as any,
+          { resolveSchoolIdForUser: async () => f.schoolId } as any,
+        );
+        await expect(
+          service.create(
+            7,
+            {
+              ...gate(f),
+              academicYearId: f.assessment.academicYearId,
+              title: 'Kiểm tra',
+              examDate: '2026-11-04',
+              term: 1,
+              testType: '45min',
+              coefficient: 2,
+              maxScoreUnits: 1000,
+            } as any,
+            'closed-create',
+          ),
+        ).rejects.toMatchObject({
+          response: { error: 'ASSESSMENT_PILOT_CLOSED' },
+        });
+        expect(await f.service.detail(7, f.assessment.id)).toMatchObject({
+          pilotState: 'closed',
+          capabilities: { canReview: false, canProcess: false },
+        });
+      });
+
+      it('a published grade stays readable while paused and with the global flag off', async () => {
+        const f = await reviewFixture();
+        await f.service.approveReview(
+          7,
+          f.assessment.id,
+          f.submission.id,
+          approvalRequest(f.item),
+        );
+        const done = await f.service.finalize(
+          7,
+          f.assessment.id,
+          { items: [f.item] },
+          'publish-before-pause',
+        );
+        expect(done.items[0]).toMatchObject({ outcome: 'finalized' });
+        const pub = await runner.manager.findOneByOrFail(
+          E.AssessmentPublication,
+          { submissionId: f.submission.id },
+        );
+        await pause(f);
+        process.env.ASSESSMENT_ENABLED = 'false';
+        try {
+          await expect(f.service.published(7, pub.id)).resolves.toMatchObject({
+            publicationId: pub.id,
+            score: 7.3,
+          });
+        } finally {
+          process.env.ASSESSMENT_ENABLED = 'true';
+        }
+      });
+
+      it('revisions and audits each change, and reopening re-queues only jobs the gate parked', async () => {
+        const f = await fixture();
+        const job = (lastErrorCode: string, scopeKey: string) =>
+          runner.manager.save(
+            E.AssessmentJob,
+            runner.manager.create(E.AssessmentJob, {
+              schoolId: f.schoolId,
+              assessmentId: f.assessment.id,
+              submissionId: f.submission.id,
+              stage: 'grade',
+              scopeKey,
+              inputHash: scopeKey,
+              data: { inputRevision: f.submission.inputRevision },
+              state: 'paused',
+              attemptCount: 1,
+              lastErrorCode,
+              nextAttemptAt: new Date(),
+              resultRef: {},
+              routingPolicyHash: 'h',
+              routingVersion: '1',
+              executionTarget: 'vps_colocated',
+              producerAgent: 'assessment-api',
+            }),
+          );
+        const parked = await job('pilot_paused', 'a');
+        const budget = await job('daily_budget_exceeded', 'b');
+        const waiting = await runner.manager.save(
+          E.AssessmentJob,
+          runner.manager.create(E.AssessmentJob, {
+            schoolId: f.schoolId,
+            assessmentId: f.assessment.id,
+            submissionId: f.submission.id,
+            stage: 'extract',
+            scopeKey: 'c',
+            inputHash: 'c',
+            data: { inputRevision: f.submission.inputRevision },
+            state: 'pending',
+            attemptCount: 0,
+            nextAttemptAt: new Date(),
+            resultRef: {},
+            routingPolicyHash: 'h',
+            routingVersion: '1',
+            executionTarget: 'vps_colocated',
+            producerAgent: 'assessment-api',
+          }),
+        );
+        await runner.manager.update(E.AssessmentSubmission, f.submission.id, {
+          processingState: 'queued',
+        });
+        const paused = await pause(f);
+        expect(paused).toMatchObject({
+          state: 'paused',
+          revision: 2,
+          parkedJobs: 1,
+        });
+        await expect(
+          runner.manager.findOneByOrFail(E.AssessmentJob, { id: waiting.id }),
+        ).resolves.toMatchObject({
+          state: 'paused',
+          lastErrorCode: 'pilot_paused',
+        });
+        await expect(
+          runner.manager.findOneByOrFail(E.AssessmentSubmission, {
+            id: f.submission.id,
+          }),
+        ).resolves.toMatchObject({ processingState: 'paused' });
+        await expect(
+          f.service.setPilotScope(9, {
+            ...gate(f),
+            state: 'active',
+            reason: 'mở lại',
+            expectedRevision: 1,
+          }),
+        ).rejects.toMatchObject({
+          response: { error: 'ASSESSMENT_STALE_REVISION' },
+        });
+        await expect(
+          f.service.setPilotScope(9, {
+            ...gate(f),
+            state: 'active',
+            reason: 'mở lại',
+          }),
+        ).rejects.toMatchObject({
+          response: { error: 'ASSESSMENT_STALE_REVISION' },
+        });
+        const reopened = await f.service.setPilotScope(9, {
+          ...gate(f),
+          state: 'active',
+          reason: 'đã sửa mã đề',
+          expectedRevision: 2,
+        });
+        expect(reopened).toMatchObject({
+          state: 'active',
+          revision: 3,
+          requeuedJobs: 2,
+        });
+        await expect(
+          runner.manager.findOneByOrFail(E.AssessmentJob, { id: waiting.id }),
+        ).resolves.toMatchObject({
+          state: 'pending',
+          attemptCount: 0,
+          lastErrorCode: null,
+        });
+        await expect(
+          runner.manager.findOneByOrFail(E.AssessmentJob, { id: parked.id }),
+        ).resolves.toMatchObject({
+          state: 'pending',
+          attemptCount: 0,
+          lastErrorCode: null,
+        });
+        await expect(
+          runner.manager.findOneByOrFail(E.AssessmentJob, { id: budget.id }),
+        ).resolves.toMatchObject({ state: 'paused' });
+        await expect(
+          runner.manager.findOneByOrFail(E.AssessmentSubmission, {
+            id: f.submission.id,
+          }),
+        ).resolves.toMatchObject({ processingState: 'queued' });
+        const events = await runner.manager.find(E.AssessmentPilotScopeEvent, {
+          where: { schoolId: f.schoolId },
+          order: { scopeRevision: 'ASC' },
+        });
+        expect(
+          events.map((e) => [
+            e.fromState,
+            e.toState,
+            e.scopeRevision,
+            e.actorId,
+          ]),
+        ).toEqual([
+          ['active', 'paused', 2, 9],
+          ['paused', 'active', 3, 9],
+        ]);
+      });
     });
     it('invalidates a prior approval after the assessment context changes', async () => {
       const f = await reviewFixture();

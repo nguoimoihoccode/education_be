@@ -12,6 +12,15 @@ Mã nguồn đã có trong workspace; tính năng vẫn tắt mặc định. Ch�
 - Compose opt-in: worker + Redis AOF/noeviction/volume riêng; object storage ngoài VPS, CPU/RAM limits, log rotation. API/worker images chứa canonical schemas; worker image có PDF/font/Poppler smoke test lúc build trong CI.
 - CI/CD build/push worker cùng SHA backend và kiểm tra healthy. Giữ ba image ID mới nhất/repository, bảo vệ image còn được container hoặc tag rollback/previous tham chiếu; không xóa volume, container hay GHCR versions.
 
+- Cổng pilot theo trường × lớp × môn (migration `1920000000000-AddAssessmentPilotScopes`, thiết kế §4). Không có dòng cấu hình nghĩa là `closed`.
+  - `active` mở toàn bộ quy trình.
+  - `paused` chặn tạo đợt, upload, job mới, gọi model, link bằng chứng và chốt điểm. Giáo viên vẫn xem và duyệt review, vẫn rút điểm và tải báo cáo đã xuất.
+  - Bản công bố cho học sinh/phụ huynh vẫn đọc được kể cả khi `ASSESSMENT_ENABLED=false`.
+  - Chỉ ADMIN đổi trạng thái qua `GET`/`PUT /assessments/pilot-scopes`. Mỗi lần đổi bắt buộc có lý do và `expectedRevision`, và được ghi vào `school_assessment_pilot_scope_events`.
+  - API đọc dòng cổng `FOR SHARE` trong cùng transaction với thao tác nghiệp vụ.
+  - Worker chỉ nhận job của phạm vi `active`, và kiểm tra lại trạng thái trước khi giữ ngân sách gọi model và trước khi ghi kết quả. Job bị cổng dừng nằm ở `paused` với mã `pilot_*`. Khi mở lại phạm vi, chỉ những job này được đưa lại vào hàng đợi.
+  - `GET /assessments/context` trả `pilotState` và `capabilities` cho từng môn.
+
 ## Đã kiểm tra tại workspace
 
 - Backend `ASSESSMENT_TEST_PG=true npm run ci`: lint/build và 741 test qua, gồm sáu ca PostgreSQL thật dùng schema riêng rollback sau test.

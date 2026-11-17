@@ -31,6 +31,7 @@ from .inference import (
     run_inference,
     run_local_inference,
 )
+from .pilot import assert_pilot_active
 from .routing import SAFE_INTEGER, reserve_cost_micros, select_profile
 from .storage import AssessmentStorage
 
@@ -299,6 +300,8 @@ class AssessmentModels:
                     or current["lease_until"] < datetime.now(timezone.utc)
                 ):
                     raise JobError("job_lease_lost")
+                # No new model call once the class × subject is paused.
+                await assert_pilot_active(connection, job)
                 daily = await connection.fetchrow(DAILY, job["school_id"])
                 if int(daily["total"]) + reservation > policy[
                     "dailyCostLimitMicros"

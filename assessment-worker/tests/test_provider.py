@@ -16,7 +16,7 @@ from typing import Any, AsyncIterator
 import pytest
 
 from assessment_worker import provider as provider_module
-from assessment_worker.db.jobs import JobError
+from assessment_worker.db.jobs import JobError, retry_decision
 from assessment_worker.inference import (
     InferenceConfig,
     InferenceRejected,
@@ -159,9 +159,12 @@ class _NullTransaction:
 class _FakeConnection:
     """Dispatches on SQL text so a mis-mapped query fails loudly."""
 
-    def __init__(self, updates: list[dict[str, Any]]) -> None:
+    def __init__(
+        self, updates: list[dict[str, Any]], pilot_state: str | None = "active"
+    ) -> None:
         self.updates = updates
         self.call_id = 0
+        self.pilot_state = pilot_state
 
     async def fetchrow(self, sql: str, *args: Any) -> Any:
         if "response_object_key" in sql:
@@ -181,6 +184,9 @@ class _FakeConnection:
         raise AssertionError(sql)
 
     async def fetchval(self, sql: str, *args: Any) -> Any:
+        if "school_assessment_pilot_scopes" in sql:
+            assert "FOR SHARE" in sql
+            return self.pilot_state
         assert "count(*)" in sql
         return 0
 
@@ -347,3 +353,30 @@ async def test_successful_call_records_usage_and_cost(
     assert update["actual_cost_micros"] == 1500
     assert update["output_usage"] == {"tokens": 500}
     assert update["input_usage"] == {"tokens": 1000}
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize(
+    ("state", "code"),
+    [("paused", "pilot_paused"), ("closed", "pilot_closed"), (None, "pilot_closed")],
+)
+async def test_paused_or_closed_scope_reserves_nothing_and_calls_no_model(
+    monkeypatch: pytest.MonkeyPatch, state: str | None, code: str
+) -> None:
+    monkeypatch.setenv(
+        "ASSESSMENT_INFERENCE_URL", "http://assessment-inference:8000"
+    )
+    monkeypatch.setenv("ASSESSMENT_INFERENCE_TOKEN", "x" * 32)
+
+    async def fake_run_inference(*args: Any, **kwargs: Any) -> Any:
+        raise AssertionError("a model was called outside an active pilot scope")
+
+    monkeypatch.setattr(provider_module, "run_inference", fake_run_inference)
+    connection = _FakeConnection([], pilot_state=state)
+    models = AssessmentModels(
+        _FakePool(connection), _FakeStorage(), CFG, "synthetic"  # type: ignore[arg-type]
+    )
+    with pytest.raises(JobError, match=code):
+        await models.json(JOB, "text_grader", "", {})
+    assert connection.call_id == 0
+    assert retry_decision(code, 1).state == "paused"

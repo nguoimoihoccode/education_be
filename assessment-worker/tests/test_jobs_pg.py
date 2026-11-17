@@ -200,3 +200,57 @@ async def test_reaper_fails_jobs_that_used_their_attempts(pool):
     )
     assert row["state"] == "failed"
     assert row["last_error_code"] == "attempt_limit"
+
+
+async def _set_pilot(pool, job_id: str, state: str) -> None:
+    await pool.execute(
+        """UPDATE school_assessment_pilot_scopes p SET state=$2
+             FROM school_assessments a, school_assessment_jobs j
+            WHERE j.id=$1 AND a.id=j.assessment_id AND p.school_id=a.school_id
+              AND p.class_id=a.class_id AND p.subject_id=a.subject_id""",
+        uuid.UUID(job_id),
+        state,
+    )
+
+
+@pytest.mark.parametrize("state", ["paused", "closed"])
+async def test_never_claims_a_job_outside_an_active_pilot_scope(pool, state):
+    job_id = await _insert_job(pool, stage="seal")
+    await _set_pilot(pool, job_id, state)
+    assert await jobs.claim_next(pool, owner="w", stages=["seal"]) is None
+    attempts = await pool.fetchval(
+        "SELECT attempt_count FROM school_assessment_jobs WHERE id=$1",
+        uuid.UUID(job_id),
+    )
+    assert attempts == 0
+    await _set_pilot(pool, job_id, "active")
+    claimed = await jobs.claim_next(pool, owner="w", stages=["seal"])
+    assert claimed is not None and str(claimed["id"]) == job_id
+
+
+async def test_a_job_with_no_pilot_scope_row_is_not_claimed(pool):
+    job_id = await _insert_job(pool, stage="seal")
+    await pool.execute("DELETE FROM school_assessment_pilot_scopes")
+    assert await jobs.claim_next(pool, owner="w", stages=["seal"]) is None
+    assert job_id
+
+
+async def test_a_pause_after_the_claim_stops_the_result_write(pool):
+    from assessment_worker.processor import fenced
+
+    job_id = await _insert_job(pool, stage="seal")
+    claimed = await jobs.claim_next(pool, owner="w", stages=["seal"])
+    assert claimed is not None
+    await _set_pilot(pool, job_id, "paused")
+    async with pool.acquire() as connection:
+        with pytest.raises(jobs.JobError, match="pilot_paused"):
+            async with connection.transaction():
+                await fenced(connection, claimed)
+    decision = jobs.retry_decision("pilot_paused", 1)
+    assert decision.state == "paused"
+    assert await jobs.fail(pool, claimed, decision, "pilot_paused")
+    row = await pool.fetchrow(
+        "SELECT state,last_error_code FROM school_assessment_jobs WHERE id=$1",
+        claimed["id"],
+    )
+    assert dict(row) == {"state": "paused", "last_error_code": "pilot_paused"}

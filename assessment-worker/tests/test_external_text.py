@@ -157,3 +157,86 @@ def test_keeps_a_valid_confidence_and_rejects_an_unknown_one():
             QUESTION,
             ["r"],
         )
+
+
+async def test_pause_between_reservation_and_send_marks_not_sent_and_raises(
+    monkeypatch,
+):
+    from contextlib import asynccontextmanager
+    from assessment_worker import external_text_worker
+
+    monkeypatch.setenv("ASSESSMENT_EXTERNAL_GRADING_ENABLED", "true")
+    monkeypatch.setenv("ASSESSMENT_EXTERNAL_GRADING_ASSESSMENT_IDS", "a1")
+    monkeypatch.setenv("ASSESSMENT_EXTERNAL_GRADING_POLICY", "pilot-v1")
+
+    class FakeConn:
+        async def execute(self, *args):
+            return None
+
+        async def fetchrow(self, *args):
+            return None
+
+        @asynccontextmanager
+        async def transaction(self):
+            yield
+
+    class FakePool:
+        @asynccontextmanager
+        async def acquire(self):
+            yield FakeConn()
+
+    pilot_checks = 0
+    updates = []
+
+    async def fake_pilot(conn, job):
+        nonlocal pilot_checks
+        pilot_checks += 1
+        if pilot_checks == 2:
+            raise JobError("pilot_paused")
+
+    async def fake_permission(*args, **kwargs):
+        return True
+
+    async def fake_reserve(*args, **kwargs):
+        return {"callId": "call-1"}
+
+    async def fake_update(conn, table, values, where):
+        updates.append((table, values, where))
+
+    async def forbidden_request(*args, **kwargs):
+        raise AssertionError("external HTTP call must not fire after pause")
+
+    monkeypatch.setattr(external_text_worker, "assert_pilot_active", fake_pilot)
+    monkeypatch.setattr(external_text_worker, "_has_permission", fake_permission)
+    monkeypatch.setattr(external_text_worker, "_reserve", fake_reserve)
+    monkeypatch.setattr(external_text_worker.write, "update", fake_update)
+    monkeypatch.setattr(external_text_worker, "_guarded_request", forbidden_request)
+
+    job = {
+        "id": "j1",
+        "school_id": "s1",
+        "assessment_id": "a1",
+        "submission_id": "sub1",
+        "data": {"inputRevision": 1, "externalReleaseId": "rel-1"},
+    }
+    answer = {
+        "id": "ans1",
+        "content": {"text": "Answer"},
+        "source_region_ids": ["r1"],
+    }
+    with pytest.raises(JobError, match="pilot_paused"):
+        await external_text_worker.grade_released_text(
+            FakePool(), None, job, answer, QUESTION
+        )
+    assert pilot_checks == 2
+    assert updates == [
+        (
+            "school_assessment_provider_calls",
+            {
+                "state": "not_sent",
+                "actualCostMicros": 0,
+                "errorCode": "pilot_paused",
+            },
+            {"id": "call-1", "schoolId": "s1"},
+        )
+    ]

@@ -20,6 +20,7 @@ describe('authenticated assessment artifact reads', () => {
     process.env.ASSESSMENT_ENABLED = 'true';
     rows = new Map<unknown, any>([
       [E.Assessment, assessment],
+      [E.AssessmentPilotScope, { ...assessment, state: 'active' }],
       [E.AssessmentSubmission, { ...scope, id: 'submission' }],
       [
         E.AssessmentAsset,
@@ -128,6 +129,25 @@ describe('authenticated assessment artifact reads', () => {
     await expect(service.pageContent(7, 'exam', 'page')).rejects.toThrow();
     await expect(service.exportContent(7, 'exam', 'report')).rejects.toThrow();
     expect(read).not.toHaveBeenCalled();
+  });
+
+  it('grants staff evidence only while the class × subject pilot is active; reports stay readable', async () => {
+    rows.get(E.AssessmentPilotScope).state = 'paused';
+    await expect(service.assetAccess(7, 'exam', 'asset')).rejects.toMatchObject(
+      { response: { error: 'ASSESSMENT_PILOT_PAUSED' } },
+    );
+    await expect(service.pageContent(7, 'exam', 'page')).rejects.toMatchObject({
+      response: { error: 'ASSESSMENT_PILOT_PAUSED' },
+    });
+    rows.delete(E.AssessmentPilotScope);
+    await expect(
+      service.assetContent(7, 'exam', 'asset'),
+    ).rejects.toMatchObject({ response: { error: 'ASSESSMENT_PILOT_CLOSED' } });
+    expect(read).not.toHaveBeenCalled();
+    // A report of grades already published is not evidence: still readable.
+    await expect(
+      service.exportContent(7, 'exam', 'report'),
+    ).resolves.toMatchObject({ mime: 'application/pdf' });
   });
 
   it('refuses expired reports, unsealed sources and keys outside the current assessment', async () => {
