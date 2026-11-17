@@ -44,6 +44,7 @@ import { AiModule } from './modules/ai/ai.module';
 
 // School platform (docs/SCHOOL_PLATFORM_PLAN.md)
 import { SchoolModule } from './modules/school/school.module';
+import { CostOverviewModule } from './modules/cost-overview/cost-overview.module';
 
 // Entities
 import { User } from './modules/users/entities/user.entity';
@@ -201,6 +202,7 @@ import {
     AiModule,
     SchoolModule,
     AssessmentModule,
+    CostOverviewModule,
   ],
   controllers: [
     AppController,
